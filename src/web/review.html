@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Video focus</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1250px;margin:32px auto;padding:0 24px}h1{font-size:30px}h2{font-size:21px}p,small{color:#adbcca}section{padding:20px;background:#1a2430;border-radius:12px;margin:18px 0}button,input,select,textarea{font:inherit;padding:9px;border-radius:6px;border:1px solid #526274;background:#15202d;color:inherit}button{cursor:pointer;background:#28576b}button:hover{background:#34728b}button:disabled{opacity:.4;cursor:wait}textarea{width:95%;height:65px}canvas{width:100%;height:auto;touch-action:none;background:#070a0e}video{width:100%;max-height:650px;background:black}input[type=range]{width:95%}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.flags{max-height:220px;overflow:auto}.flag{display:block;width:100%;text-align:left;margin:5px 0;background:#443723}a{color:#85d4f8}pre{white-space:pre-wrap;font-size:12px;max-height:150px;overflow:auto}#notice{position:sticky;top:0;background:#304759;padding:10px;border-radius:5px;z-index:10}label{display:inline-flex;gap:8px;align-items:center}@media(max-width:700px){.two{grid-template-columns:1fr}}
+</style>
+<h1>Video focus</h1><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
+<div id="notice">Loading project…</div>
+<section><h2>Source and target</h2>
+<div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="40" style="width:90px"></label><button id="seek">Show frame</button></div>
+<canvas id="source" width="1920" height="1080"></canvas>
+<input id="scrub" type="range" min="0" max="1901" value="1199" aria-label="Frame">
+<div class="row"><button id="previous">Previous frame</button><button id="next">Next frame</button><span id="frameInfo"></span></div>
+<div id="frameAnalysis"></div>
+<p>Drag a rectangle around the complete target. The green rectangle is the current track; your selection is orange.</p>
+<textarea id="target" aria-label="Target description"></textarea>
+<div class="row"><button id="newProject">Create project from selection</button><button id="saveBox">Save corrected rectangle</button><button id="absent">Mark target absent</button></div>
+<div class="row"><label>Level correction (degrees) <input id="roll" type="number" min="-90" max="90" step="0.1" style="width:85px"></label><button id="saveRoll">Save level keyframe</button><small>Positive means the shoreline slopes down to the right in the source.</small></div>
+</section>
+<section><h2>Output</h2><p>Strong zoom is allowed. Original edges feather into a blurred extension. Poor or uncertain footage is retained for your review.</p>
+<div class="row"><label>Analysis FPS <input id="analysisFps" type="number" min="0.01" step="any" value="10" style="width:90px"></label><button id="saveFps">Save analysis FPS</button><span id="analysisRateInfo"></span></div>
+<p>Controls how often Qwen analyzes a frame. Playback FPS stays unchanged. Higher rates take longer. The next analysis uses the saved rate.</p>
+<div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
+<video id="preview" controls playsinline></video><pre id="log"></pre></section>
+<section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
+<script src="/files/frame_analysis.js"></script>
+<script>
+const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'sailboat_example.json';
+let state={},info={},frame=1199,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0;
+$('compare').href='/compare?config='+encodeURIComponent(project);
+const ctx=$('source').getContext('2d');
+function notice(s){$('notice').textContent=s}
+function showAnalysis(){FrameAnalysis.update($('frameAnalysis'),state,frame,{sourceMatches:sourceVideo===state.config?.video})}
+async function request(url,body){const r=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,config:project})}:{});const d=await r.json();if(!r.ok)throw Error(d.error||r.status);return d}
+function safe(fn){return async()=>{try{await fn()}catch(e){notice(e.message)}}}
+function draw(){ctx.clearRect(0,0,$('source').width,$('source').height);ctx.drawImage(img,0,0);let b=state.tracks?.[frame]?.bbox;
+ const manual=state.corrections?.[frame];if(manual&&'bbox'in manual)b=manual.bbox;
+ if(sourceVideo!==state.config?.video)b=null;
+ for(const [box,color]of [[b,'#5dff9d'],[selection,'#ffad4d']])if(box){ctx.strokeStyle=color;ctx.lineWidth=4;ctx.strokeRect(box[0],box[1],box[2]-box[0],box[3]-box[1])}}
+async function showFrame(){const id=++loadId;frame=Math.max(0,Math.min(info.frames-1,Math.round(frame)));$('scrub').value=frame;$('time').value=(frame/info.fps).toFixed(3);$('frameInfo').textContent=`Frame ${frame} / ${info.frames-1}`;selection=null;
+ const fresh=new Image();fresh.src=`/api/frame?video=${encodeURIComponent(sourceVideo)}&frame=${frame}`;await fresh.decode();if(id!==loadId)return;img=fresh;$('source').width=info.width;$('source').height=info.height;draw();showAnalysis();$('roll').value=(state.tracks?.[frame]?.roll||0).toFixed(1)}
+async function loadVideo(){sourceVideo=$('videos').value;info=await request('/api/info?video='+encodeURIComponent(sourceVideo));$('scrub').max=info.frames-1;frame=Math.round(Number($('time').value)*info.fps);await showFrame()}
+function point(e){const r=$('source').getBoundingClientRect();return [Math.max(0,Math.min(info.width,(e.clientX-r.left)*info.width/r.width)),Math.max(0,Math.min(info.height,(e.clientY-r.top)*info.height/r.height))]}
+$('source').onpointerdown=e=>{drag=point(e);$('source').setPointerCapture(e.pointerId)};
+$('source').onpointermove=e=>{if(!drag)return;const p=point(e);selection=[Math.min(drag[0],p[0]),Math.min(drag[1],p[1]),Math.max(drag[0],p[0]),Math.max(drag[1],p[1])].map(Math.round);draw()};
+$('source').onpointerup=()=>{drag=null};
+async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project));$('target').value||=state.config.target;$('log').textContent=state.log;
+ if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
+ $('analysisFps').max=state.meta?.fps||60;$('analysisFps').disabled=$('saveFps').disabled=state.running;
+ $('analysisRateInfo').textContent=`Source: ${state.meta?.fps?.toFixed(2)||'?'} FPS · configured analysis: ${state.config.analysis_fps??(1/(state.config.sample_interval||.5))} FPS`+(state.running&&state.analysis_progress?` · ${state.analysis_progress.completed}/${state.analysis_progress.total} samples analyzed`:'');
+ showAnalysis();
+ $('run').disabled=$('render').disabled=state.running;notice(state.running?'Processing video…':state.exit_code>0?'Processing failed. See the log below.':'Ready — select a frame or review the output.');
+ if(state.preview){const url='/files/'+state.preview;$('download').href=url;$('download').download='focused.mp4';$('download').hidden=false;if($('preview').getAttribute('src')!==url)$('preview').src=url}
+ const list=$('flags');list.replaceChildren();const tracks=state.tracks||[];const count=tracks.filter(t=>t.flags.length).length;$('summary').textContent=tracks.length?`${count} of ${tracks.length} frames flagged. Click a moment to inspect or relabel it.`:'Review flags will appear after rendering.';
+ // Group consecutive flagged frames; preserve the union of reasons to keep the queue manageable.
+ const groups=[];for(const t of tracks){if(!t.flags.length)continue;let g=groups.at(-1);if(!g||g.end!==t.frame-1){g={start:t.frame,end:t.frame,reasons:new Set()};groups.push(g)}g.end=t.frame;t.flags.forEach(r=>g.reasons.add(r))}
+ for(const g of groups){const b=document.createElement('button');b.className='flag';b.textContent=`${(g.start/state.meta.fps).toFixed(2)}–${((g.end+1)/state.meta.fps).toFixed(2)}s · ${[...g.reasons].join(', ').replaceAll('_',' ')}`;b.onclick=safe(async()=>{if(sourceVideo!==state.config.video){$('videos').value=state.config.video;await loadVideo()}frame=g.start;await showFrame();$('preview').currentTime=frame/info.fps});list.append(b)}}
+$('loadVideo').onclick=safe(loadVideo);$('seek').onclick=safe(async()=>{frame=Number($('time').value)*info.fps;await showFrame()});$('scrub').onchange=safe(async()=>{frame=+$('scrub').value;await showFrame()});
+$('previous').onclick=safe(async()=>{frame--;await showFrame()});$('next').onclick=safe(async()=>{frame++;await showFrame()});
+function requireProjectVideo(){if(sourceVideo!==state.config.video)throw Error('Create a project for this source before saving corrections.')}
+$('saveBox').onclick=safe(async()=>{requireProjectVideo();if(!selection)throw Error('Draw a rectangle first');await request('/api/correct',{frame,bbox:selection});await refresh();notice('Rectangle saved. Render again to apply it.')});
+$('absent').onclick=safe(async()=>{requireProjectVideo();await request('/api/correct',{frame,bbox:null});await refresh();notice('Absence saved. Render again to apply it.')});
+$('saveRoll').onclick=safe(async()=>{requireProjectVideo();await request('/api/correct',{frame,roll:Number($('roll').value)});await refresh();notice('Level keyframe saved. Render again to apply it.')});
+$('newProject').onclick=safe(async()=>{if(!selection)throw Error('Draw a rectangle first');const d=await request('/api/create',{video:sourceVideo,time:frame/info.fps,bbox:selection,target:$('target').value});location.href='/?config='+encodeURIComponent(d.config)});
+$('saveFps').onclick=safe(async()=>{const d=await request('/api/settings',{analysis_fps:Number($('analysisFps').value)});await refresh();notice(`Analysis FPS saved: ${d.analysis_fps}. Applies to the next analysis.`)});
+$('run').onclick=safe(async()=>{await request('/api/run',{stage:'all',analysis_fps:Number($('analysisFps').value)});await refresh()});$('render').onclick=safe(async()=>{await request('/api/run',{stage:'render'});await refresh()});
+(async()=>{try{const videos=await request('/api/videos');for(const v of videos){const o=document.createElement('option');o.value=o.textContent=v;$('videos').append(o)}await refresh();$('videos').value=state.config.video;$('time').value=state.config.reference_time;await loadVideo();setInterval(()=>refresh().catch(e=>notice(e.message)),5000)}catch(e){notice(e.message)}})();
+</script></html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Original / processed comparison</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1800px;margin:24px auto;padding:0 20px}h1{font-size:26px;margin-bottom:8px}p{color:#aebdca}a{color:#85d4f8}button,select{font:inherit;padding:9px 14px;color:inherit;background:#25485d;border:1px solid #476476;border-radius:6px;cursor:pointer}.labels{display:grid;grid-template-columns:1fr 1fr;text-align:center;background:#1a2733;padding:12px;font-weight:600;gap:2px}#stage{background:#050709;border:1px solid #3c4f60;border-radius:10px;overflow:hidden}video{display:block;width:100%;background:black}.controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0}#seek{width:100%;accent-color:#78c2e8}#readout{font-variant-numeric:tabular-nums}#status{color:#b1c5d4}#flags{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}#flags button{background:#443d2b;font-size:13px}.hint{font-size:13px}#stage:fullscreen{display:flex;flex-direction:column;justify-content:center}#stage:fullscreen video{max-height:calc(100vh - 50px)}button:disabled{opacity:.4}
+</style>
+<h1>Original / processed</h1><p>Both views share one timeline. Left: original framing. Right: leveled and reframed output.</p>
+<div id="stage"><div class="labels"><span>Original</span><span>Processed</span></div><video id="video" playsinline preload="metadata"></video></div>
+<div class="controls"><button id="play" disabled>Play both</button><button id="back" disabled>−1 frame</button><button id="forward" disabled>+1 frame</button><button id="minus" disabled>−5 seconds</button><button id="plus" disabled>+5 seconds</button><label>Speed <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button id="mute">Mute</button><button id="fullscreen">Fullscreen</button><span id="readout">Loading…</span></div>
+<input id="seek" type="range" min="0" max="1" step="1" value="0" disabled aria-label="Shared video frame">
+<div id="frameAnalysis"></div>
+<p id="status">Loading comparison…</p><p class="hint">Space: play/pause · Left/Right: step one frame · Shift+Left/Right: skip five seconds. Audio plays once. Both panels are display copies; the source file is unchanged.</p>
+<div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
+<div id="flags"></div>
+<script src="/files/frame_analysis.js"></script>
+<script>
+const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'sailboat_example.json';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
+let analysisState={},analysisFrame=-1;
+function showAnalysis(){if(currentFrame!==analysisFrame){FrameAnalysis.update($('frameAnalysis'),analysisState,currentFrame);analysisFrame=currentFrame}}
+$('review').href='/?config='+encodeURIComponent(project);
+function format(t){const m=Math.floor(t/60);return `${m}:${(t%60).toFixed(3).padStart(6,'0')}`}
+function update(mediaTime=v.currentTime){if(!ready)return;currentFrame=Math.max(0,Math.min(count-1,Math.floor(mediaTime*fps+0.0001)));$('seek').value=currentFrame;$('readout').textContent=`${format(mediaTime)} / ${format(count/fps)} · frame ${currentFrame} / ${count-1}`;showAnalysis()}
+function stepTo(i){if(!ready)return;v.pause();pendingFrame=Math.max(0,Math.min(count-1,Math.round(i)));v.currentTime=(pendingFrame+.1)/fps;$('seek').value=pendingFrame}
+v.onloadedmetadata=()=>{ready=true;for(const id of ['play','back','forward','minus','plus','seek'])$(id).disabled=false;update();$('status').textContent='Synchronized comparison ready. Both panels are encoded together, so they cannot drift.'};
+v.onplay=()=>{$('play').textContent='Pause both'};v.onpause=()=>{$('play').textContent='Play both'};
+v.onseeked=()=>{update();pendingFrame=null};v.ontimeupdate=()=>update();
+v.onerror=()=>{$('status').textContent='Could not load the comparison. Render the video first, then reload.'};
+if(v.requestVideoFrameCallback){const tick=(now,metadata)=>{update(metadata.mediaTime);v.requestVideoFrameCallback(tick)};v.requestVideoFrameCallback(tick)}
+function toggle(){if(ready){if(v.paused)v.play().catch(e=>$('status').textContent=e.message);else v.pause()}}
+$('play').onclick=toggle;$('back').onclick=()=>stepTo((pendingFrame??currentFrame)-1);$('forward').onclick=()=>stepTo((pendingFrame??currentFrame)+1);$('minus').onclick=()=>stepTo(currentFrame-5*fps);$('plus').onclick=()=>stepTo(currentFrame+5*fps);
+$('seek').oninput=()=>stepTo(Number($('seek').value));$('speed').onchange=()=>v.playbackRate=Number($('speed').value);$('mute').onclick=()=>{v.muted=!v.muted;$('mute').textContent=v.muted?'Unmute':'Mute'};
+$('fullscreen').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else $('stage').requestFullscreen().catch(e=>$('status').textContent=e.message)};
+document.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}else if(['ArrowLeft','ArrowRight'].includes(e.code)){e.preventDefault();stepTo((pendingFrame??currentFrame)+(e.code==='ArrowLeft'?-1:1)*(e.shiftKey?5*fps:1))}});
+async function load(){try{const r=await fetch('/api/state?config='+encodeURIComponent(project));const s=await r.json();if(!r.ok)throw Error(s.error);analysisState=s;analysisFrame=-1;showAnalysis();if(!s.comparison){$('status').textContent='The comparison has not been rendered yet. Use the review page to render it.';return}fps=s.meta.fps;count=s.meta.frames;$('seek').max=count-1;const url='/files/'+s.comparison+'?v='+s.comparison_version;if(version!==s.comparison_version){version=s.comparison_version;ready=false;v.src=url;v.load()}$('download').href=url;$('download').download='comparison.mp4';$('download').hidden=false;
+ $('flags').replaceChildren();const groups=[];for(const t of s.tracks||[]){if(!t.flags.length)continue;let g=groups.at(-1);if(!g||g.end!==t.frame-1){g={start:t.frame,end:t.frame};groups.push(g)}g.end=t.frame}for(const g of groups){const b=document.createElement('button');b.textContent=`Review ${format(g.start/fps)}–${format((g.end+1)/fps)}`;b.onclick=()=>stepTo(g.start);$('flags').append(b)}
+}catch(e){$('status').textContent=e.message}}
+$('reload').onclick=load;load();
+</script></html>

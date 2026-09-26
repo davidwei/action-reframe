@@ -1,0 +1,24 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Create isolated environment
+        run: python -m venv .venv
+      - name: Install dependencies
+        run: .venv/bin/python -m pip install -r requirements.txt
+      - name: Run unit tests
+        run: ./scripts/test.sh
