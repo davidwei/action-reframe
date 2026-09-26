@@ -7,9 +7,9 @@
 <h1>Video focus</h1><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
 <div id="notice">Loading project…</div>
 <section><h2>Source and target</h2>
-<div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="40" style="width:90px"></label><button id="seek">Show frame</button></div>
+<div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="0" style="width:90px"></label><button id="seek">Show frame</button></div>
 <canvas id="source" width="1920" height="1080"></canvas>
-<input id="scrub" type="range" min="0" max="1901" value="1199" aria-label="Frame">
+<input id="scrub" type="range" min="0" max="1901" value="0" aria-label="Frame">
 <div class="row"><button id="previous">Previous frame</button><button id="next">Next frame</button><span id="frameInfo"></span></div>
 <div id="frameAnalysis"></div>
 <p>Drag a rectangle around the complete target. The green rectangle is the current track; your selection is orange.</p>
@@ -25,8 +25,8 @@
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
 <script src="/files/frame_analysis.js"></script>
 <script>
-const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'sailboat_example.json';
-let state={},info={},frame=1199,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0;
+const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';
+let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0;
 $('compare').href='/compare?config='+encodeURIComponent(project);
 const ctx=$('source').getContext('2d');
 function notice(s){$('notice').textContent=s}
@@ -44,12 +44,12 @@ function point(e){const r=$('source').getBoundingClientRect();return [Math.max(0
 $('source').onpointerdown=e=>{drag=point(e);$('source').setPointerCapture(e.pointerId)};
 $('source').onpointermove=e=>{if(!drag)return;const p=point(e);selection=[Math.min(drag[0],p[0]),Math.min(drag[1],p[1]),Math.max(drag[0],p[0]),Math.max(drag[1],p[1])].map(Math.round);draw()};
 $('source').onpointerup=()=>{drag=null};
-async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project));$('target').value||=state.config.target;$('log').textContent=state.log;
+async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project));project=state.project||'';$('compare').href='/compare?config='+encodeURIComponent(project);$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
- $('analysisFps').max=state.meta?.fps||60;$('analysisFps').disabled=$('saveFps').disabled=state.running;
+ $('analysisFps').max=state.meta?.fps||60;$('analysisFps').disabled=$('saveFps').disabled=state.running||!project;
  $('analysisRateInfo').textContent=`Source: ${state.meta?.fps?.toFixed(2)||'?'} FPS · configured analysis: ${state.config.analysis_fps??(1/(state.config.sample_interval||.5))} FPS`+(state.running&&state.analysis_progress?` · ${state.analysis_progress.completed}/${state.analysis_progress.total} samples analyzed`:'');
  showAnalysis();
- $('run').disabled=$('render').disabled=state.running;notice(state.running?'Processing video…':state.exit_code>0?'Processing failed. See the log below.':'Ready — select a frame or review the output.');
+ for(const id of ['run','render','saveBox','absent','saveRoll'])$(id).disabled=state.running||!project;notice(state.running?'Processing video…':state.exit_code>0?'Processing failed. See the log below.':project?'Ready — select a frame or review the output.':'Choose a video and draw a subject rectangle to create your first project.');
  if(state.preview){const url='/files/'+state.preview;$('download').href=url;$('download').download='focused.mp4';$('download').hidden=false;if($('preview').getAttribute('src')!==url)$('preview').src=url}
  const list=$('flags');list.replaceChildren();const tracks=state.tracks||[];const count=tracks.filter(t=>t.flags.length).length;$('summary').textContent=tracks.length?`${count} of ${tracks.length} frames flagged. Click a moment to inspect or relabel it.`:'Review flags will appear after rendering.';
  // Group consecutive flagged frames; preserve the union of reasons to keep the queue manageable.
@@ -64,5 +64,5 @@ $('saveRoll').onclick=safe(async()=>{requireProjectVideo();await request('/api/c
 $('newProject').onclick=safe(async()=>{if(!selection)throw Error('Draw a rectangle first');const d=await request('/api/create',{video:sourceVideo,time:frame/info.fps,bbox:selection,target:$('target').value});location.href='/?config='+encodeURIComponent(d.config)});
 $('saveFps').onclick=safe(async()=>{const d=await request('/api/settings',{analysis_fps:Number($('analysisFps').value)});await refresh();notice(`Analysis FPS saved: ${d.analysis_fps}. Applies to the next analysis.`)});
 $('run').onclick=safe(async()=>{await request('/api/run',{stage:'all',analysis_fps:Number($('analysisFps').value)});await refresh()});$('render').onclick=safe(async()=>{await request('/api/run',{stage:'render'});await refresh()});
-(async()=>{try{const videos=await request('/api/videos');for(const v of videos){const o=document.createElement('option');o.value=o.textContent=v;$('videos').append(o)}await refresh();$('videos').value=state.config.video;$('time').value=state.config.reference_time;await loadVideo();setInterval(()=>refresh().catch(e=>notice(e.message)),5000)}catch(e){notice(e.message)}})();
+(async()=>{try{const videos=await request('/api/videos');for(const v of videos){const o=document.createElement('option');o.value=o.textContent=v;$('videos').append(o)}await refresh();if(state.config.video)$('videos').value=state.config.video;$('time').value=state.config.reference_time||0;if(videos.length)await loadVideo();else notice('No videos yet. Add a video file to the configured workspace, then reload.');setInterval(()=>refresh().catch(e=>notice(e.message)),5000)}catch(e){notice(e.message)}})();
 </script></html>

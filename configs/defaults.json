@@ -1,0 +1,22 @@
+{
+  "api_url": "http://127.0.0.1:8000/v1",
+  "analysis_fps": 10,
+  "temporal_context": {
+    "recent_images": 3,
+    "history_visual_frames": 128,
+    "history_char_budget": 64000,
+    "context_limit": 32768
+  },
+  "workers": 4,
+  "color_refinement": false,
+  "backward_recovery": true,
+  "output_width": 1280,
+  "output_height": 720,
+  "subject_height_fraction": 0.55,
+  "margin_fraction": 0.12,
+  "hold_seconds": 0.75,
+  "widen_seconds": 2.0,
+  "smoothing_seconds": 0.45,
+  "border": "blurred_extension",
+  "feather_pixels": 40
+}

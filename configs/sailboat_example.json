@@ -1,5 +1,5 @@
 {
-  "video": "../data/workspace/dji_mimo_20260821_154414_20260822064414_1787971455825_video.MP4",
+  "video": "../data/videos/example.mp4",
   "output_dir": "../data/outputs/sailboat_example",
   "reference_time": 40.0,
   "reference_box": [

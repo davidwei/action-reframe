@@ -1,16 +1,19 @@
-# Local data
+# Local video data
 
-Keep videos, project configurations, model responses, caches, trial renders, complete renders, and exports here or in an external workspace. All contents except this README are ignored by Git.
+This directory is the default review workspace. Its contents, except this README, are ignored by Git. No private media or external directory link is required to start the application.
 
-Local layout on this machine:
+For the review interface, put your videos directly in this directory, then launch:
 
-```text
-data/workspace -> /home/dwei/longvideo
-data/outputs/  # New experiments using configs/ examples
+```bash
+./scripts/run_review.sh --workspace ./data
 ```
 
-The workspace link gives the development server access to existing data without duplicating large videos. It is a machine-local link and will not appear in a clone. It also gives write access to those project settings and outputs; use a separate workspace for isolated changes.
+Select a frame, draw a rectangle, describe the target, and create a project. The tool writes a project JSON file and creates outputs when processing starts. An empty directory is supported; no sailboat template needs to be copied.
 
-For a separate workspace, place video files at its top level and copy `configs/sailboat_example.json` to `sailboat_example.json` there. Adjust `video` to a filename inside that workspace, `output_dir` to `outputs/sailboat_example`, and the subject/reference settings for the actual footage. Set `LONGVIDEO_WORKSPACE` to that directory before starting the review server. The current UI expects a default `sailboat_example.json` and uses it as the new-project template; removing this assumption is future work.
+Alternatively, choose any writable workspace with `--workspace /path/to/videos` or `LONGVIDEO_WORKSPACE`. Workspace configs use paths relative to that workspace. The browser server restricts access to the chosen workspace; links to files outside it are not followed for serving media.
 
-Do not delete or relocate the linked source workspace while existing jobs are using it. Data migration into a durable project store belongs to the implementation plan.
+The optional CLI configurations in `configs/` expect a user-provided `data/videos/example.mp4`. Their reference box/time describe the historical sailboat example and must be adjusted for other footage. They write to `data/outputs/`. These examples are not test fixtures.
+
+Generated caches and run records can include resolved paths on the machine that produced them. Move source media and relative project configurations together; regenerate caches/results when moving a project to another machine. Preserve originals separately from generated files.
+
+The automated tests create disposable synthetic footage in temporary directories. They require neither this directory's contents nor a running model service.

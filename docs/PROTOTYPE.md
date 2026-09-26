@@ -2,21 +2,16 @@
 
 Offline object-focused reframing with a local Qwen3-VL endpoint, reviewable observations, per-frame crop/roll data, and a synchronized original/processed comparison.
 
-## Isolated environment
+## Environment
 
-This project uses `.venv`, created from `/usr/bin/python3.12`. It does not use a LeRobot Conda environment. Qwen runs separately in the machine's existing `vllm-env` service.
+Use a dedicated Python 3.12 environment and install the repository requirements as described in [README](../README.md). No particular Conda environment or local service name is assumed. Configure your own compatible Qwen endpoint with `QWEN_API_URL` or project `api_url`.
 
-```bash
-uv venv .venv --python /usr/bin/python3.12
-uv pip sync requirements.txt --python .venv/bin/python --cache-dir .uv-cache
-```
-
-FFmpeg is the standalone executable bundled with `imageio-ffmpeg` in `.venv`. PyAV inspects metadata; no external `ffprobe` installation is required. Locked package versions are in `requirements.txt`.
+FFmpeg is supplied by `imageio-ffmpeg`; PyAV inspects metadata. This guide describes prototype behavior. Named sailboat results below are historical examples and are not distributed with the repository.
 
 ## Watch and compare
 
 ```bash
-./run_review.sh
+./scripts/run_review.sh
 ```
 
 Open <http://127.0.0.1:8765/compare> for the example comparison, or <http://127.0.0.1:8765/> for selection and correction tools.
@@ -34,17 +29,17 @@ Browser seeking/frame display depends on the browser decoder; synchronization of
 
 ## Process the example
 
-The confirmed target and preferences are saved in `sailboat_example.json` and `DECISIONS.md`.
+The historical target and preferences are illustrated in `configs/sailboat_example.json` and [DECISIONS.md](DECISIONS.md). Create your own workspace project through the UI; the commands below use its configuration path.
 
 ```bash
-./run_reframe.sh sailboat_example.json --stage all
-./run_reframe.sh sailboat_example.json --stage analyze
-./run_reframe.sh sailboat_example.json --stage backward
-./run_reframe.sh sailboat_example.json --stage render
-./run_reframe.sh sailboat_example.json --stage compare
+./scripts/run_reframe.sh path/to/project.json --stage all
+./scripts/run_reframe.sh path/to/project.json --stage analyze
+./scripts/run_reframe.sh path/to/project.json --stage backward
+./scripts/run_reframe.sh path/to/project.json --stage render
+./scripts/run_reframe.sh path/to/project.json --stage compare
 ```
 
-Analysis uses the local endpoint `http://127.0.0.1:8000/v1`. If needed, start the already configured service with `systemctl --user start vllm-vl.service`.
+Analysis uses the configured compatible vision endpoint. The default is `http://127.0.0.1:8000/v1`; there is no assumption that a local model service has been installed. Endpoint requirements and overrides are documented in [README](../README.md).
 
 Analysis automatically includes one backward recovery pass (`backward_recovery: true`, enabled by default). For each run of uncertain observations followed by a confident observation, it starts at that right-hand detection and works backward through the run. Each accepted result becomes the seed for the next earlier sample. Qwen compares the original identity reference, the later confirmed crop, and an enlarged earlier search region located with optical-flow camera-motion estimation. Confidence must meet the same 0.65 threshold as first-pass tracking; it is never increased merely because a later detection exists.
 
@@ -88,7 +83,7 @@ No quality filtering or trimming is applied. Uncertain or absent portions are re
 ## Checks
 
 ```bash
-.venv/bin/python -m unittest -v test_reframe.py test_backward_tracking.py test_temporal_context.py
+./scripts/test.sh
 ```
 
 The geometry checks cover target containment under rotation, missing-target widening, roll sign, and filling source-exterior regions.
@@ -100,12 +95,12 @@ The selection/review page has an **Analysis FPS** field and Save button. The nex
 Keep experiments separate with:
 
 ```bash
-./run_reframe.sh sailboat_example.json --analysis-fps 5 --output-dir outputs/experiment_fps5 --stage all
-./run_reframe.sh sailboat_example.json --analysis-fps 10 --output-dir outputs/experiment_fps10 --stage all
+./scripts/run_reframe.sh path/to/project.json --analysis-fps 5 --output-dir outputs/experiment_fps5 --stage all
+./scripts/run_reframe.sh path/to/project.json --analysis-fps 10 --output-dir outputs/experiment_fps10 --stage all
 ```
 
 Each run saves `run_config.json`, the actual rate in `meta.json`, and progress in `analysis_progress.json`. To review an experiment, open `/compare?config=outputs/experiment_fps5/run_config.json`. Changing the rate invalidates analysis caches. Saving a setting does not regenerate an existing video; rendering alone uses the observations' original sampling rate.
 
 Forward Qwen requests now carry earlier analysis results; backward requests carry later observations in reverse traversal order, including accepted recoveries. Context includes target geometry/confidence and signed leveling estimates, recent images, and older contact sheets. Full history is saved under `cache/.../context/`; older records and images are summarized/subsampled to fit the model context window. Request audits record exactly what was sent, omitted, summarized, and the token count. History is evidence, not a constraint: current images can override earlier mistakes. Sequential forward processing is necessary for this context and can take substantially longer at higher FPS.
 
-The existing `outputs/sailboat_example` videos are the earlier 2 FPS baseline until explicitly regenerated. Higher sampling density and temporal context do not guarantee correct shoreline leveling.
+The original development workspace had a 2 FPS baseline in `outputs/sailboat_example`; those videos are not included in a checkout. Higher sampling density and temporal context do not guarantee correct shoreline leveling.

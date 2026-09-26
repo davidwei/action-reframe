@@ -1,67 +1,69 @@
-# Action Video
+# Action Reframe
 
 Offline subject tracking, camera leveling, smooth reframing, and review for action footage.
 
-This repository contains the existing prototype and the proposed three-part workflow: design plans, validate them through offline trials, then process approved videos for final review and clip selection. The planning and batch workflow is not implemented yet.
+The current prototype supports frame analysis, backward recovery, rendering, synchronized comparison, and corrections. The proposed three-part workflow—design plans, validate offline trials, then process approved videos—is described in [the design](docs/PROJECT_DESIGN.md) and [implementation plan](docs/PROJECT_PLAN.md).
 
-## Repository layout
+## Layout
 
 ```text
-docs/             Product design, implementation plan, decisions, prototype guide
-src/              Python processing and review-server code
-src/web/          Review/comparison pages and frame diagnostics
-tests/            Geometry, backward recovery, and temporal-context tests
-configs/          Example processing configurations
-scripts/          Development launchers and test runner
-data/             Local workspaces and outputs; excluded from Git
+docs/             Design, implementation plan, decisions, prototype guide
+src/              Python processing and review server
+src/web/          Review/comparison pages and diagnostics
+tests/            Unit and synthetic-video integration tests
+configs/          Generic defaults and optional sailboat examples
+scripts/          Bash launchers and test runner
+data/             Default local workspace; contents excluded from Git
 requirements.in   Dependency constraints
 requirements.txt  Locked dependencies
 ```
 
-Read [the project design](docs/PROJECT_DESIGN.md) and [the verifiable implementation plan](docs/PROJECT_PLAN.md) first. [Prototype documentation](docs/PROTOTYPE.md) records existing features and limitations; its older commands refer to the original workspace. Use the launchers below for this repository.
+## Setup
 
-## Local setup
-
-On this machine, `.venv` links to the existing dedicated video environment and `data/workspace` links to the original `/home/dwei/longvideo` workspace. Neither link is committed. No LeRobot environment is used, and videos have not been copied or moved.
-
-For a fresh checkout, create an environment and configure a workspace containing your video files and project JSON files:
+Use Python 3.12 and a dedicated virtual environment. No Conda environment, GPU, private video, model server, system FFmpeg, or machine-specific directory is required to run the tests and review interface. Qwen analysis requires a separately configured compatible vision endpoint; it may run on another machine.
 
 ```bash
-uv venv .venv --python /usr/bin/python3.12
-uv pip sync requirements.txt --python .venv/bin/python
-export LONGVIDEO_WORKSPACE=/absolute/path/to/video-workspace
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+./scripts/test.sh
+./scripts/run_review.sh --workspace ./data --port 8765
 ```
 
-The review server uses `LONGVIDEO_WORKSPACE`, otherwise the local `data/workspace` link, otherwise `data/`. Video and output paths in workspace configurations should be relative to that workspace. See [data setup](data/README.md).
+Open <http://127.0.0.1:8765/>. An empty workspace displays setup guidance. Add a video to the workspace, reload, select a frame and subject rectangle, and create a project. No example project is required. Existing workspace projects are discovered automatically; `?config=project_name.json` selects one explicitly.
 
-## Develop and verify
+The scripts use the repository's `.venv/bin/python`. Set `ACTION_REFRAME_PYTHON` to another prepared Python executable if needed. They preserve the caller's working directory, so relative arguments are relative to where you invoke the script.
+
+On Windows, use the Python entry points directly with `.venv\Scripts\python.exe`. For example, `python src/review_server.py --workspace data`. The Bash launchers are optional. Python dependencies and codecs must be available for the chosen OS/architecture; Windows and macOS have not yet been validated.
+
+## Configuration
+
+| Setting | Default | Override |
+|---|---|---|
+| Review workspace | Repository `data/` | `--workspace PATH`, then `LONGVIDEO_WORKSPACE` environment variable |
+| Review port | 8765, loopback only | `--port NUMBER` |
+| Qwen endpoint | `http://127.0.0.1:8000/v1` | `QWEN_API_URL`, or project `api_url` |
+| Analysis cadence | 10 FPS | UI, project `analysis_fps`, or CLI `--analysis-fps` |
+| Processing defaults | `configs/defaults.json` | Individual project fields |
+
+Environment variables are inherited by analysis workers. `QWEN_API_URL` takes precedence over the project's endpoint. The current client expects the model-list, chat-completions, and vLLM-compatible `/tokenize` endpoints, accepts image inputs, and has no API-key authentication integration yet. Arbitrary hosted providers are not interchangeable without an adapter.
+
+The UI creates configuration files at the workspace root with paths relative to that workspace. CLI video/output paths are relative to the configuration file, regardless of the current working directory. The CLI can use absolute paths as well. Generated run records may contain resolved local paths; caches are runtime data and are not promised to be relocatable. Share source configs and references, then regenerate runtime artifacts after relocating them.
+
+```bash
+./scripts/run_reframe.sh /path/to/workspace/project_name.json --stage all
+./scripts/run_reframe.sh /path/to/workspace/project_name.json --analysis-fps 5 --output-dir ./data/experiment_fps5
+```
+
+The sailboat configs are optional illustrative selections, not supplied test data. They expect user-provided `data/videos/example.mp4`; adjust the reference time, box, and description for your footage. The review interface instead lists videos directly inside its configured workspace. See [data setup](data/README.md) and [prototype behavior](docs/PROTOTYPE.md).
+
+## Development and portability
 
 ```bash
 ./scripts/test.sh
-./scripts/run_review.sh --port 8766
-./scripts/run_reframe.sh --help
 ```
 
-Open <http://127.0.0.1:8766/> or <http://127.0.0.1:8766/compare>. Port 8766 avoids the existing prototype server on 8765. Launchers can be called from any directory.
+Tests generate tiny synthetic media in temporary directories and do not call Qwen. GitHub Actions runs them with Python 3.12 on Ubuntu. Static HTML/JavaScript is shipped in `src/web/`, independently of the video workspace. FFmpeg comes from `imageio-ffmpeg`; PyAV reads metadata.
 
-The linked workspace exposes the existing example and outputs. Editing settings or running jobs through the development UI writes to that workspace. For isolated development, point `LONGVIDEO_WORKSPACE` at a separate directory containing its own videos/configurations. Avoid concurrent jobs against the same output directory; the current prototype does not yet have a durable cross-process queue.
+Keep media, outputs, environments, and credentials out of Git. No workspace symlink is needed or automatically selected. An existing local symlink can be used explicitly through `--workspace data/workspace`. Avoid simultaneous jobs writing to the same output directory; durable multi-worker coordination is future work.
 
-Run an isolated processing experiment with:
-
-```bash
-./scripts/run_reframe.sh configs/sailboat_example.json --stage all
-```
-
-The repository example configurations read source media through `data/workspace` and write new results under `data/outputs/`. These paths are resolved relative to the configuration file. CLI paths are interpreted from the repository root by the launcher. The CLI uses configuration paths independently of the review server's workspace setting.
-
-Qwen is served separately by the existing local vLLM service. No model weights, videos, generated outputs, credentials, or environment files belong in Git.
-
-## Development status
-
-The repository starts from the working prototype, including its known leveling limitations. The refactor separates source/static assets from mutable data; it does not implement the planned three-workspace product. GitHub Actions runs the unit suite on pushes and pull requests, without requiring videos or a model server.
-
-## Contributing
-
-Use the milestone acceptance checks in `docs/PROJECT_PLAN.md`. Run `./scripts/test.sh` before committing and verify changed UI behavior in the browser. Keep machine-local paths, source footage, model credentials, and generated outputs out of tracked files. New model integrations should read secrets from the environment.
-
-This repository does not yet declare an open-source license. Choose a license before offering it for public reuse.
+Follow acceptance checks in `docs/PROJECT_PLAN.md`. Verify changed UI behavior as well as tests. The repository does not yet declare an open-source license; choose one before offering it for public reuse.

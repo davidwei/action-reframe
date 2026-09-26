@@ -14,7 +14,7 @@
 <div id="flags"></div>
 <script src="/files/frame_analysis.js"></script>
 <script>
-const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'sailboat_example.json';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
+const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;
 function showAnalysis(){if(currentFrame!==analysisFrame){FrameAnalysis.update($('frameAnalysis'),analysisState,currentFrame);analysisFrame=currentFrame}}
 $('review').href='/?config='+encodeURIComponent(project);

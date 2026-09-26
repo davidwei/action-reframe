@@ -16,8 +16,28 @@ from reframe import write_json, set_analysis_fps
 
 SOURCE_ROOT=Path(__file__).resolve().parent
 WEB_ROOT=SOURCE_ROOT/"web"
-DEFAULT_WORKSPACE=SOURCE_ROOT.parent/"data"/"workspace"
-ROOT=Path(os.environ.get("LONGVIDEO_WORKSPACE",str(DEFAULT_WORKSPACE if DEFAULT_WORKSPACE.exists() else SOURCE_ROOT.parent/"data"))).resolve()
+ROOT=Path(os.environ.get("LONGVIDEO_WORKSPACE",str(SOURCE_ROOT.parent/"data"))).expanduser().resolve()
+
+
+def project_defaults():
+    c=json.loads((SOURCE_ROOT.parent/'configs/defaults.json').read_text())
+    c['api_url']=os.environ.get('QWEN_API_URL',c['api_url']).rstrip('/')
+    return c
+
+
+def select_project(name):
+    if name:
+        return name
+    for path in sorted(ROOT.glob('*.json')):
+        try:
+            config=json.loads(path.read_text())
+            if all(k in config for k in ('video','output_dir','reference_box','target')):
+                return path.name
+        except (ValueError,OSError,TypeError):
+            continue
+    return None
+
+
 LOCK=threading.Lock()
 JOB=None
 LOG=None
@@ -39,12 +59,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             parsed=urlparse(self.path);q=parse_qs(parsed.query)
-            config_name=q.get('config',['sailboat_example.json'])[0]
+            config_name=select_project(q.get('config',[''])[0])
             if parsed.path=='/api/videos':
-                return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv') and not p.name.startswith('.')])
+                return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
             if parsed.path=='/api/state':
-                config=json.loads(local_path(config_name).read_text());out=local_path(config['output_dir'])
-                state={'config':config,'running':JOB is not None and JOB.poll() is None,
+                config=json.loads(local_path(config_name).read_text()) if config_name else dict(project_defaults(),video='',target='',reference_time=0,output_dir='outputs/unconfigured')
+                out=local_path(config['output_dir'])
+                state={'project':config_name,'config':config,'running':JOB is not None and JOB.poll() is None,
                        'exit_code':None if JOB is None else JOB.poll()}
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
@@ -103,21 +124,23 @@ class Handler(BaseHTTPRequestHandler):
             length=int(self.headers.get('Content-Length','0'))
             if length>1024*1024:raise ValueError('Request too large')
             data=json.loads(self.rfile.read(length))
-            config_path=local_path(data.get('config','sailboat_example.json'))
+            config_name=select_project(data.get('config'))
+            config_path=local_path(config_name) if config_name else None
             with LOCK:
                 if JOB is not None and JOB.poll() is None:
                     raise ValueError('Wait for the current job to finish before changing this project')
                 if self.path=='/api/create':
                     video=local_path(data['video'])
                     if not video.is_file():raise ValueError('Video does not exist')
-                    c=json.loads((ROOT/'sailboat_example.json').read_text())
+                    c=project_defaults()
                     # Never overwrite an existing project or its observations.
                     import uuid
                     name='project_'+uuid.uuid4().hex[:8]
-                    c.update(video=video.name,output_dir='outputs/'+name,reference_time=float(data['time']),
+                    c.update(video=str(video.relative_to(ROOT)),output_dir='outputs/'+name,reference_time=float(data['time']),
                              reference_box=data['bbox'],target=str(data['target']),color_refinement=False)
                     write_json(ROOT/(name+'.json'),c)
                     return self.json_response({'config':name+'.json'})
+                if config_path is None:raise ValueError('Create a project first')
                 c=json.loads(config_path.read_text());out=local_path(c['output_dir']);out.mkdir(parents=True,exist_ok=True)
                 if self.path=='/api/settings':
                     cap=cv2.VideoCapture(str(local_path(c['video'])));source_fps=cap.get(cv2.CAP_PROP_FPS);cap.release()
@@ -156,6 +179,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765)
+    p.add_argument('--workspace',type=Path,help='Video/project directory; defaults to LONGVIDEO_WORKSPACE or repository data/')
+    a=p.parse_args()
+    if a.workspace:ROOT=a.workspace.expanduser().resolve()
+    ROOT.mkdir(parents=True,exist_ok=True)
     print(f'Open http://127.0.0.1:{a.port}',flush=True)
     ThreadingHTTPServer(('127.0.0.1',a.port),Handler).serve_forever()

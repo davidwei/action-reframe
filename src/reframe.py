@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -54,7 +55,9 @@ def image_message(path):
 
 
 def load_config(path):
-    c = json.loads(Path(path).read_text())
+    c = json.loads((Path(__file__).resolve().parent.parent/'configs/defaults.json').read_text())
+    c.update(json.loads(Path(path).read_text()))
+    c['api_url'] = os.environ.get('QWEN_API_URL',c['api_url']).rstrip('/')
     c['_config_path'] = str(Path(path).resolve())
     c['video'] = str((Path(path).resolve().parent / c['video']).resolve())
     c['output_dir'] = str((Path(path).resolve().parent / c['output_dir']).resolve())

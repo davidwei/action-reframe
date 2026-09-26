@@ -151,7 +151,7 @@ Allow marking keep/skip ranges without first repairing uninteresting footage. Ex
 
 Separate subject tracking, camera orientation, and artistic framing. Evaluate a general video tracker/segmenter alongside Qwen identity supervision; the existing sail-color specialization is not a general solution. Validate rotation against independent evidence after rendering.
 
-The two RTX 5090 GPUs are suitable for continued offline development. Schedule model memory explicitly; do not assume the VL model, another tracker, and long contexts fit concurrently. Prioritize correctness, resumable jobs, sequential decoding, bounded memory, and cache reuse before chasing throughput.
+The initial development host had two RTX 5090 GPUs; this is an example deployment, not a runtime requirement. The vision endpoint may run on another host. Schedule model memory explicitly; do not assume the VL model, another tracker, and long contexts fit concurrently. Prioritize correctness, resumable jobs, sequential decoding, bounded memory, and cache reuse before chasing throughput.
 
 Preserve source timestamps and validate audio sync, variable-frame-rate footage, slow motion, lens distortion, and color handling before claiming broad format support. Current preview output does not provide HDR mastering or recover content outside the source frame.
 
