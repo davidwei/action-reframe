@@ -133,6 +133,33 @@ class PortabilityTests(unittest.TestCase):
         saved=json.loads((out/'corrections.json').read_text())['1']
         self.assertIsNone(saved['bbox']);self.assertIsNone(saved['source_polygon_px'])
 
+    def test_batch_api_snapshots_and_review_labels_are_separate(self):
+        writer=cv2.VideoWriter(str(self.root/'clip.avi'),cv2.VideoWriter_fourcc(*'MJPG'),10,(64,48))
+        for _ in range(3):writer.write(np.zeros((48,64,3),np.uint8))
+        writer.release()
+        with urllib.request.urlopen(self.base+'/library') as response:self.assertEqual(response.status,200)
+        self.assertEqual(self.request('/api/batch')['projects'],[])
+        project=self.request('/api/create',{'video':'clip.avi','time':0,'bbox':[10,10,30,30],'target':'boat'})['config']
+        # Labeling works before any analysis metadata/cache exists.
+        self.request('/api/correct',{'config':project,'frame':1,'bbox':[12,12,32,32]})
+        self.request('/api/batch/prepare',{'project':project,'description':'green sail','ready':True})
+        self.request('/api/batch/queue',{'projects':[project]})
+        state=self.request('/api/batch');job=state['jobs'][0]
+        run_config=json.loads((self.root/job['config']).read_text());out=Path(run_config['output_dir'])
+        frozen=json.loads((out/'corrections.json').read_text())
+        self.request('/api/correct',{'config':job['config'],'frame':0,'bbox':[11,11,31,31]})
+        self.assertEqual(json.loads((out/'corrections.json').read_text()),frozen)
+        self.assertIn('0',json.loads((out/'review_corrections.json').read_text()))
+        run=self.request('/api/state?config='+job['config'])
+        self.assertEqual(run['config']['video'],'clip.avi');self.assertIn('0',run['corrections'])
+        with self.assertRaises(urllib.error.HTTPError):
+            self.request('/api/settings',{'config':job['config'],'confidence_threshold':.7})
+        with patch.object(review_server,'JOB') as job_process:
+            job_process.poll.return_value=None
+            with self.assertRaises(urllib.error.HTTPError):self.request('/api/batch/start',{})
+            self.request('/api/batch/prepare',{'project':project,'description':'revised draft','ready':False})
+
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -35,6 +35,25 @@ class BoxVerificationTests(unittest.TestCase):
             r=verify_box(c,view,[200,200,400,400],None,'model',ref,root/'verify',api)
             self.assertNotIn('error',r);self.assertEqual(len(calls),5)
 
+    def test_human_approved_description_bypasses_reference_model_and_invalidates_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ref=Path(folder)/'reference.png';view=np.zeros((100,200,3),np.uint8);cv2.imwrite(str(ref),view)
+            calls=[]
+            def api(url,payload):
+                prompt=payload['messages'][0]['content'][-1]['text'];calls.append(prompt)
+                if 'Describe only' in prompt:result={'box_description':'A green sail'}
+                else:
+                    self.assertIn('APPROVED',prompt)
+                    result={'match_score':.9,'target_present':True,'target_complete':True,'differences':[],'reason':'match'}
+                return {'choices':[{'message':{'content':json.dumps(result)}}]}
+            c={'target':'boat','api_url':'http://test/v1','approved_target_description':'APPROVED green sail'}
+            r=verify_box(c,view,[100,100,400,500],None,'model',ref,folder,api)
+            self.assertNotIn('error',r);self.assertEqual(len(calls),2)
+            self.assertEqual(r['reference_description']['source'],'human_approved')
+            c['approved_target_description']='APPROVED green sail and hull'
+            verify_box(c,view,[100,100,400,500],None,'model',ref,folder,api)
+            self.assertEqual(len(calls),4)
+
     def test_score_ignores_proposal_confidence_and_separates_completeness(self):
         d={'box_description':'A green sail with clipped tip'}
         comparison={'match_score':.9,'target_present':True,'target_complete':False}

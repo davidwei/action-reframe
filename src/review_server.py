@@ -41,9 +41,19 @@ def set_anchor_options(config,data):
     return saved
 
 
+def ensure_review_meta(config,out):
+    path=out/'meta.json'
+    if path.exists():return json.loads(path.read_text())
+    cap=cv2.VideoCapture(str(local_path(config['video'])))
+    meta=dict(width=int(cap.get(3)),height=int(cap.get(4)),fps=cap.get(5),frames=int(cap.get(7)),samples=[])
+    cap.release()
+    if min(meta['width'],meta['height'],meta['fps'],meta['frames'])<=0:raise ValueError('Cannot read source metadata')
+    return meta
+
+
 def review_geometry(config,out,index):
     from label_geometry import preview_geometry
-    meta=json.loads((out/'meta.json').read_text())
+    meta=ensure_review_meta(config,out)
     if not 0<=index<meta['frames']:raise ValueError('Frame out of range')
     track_path=out/'tracks.json';tracks=json.loads(track_path.read_text()) if track_path.exists() else []
     track=tracks[index] if index<len(tracks) else None
@@ -70,6 +80,13 @@ JOB=None
 LOG=None
 
 
+def batch_active():
+    if not (ROOT/'.batch'/'queue.sqlite3').exists():return False
+    from batch_workflow import Batch
+    batch=Batch(ROOT)
+    return batch.active() or (not batch.paused() and any(j['status']=='queued' for j in batch.jobs()))
+
+
 def local_path(value):
     p=(ROOT/value).resolve()
     if not p.is_relative_to(ROOT):
@@ -86,16 +103,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             parsed=urlparse(self.path);q=parse_qs(parsed.query)
-            config_name=select_project(q.get('config',[''])[0])
+            config_name=None if q.get('new')==['1'] else select_project(q.get('config',[''])[0])
+            if parsed.path=='/api/batch':
+                from batch_workflow import Batch
+                result=Batch(ROOT).library();result['legacy_running']=JOB is not None and JOB.poll() is None
+                return self.json_response(result)
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
             if parsed.path=='/api/state':
                 config=json.loads(local_path(config_name).read_text()) if config_name else dict(project_defaults(),video='',target='',reference_time=0,output_dir='outputs/unconfigured')
                 out=local_path(config['output_dir'])
-                state={'project':config_name,'config':config,'running':JOB is not None and JOB.poll() is None,
+                if config.get('video'):config['video']=str(local_path(config['video']).relative_to(ROOT))
+                state={'project':config_name,'config':config,'running':(JOB is not None and JOB.poll() is None) or batch_active(),
                        'exit_code':None if JOB is None else JOB.poll()}
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
+                if config.get('batch_input_revision') and (out/'review_corrections.json').exists():
+                    state['corrections']=json.loads((out/'review_corrections.json').read_text())
+                if config_name and state['meta'] is None:state['meta']=ensure_review_meta(config,out)
                 log=out/'job.log'
                 state['log']=log.read_text()[-3000:] if log.exists() else ''
                 state['preview']=str((out/'focused.mp4').relative_to(ROOT)) if (out/'focused.mp4').exists() else None
@@ -114,18 +139,21 @@ class Handler(BaseHTTPRequestHandler):
                 ok,encoded=cv2.imencode('.jpg',processed,[cv2.IMWRITE_JPEG_QUALITY,92])
                 if not ok:raise ValueError('Cannot encode processed preview')
                 return self.json_response({'frame':index,'geometry':geometry,'image':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()})
-            if parsed.path=='/api/frame':
-                video=local_path(q['video'][0]);i=int(q.get('frame',['0'])[0])
-                cap=cv2.VideoCapture(str(video));cap.set(cv2.CAP_PROP_POS_FRAMES,max(0,i));ok,f=cap.read();cap.release()
+            if parsed.path in ('/api/frame','/api/reference'):
+                reference_config=json.loads(local_path(config_name).read_text()) if parsed.path=='/api/reference' else None
+                video=local_path(reference_config['video'] if reference_config else q['video'][0]);i=int(q.get('frame',['0'])[0])
+                cap=cv2.VideoCapture(str(video));cap.set(cv2.CAP_PROP_POS_FRAMES,max(0,round(reference_config['reference_time']*cap.get(5)) if reference_config else i));ok,f=cap.read();cap.release()
                 if not ok:raise ValueError('Cannot decode requested frame')
+                if reference_config:
+                    x1,y1,x2,y2=map(round,reference_config['reference_box']);f=f[y1:y2,x1:x2]
                 ok,b=cv2.imencode('.jpg',f,[cv2.IMWRITE_JPEG_QUALITY,92])
                 self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b.tobytes());return
             if parsed.path=='/api/info':
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            path=WEB_ROOT/('review.html' if parsed.path=='/' else 'compare.html') if parsed.path in ('/','/compare') else WEB_ROOT/'frame_analysis.js' if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
-            if parsed.path not in ('/','/compare') and not parsed.path.startswith('/files/'):
+            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html'}[parsed.path]) if parsed.path in ('/','/compare','/library') else WEB_ROOT/'frame_analysis.js' if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
+            if parsed.path not in ('/','/compare','/library') and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
             if not path.is_file():return self.json_response({'error':'Not found'},404)
             size=path.stat().st_size;start=0;end=size-1;status=200
@@ -165,8 +193,23 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(length))
             config_name=select_project(data.get('config'))
             config_path=local_path(config_name) if config_name else None
+            if self.path=='/api/batch/draft':
+                from batch_workflow import Batch,draft_description
+                return self.json_response({'description':draft_description(Batch(ROOT),data['project'])})
             with LOCK:
-                if self.path!='/api/correct' and JOB is not None and JOB.poll() is None:
+                if self.path.startswith('/api/batch/'):
+                    from batch_workflow import Batch
+                    batch=Batch(ROOT);action=self.path.rsplit('/',1)[-1]
+                    if action=='prepare':return self.json_response(batch.prepare(data['project'],data.get('description',''),data.get('ready',False)))
+                    if action=='queue':return self.json_response({'jobs':batch.enqueue(data.get('projects',[]))})
+                    if action=='start':
+                        if JOB is not None and JOB.poll() is None:raise ValueError('An existing single-video job is running. Prepare/queue videos now; start the batch when it finishes.')
+                        batch.start();return self.json_response({'started':True})
+                    if action=='pause':batch.pause();return self.json_response({'paused':True})
+                    if action in ('retry','cancel'):batch.action(data['id'],action);return self.json_response({'saved':True})
+                    if action=='adopt':return self.json_response(batch.adopt(data['id']))
+                    raise ValueError('Unknown batch action')
+                if self.path not in ('/api/correct','/api/create') and ((JOB is not None and JOB.poll() is None) or batch_active()):
                     raise ValueError('Wait for the current job to finish before changing this project')
                 if self.path=='/api/create':
                     video=local_path(data['video'])
@@ -176,11 +219,15 @@ class Handler(BaseHTTPRequestHandler):
                     import uuid
                     name='project_'+uuid.uuid4().hex[:8]
                     c.update(video=str(video.relative_to(ROOT)),output_dir='outputs/'+name,reference_time=float(data['time']),
-                             reference_box=data['bbox'],target=str(data['target']),color_refinement=False)
+                             reference_box=data['bbox'],target=str(data['target']),color_refinement=False,tracking_mode='anchor')
+                    from batch_workflow import Batch
+                    Batch(ROOT).validate(c)
                     write_json(ROOT/(name+'.json'),c)
                     return self.json_response({'config':name+'.json'})
                 if config_path is None:raise ValueError('Create a project first')
                 c=json.loads(config_path.read_text());out=local_path(c['output_dir']);out.mkdir(parents=True,exist_ok=True)
+                if c.get('batch_input_revision') and self.path in ('/api/settings','/api/run'):
+                    raise ValueError('This is a saved batch run. Use the library to copy corrections to its source project and queue a new revision.')
                 if self.path=='/api/settings':
                     saved={}
                     if 'analysis_fps' in data:
@@ -194,9 +241,11 @@ class Handler(BaseHTTPRequestHandler):
                     write_json(config_path,c)
                     return self.json_response(saved)
                 if self.path=='/api/correct':
-                    i=int(data['frame']);meta=json.loads((out/'meta.json').read_text())
+                    i=int(data['frame']);meta=ensure_review_meta(c,out)
                     if not 0<=i<meta['frames']:raise ValueError('Frame out of range')
-                    p=out/'corrections.json';values=json.loads(p.read_text()) if p.exists() else {}
+                    p=out/('review_corrections.json' if c.get('batch_input_revision') else 'corrections.json')
+                    baseline=out/'corrections.json'
+                    values=json.loads(p.read_text()) if p.exists() else json.loads(baseline.read_text()) if baseline.exists() else {}
                     v=values.get(str(i),{})
                     if any(k in data for k in ('polygon','approve_path','bbox')):
                         from label_geometry import canonical_label,box_polygon

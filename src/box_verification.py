@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-VERSION=3
+VERSION=4
 
 
 def score(value):
@@ -33,7 +33,7 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
     crop=view[y1:y2,x1:x2]
     folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
     key=hashlib.sha256(crop.tobytes()+Path(reference).read_bytes()+json.dumps(
-        [VERSION,model,c['target'],box_note,box],sort_keys=True).encode()).hexdigest()[:24]
+        [VERSION,model,c['target'],c.get('approved_target_description'),box_note,box],sort_keys=True).encode()).hexdigest()[:24]
     output=folder/f'{key}.json'
     if output.exists():
         previous=json.loads(output.read_text())
@@ -65,9 +65,11 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
         # Cache the trusted descriptor separately: it depends only on the reference,
         # target identity, model and verifier version, never the candidate crop.
         reference_key=hashlib.sha256(Path(reference).read_bytes()+json.dumps(
-            [VERSION,model,c['target']],sort_keys=True).encode()).hexdigest()[:24]
+            [VERSION,model,c['target'],c.get('approved_target_description')],sort_keys=True).encode()).hexdigest()[:24]
         reference_cache=folder/f'reference_{reference_key}.json'
-        if reference_cache.exists():
+        if c.get('approved_target_description'):
+            trusted={'target_description':c['approved_target_description'],'source':'human_approved','input_revision':c.get('batch_input_revision')}
+        elif reference_cache.exists():
             trusted=json.loads(reference_cache.read_text())
         else:
             trusted=request('reference',[reference],f'''This image is a human-selected crop of the intended target.

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Action Reframe — Folder library</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1300px;margin:30px auto;padding:0 24px}h1{font-size:30px}h2{font-size:22px}p,small{color:#adbcca}section,article{background:#1a2430;padding:20px;border-radius:12px;margin:16px 0}article{border:1px solid #354654}button,input,select,textarea{font:inherit;padding:8px;border-radius:6px;border:1px solid #526274;background:#15202d;color:inherit}button{background:#28576b;cursor:pointer}button:disabled{opacity:.45;cursor:wait}a{color:#85d4f8}.row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:10px 0}textarea{width:95%;min-height:80px}#notice{position:sticky;top:0;background:#304759;padding:12px;z-index:3}table{width:100%;border-collapse:collapse}td,th{text-align:left;border-bottom:1px solid #354654;padding:12px;vertical-align:top}.status{font-weight:600}.error{color:#ffbb94}.preview{max-width:240px;max-height:135px;object-fit:contain}.scroll{overflow:auto}label{display:block}#projects:empty::after{content:'No projects yet. Choose a video above and label its subject.'}button:hover{background:#34728b}code{overflow-wrap:anywhere}details{margin-top:8px}pre{white-space:pre-wrap}
+</style>
+<h1>Folder library</h1>
+<p>Prepare targets and descriptions → queue ready videos → process overnight → review and correct.</p>
+<div id="notice" role="status">Loading…</div>
+<section><h2>1. Add a video project</h2><div class="row"><select id="videos" aria-label="Video"></select><button id="create">Select subject and create project</button><button id="reload">Refresh folder</button></div><p>Add video files to this server's workspace folder, then refresh. Existing projects appear below. Each video can have more than one target/project.</p></section>
+<section><h2>2. Prepare and approve</h2><p>Open a project to draw ground-truth labels and choose analysis settings. Review its identity description here. “Approve description & mark ready” approves the current labels and settings as well. Changes require approval again. You can select several ready projects to queue together.</p><div class="row"><button id="selectReady">Select all ready</button><button id="queue">Queue selected projects</button></div><div id="projects"></div></section>
+<section><h2>3. Overnight queue</h2><div class="row"><button id="start">Start / resume queue</button><button id="pause">Pause after current video</button><span id="queueState"></span></div><p>One video runs at a time. Closing this page does not stop processing. Pause finishes the current video; queued jobs can be cancelled. Failed or interrupted jobs can retry using saved inputs and cached work. Start/resume also checks for interrupted runners after a restart.</p><div class="scroll"><table><thead><tr><th>Project / run</th><th>Status</th><th>Progress</th><th>Review / actions</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
+<script>
+const $=id=>document.getElementById(id);let state={},drafts=new Map(),selected=new Set();
+function text(tag,value){const e=document.createElement(tag);e.textContent=value;return e}
+function notice(value){$('notice').textContent=value}
+async function api(path,body){const response=await fetch('/api/batch'+path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const value=await response.json();if(!response.ok)throw Error(value.error||response.status);return value}
+function safe(fn){return async()=>{try{await fn()}catch(error){notice(error.message)}}}
+function button(label,fn){const b=text('button',label);b.onclick=safe(async()=>{b.disabled=true;try{await fn()}finally{b.disabled=false}});return b}
+function link(label,path){const a=text('a',label);a.href=path;return a}
+function renderProjects(){
+ $('projects').replaceChildren();
+ for(const p of state.projects){
+  const card=document.createElement('article'),row=document.createElement('div');row.className='row';
+  const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selected.has(p.project);checkbox.disabled=!p.ready||drafts.has(p.project);checkbox.setAttribute('aria-label','Queue '+p.project);checkbox.onchange=()=>checkbox.checked?selected.add(p.project):selected.delete(p.project);
+  row.append(checkbox,text('strong',p.project),text('span',p.ready?'Ready':p.stale?'Inputs changed — approve again':'Needs description approval'));card.append(row);
+  card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} analysis FPS · ${p.labels} additional labels`));
+  const img=document.createElement('img');img.className='preview';img.alt='Human-selected target crop';img.loading='lazy';img.src='/api/reference?config='+encodeURIComponent(p.project);
+  card.append(img,link('Open labels and settings','/?config='+encodeURIComponent(p.project)));
+  const label=text('label','Target identity description (review colors, equipment, distinguishing features and exclusions)'),area=document.createElement('textarea');area.value=drafts.get(p.project)??p.description;area.setAttribute('aria-label','Identity description for '+p.project);area.oninput=()=>{drafts.set(p.project,area.value);selected.delete(p.project);checkbox.checked=false;checkbox.disabled=true};label.append(area);card.append(label);
+  const actions=document.createElement('div');actions.className='row';
+  actions.append(button('Draft with Qwen',async()=>{notice('Drafting from the selected reference crop…');const d=await api('/draft',{project:p.project});area.value=d.description;drafts.set(p.project,d.description);selected.delete(p.project);checkbox.checked=false;checkbox.disabled=true;notice('Draft ready for review. Edit before approving.')}),
+   button('Save draft',async()=>{await api('/prepare',{project:p.project,description:area.value,ready:false});drafts.delete(p.project);selected.delete(p.project);await load();notice('Draft saved; project is not ready.')}),
+   button('Approve description & mark ready',async()=>{await api('/prepare',{project:p.project,description:area.value,ready:true});drafts.delete(p.project);await load();notice('Description and current project inputs approved.')}));card.append(actions);$('projects').append(card);
+ }
+}
+function renderJobs(){
+ $('queueState').textContent=(state.paused?'Paused':'Queue enabled')+(state.legacy_running?' · existing single-video job still running':'');$('start').disabled=state.legacy_running;
+ $('jobs').replaceChildren();
+ for(const j of [...state.jobs].reverse()){
+  const row=document.createElement('tr'),identity=document.createElement('td');identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · attempt '+j.attempts));
+  const status=document.createElement('td');status.append(text('span',j.status));if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
+  const p=j.progress||{},progress=text('td',p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
+  const actions=document.createElement('td');actions.append(link('Inspect run','/?config='+encodeURIComponent(j.config)));
+  if(j.comparison_available){actions.append(document.createTextNode(' · '),link('Compare','/compare?config='+encodeURIComponent(j.config)))}
+  actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));
+  if(j.status==='queued')actions.append(button('Cancel',async()=>{await api('/cancel',{id:j.id});await load()}));
+  if(['failed','interrupted'].includes(j.status))actions.append(button('Retry saved inputs',async()=>{await api('/retry',{id:j.id});await load();notice('Requeued. Start/resume if paused.')}));
+  if(['succeeded','failed','interrupted'].includes(j.status))actions.append(button('Copy corrections to source',async()=>{const r=await api('/adopt',{id:j.id});await load();notice(`Copied ${r.labels} labels to ${r.project}. Review and approve it before queuing a new run.`)}));
+  actions.append(document.createElement('br'),link('Job log','/files/'+j.output_dir+'/job.log'));
+  row.append(identity,status,progress,actions);$('jobs').append(row);
+ }
+}
+async function load(initial=false){state=await api('');const video=$('videos').value;$('videos').replaceChildren(...state.videos.map(v=>{const o=text('option',v);o.value=v;return o}));if(state.videos.includes(video))$('videos').value=video;if(initial||!document.activeElement?.matches('#projects textarea'))renderProjects();renderJobs()}
+$('create').onclick=()=>{if(!$('videos').value)return notice('Add a video to the workspace first.');location.href='/?new=1&video='+encodeURIComponent($('videos').value)};
+$('reload').onclick=safe(()=>load(true));$('selectReady').onclick=()=>{for(const p of state.projects)if(p.ready&&!drafts.has(p.project))selected.add(p.project);renderProjects()};
+$('queue').onclick=safe(async()=>{const projects=[...selected].filter(p=>!drafts.has(p));if(!projects.length)throw Error('Select ready projects; save/approve unsaved description edits first.');const result=await api('/queue',{projects});selected.clear();await load();notice(`${result.jobs.length} job(s) queued with saved input snapshots. Start/resume the queue to process them.`)});
+$('start').onclick=safe(async()=>{await api('/start',{});await load();notice('Queue started. You can close this page.')} );
+$('pause').onclick=safe(async()=>{await api('/pause',{});await load();notice('Queue paused; the current video will finish.')} );
+load(true).then(()=>notice('Prepare projects or review completed runs.')).catch(e=>notice(e.message));setInterval(()=>load().catch(e=>notice(e.message)),5000);
+</script></html>

@@ -8,6 +8,14 @@ Offline subject tracking, camera leveling, smooth reframing, and review for acti
 
 The current prototype supports frame analysis, backward recovery, rendering, synchronized comparison, and corrections. The proposed three-part workflow—design plans, validate offline trials, then process approved videos—is described in [the design](docs/PROJECT_DESIGN.md) and [implementation plan](docs/PROJECT_PLAN.md).
 
+## Folder batches
+
+Open `/library` on the review server to prepare video projects, review/approve
+identity descriptions, queue ready videos, and start serial overnight processing.
+Jobs persist independently of the UI; each run has isolated outputs, progress,
+retry controls and review links. See [batch workflow](docs/BATCH_WORKFLOW.md) for
+the exact pause/restart semantics and current limits.
+
 ## Layout
 
 ```text

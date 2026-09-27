@@ -175,3 +175,16 @@ For each step or optimization, record: feature/experiment ID, commit, settings a
 input revisions, demonstrated artifact, validation performed, measured limitations
 and next incomplete step. Commit and push completed changes; keep private media,
 runtime outputs and credentials out of the repository.
+
+
+## Implementation update — folder batch foundation
+
+B5 and the serial foundation of B6 now have a working end-to-end implementation;
+see [batch workflow](BATCH_WORKFLOW.md). C1/C2 also gained editable description
+approval and direct verifier consumption of that approved text. B7 has per-run
+review links and copying reviewed corrections into a new source revision.
+
+This does not complete B1–B7: a multi-reference tray, unified quality contracts,
+live-label scheduling, selective repair, richer resource scheduling, mid-video
+controls and a cross-video interval-review UI remain outstanding. Queue pause is
+after the current video; retry resumes saved inputs using existing pipeline caches.

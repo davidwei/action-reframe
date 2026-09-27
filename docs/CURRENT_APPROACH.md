@@ -168,5 +168,17 @@ cost is additional Qwen verification/localization during propagation.
 
 The repository uses a dedicated Python environment, portable project settings,
 configurable model endpoints and ignored local media/output directories. The
-current service manages one processing job; durable worker coordination, robust
-job lifecycle recovery and immutable run/plan versions are still development work.
+service now supports serial persistent batch jobs with separate workers and saved
+input snapshots. Richer resource scheduling, live-label ingestion and versioned
+model-generated plans remain development work; see the implementation update below.
+
+
+## Folder workflow implementation update
+
+The first [folder batch workflow](BATCH_WORKFLOW.md) is implemented: library,
+reference-crop description drafting/editing/approval, ready revisions, saved input
+snapshots, serial persistent queue, separate worker/runners, failure isolation,
+retry and per-run comparison/correction links. Batch verification consumes the
+approved description directly. This implements the label-driven batch route;
+the richer model-generated planner and trial-plan approval route described above
+remain future work. Live label ingestion and selective repair remain future work.
