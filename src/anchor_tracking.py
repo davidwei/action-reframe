@@ -1,0 +1,75 @@
+"""Integration of anchor scheduling, flow proposals, Qwen search and existing output."""
+import hashlib
+import json
+from pathlib import Path
+import numpy as np
+from analysis_scheduler import AnchorScheduler
+from manual_tracking import manual_observations
+from tracking_search import TrackingSearch
+from leveling import extract_gyro
+from tracking_selection import confidence_threshold
+from dual_tracking import VERSION as DETECTION_VERSION
+from box_verification import VERSION as VERIFICATION_VERSION
+
+VERSION=1
+DEFAULTS=dict(discovery_fps=2.,anchor_confidence=.85,padding_fraction=.15,min_padding_px=8.,
+              max_dimension_ratio=1.5,max_area_ratio=2.,max_propagation_attempts=4)
+
+
+def settings(config):
+    result=dict(DEFAULTS,**config.get('anchor_tracking',{}))
+    for key,value in result.items():
+        if key in ('start_time','end_time'):continue
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not np.isfinite(value):raise ValueError('Invalid anchor setting: '+key)
+    if not 0<result['discovery_fps']<=60:raise ValueError('discovery_fps must be >0 and <=60')
+    if not confidence_threshold(config)<=result['anchor_confidence']<=1:raise ValueError('anchor_confidence must be between acceptance threshold and 1')
+    if min(result['padding_fraction'],result['min_padding_px'])<0 or min(result['max_dimension_ratio'],result['max_area_ratio'])<1:raise ValueError('Invalid relaxation settings')
+    if not 1<=result['max_propagation_attempts']<=20 or int(result['max_propagation_attempts'])!=result['max_propagation_attempts']:raise ValueError('Invalid propagation attempt limit')
+    return result
+
+
+def run_anchors(c,meta,model,helpers,api,single=None):
+    config=dict(c,anchor_tracking=settings(c));options=config['anchor_tracking'];out=Path(c['output_dir']);save=helpers[2]
+    start=max(0,round(options.get('start_time',0)*meta['fps']))
+    stop=min(meta['frames']-1,round(options.get('end_time',(meta['frames']-1)/meta['fps'])*meta['fps']))
+    if single is not None:stop=min(stop,round(single*meta['fps']))
+    if stop<start:raise ValueError('Invalid anchor analysis interval')
+    manual=manual_observations(c,meta)
+    # Initial selection is an explicit user label too; corrections can override it.
+    reference=round(c['reference_time']*meta['fps'])
+    if reference not in manual:
+        manual[reference]=dict(frame=reference,time=reference/meta['fps'],bbox=(np.asarray(c['reference_box'])/[meta['width'],meta['height'],meta['width'],meta['height']]*1000).tolist(),
+                               confidence=1.,confidence_source='human',manual=True,visibility='visible',analysis_source='manual',direction='manual')
+    discovery=sorted(set(int(round(t*meta['fps'])) for t in np.arange(start/meta['fps'],(stop+.1)/meta['fps'],1/options['discovery_fps']))|{stop})
+    discovery=[i for i in discovery if start<=i<=stop]
+    indices=sorted(set(i for i in meta['samples'] if start<=i<=stop)|set(discovery)|{i for i in manual if start<=i<=stop})
+    if c.get('leveling_source')=='gyro':gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
+    else:gyro={'frames':[{'roll':0} for _ in range(meta['frames'])]}
+    fingerprint=hashlib.sha256(json.dumps([VERSION,DETECTION_VERSION,VERIFICATION_VERSION,model,meta['signature'],config,manual],sort_keys=True,default=str).encode()).hexdigest()[:24]
+    checkpoint=out/'anchor_checkpoint.json';prior=None
+    if checkpoint.exists():
+        previous=json.loads(checkpoint.read_text())
+        if previous.get('fingerprint')==fingerprint:prior=previous
+    search=TrackingSearch(config,meta,gyro,model,helpers,api)
+    def publish(state):
+        state['fingerprint']=fingerprint;save(checkpoint,state)
+        rows=[];pairs=[]
+        for index in indices:
+            row=state['results'].get(str(index),dict(frame=index,time=index/meta['fps'],bbox=None,confidence=0,visibility='uncertain',selection_reason='Not examined yet',selection_flags=['tracking_unexamined']))
+            row=dict(row,selected_path=row.get('selected_path','manual' if row.get('manual') else 'neither'))
+            rows.append(row)
+            candidates=row.get('candidates')
+            if candidates:pairs.append(dict(frame=index,time=row['time'],raw_angle=candidates['raw_angle'],leveled=candidates['leveled'],selected={k:v for k,v in row.items() if k!='candidates'},box_iou=row.get('box_iou')))
+        save(out/'observations.json',rows);save(out/'tracking_selected.json',rows);save(out/'tracking_comparison.json',pairs)
+        coverage=state['coverage']
+        save(out/'analysis_progress.json',dict(stage='anchor_'+state['stage'],completed=len(coverage),total=len(indices),
+            analysis_fps=c['analysis_fps'],discovery_fps=options['discovery_fps'],anchors=len(state['anchors']),
+            independent_scanned=sum(bool(r.get('independent_scanned')) for r in coverage.values()),
+            reliably_covered=sum(bool(r.get('reliably_covered')) for r in coverage.values()),queued=len(state['queue'])))
+        save(out/'anchor_summary.json',dict(stage=state['stage'],anchors=state['anchors'],settings=options,coverage=coverage,
+            unresolved_frames=[r['frame'] for r in rows if not r.get('bbox')],analysis_interval=[start,stop]))
+        print(f"Anchor {state['stage']}: {len(coverage)}/{len(indices)} examined; {len(state['anchors'])} anchors; {len(state['queue'])} queued",flush=True)
+    scheduler=AnchorScheduler(indices,discovery,[r for i,r in manual.items() if start<=i<=stop],search.propagate,
+        lambda index,rows:search.localize(index,rows),publish,dict(options,confidence_threshold=confidence_threshold(c),agreement_iou=c.get('tracking_selection',{}).get('agreement_iou',.35)),prior)
+    scheduler.run()
+    return json.loads((out/'observations.json').read_text())

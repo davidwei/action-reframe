@@ -69,3 +69,25 @@ class FlowTests(unittest.TestCase):
         self.assertFalse(VisualTracker().initialize(im,[10,10,30,30]).update(im)['reliable'])
         region=relaxed_box([1,1,20,20],im.shape)
         self.assertEqual(region[:2],[0,0]);self.assertTrue(too_large(region,[1,1,20,20]))
+
+class IntegrationTests(unittest.TestCase):
+    def test_initial_reference_is_anchor_and_checkpoint_resumes(self):
+        import json,tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from anchor_tracking import run_anchors
+        with tempfile.TemporaryDirectory() as folder:
+            c={'output_dir':folder,'video':'unused','reference_time':.5,'reference_box':[10,10,20,20],
+               'analysis_fps':2,'leveling_source':'visual','anchor_tracking':{},'tracking_selection':{'confidence_threshold':.5}}
+            meta={'cache':folder,'signature':'test','frames':5,'fps':2,'width':100,'height':100,'samples':[0,1,2,3,4]}
+            def save(path,value):Path(path).write_text(json.dumps(value))
+            with patch('anchor_tracking.TrackingSearch') as search:
+                search.return_value.propagate.side_effect=lambda source,index,step,rows:row(index,localized=False)
+                search.return_value.localize.side_effect=lambda index,rows:row(index,0)
+                result=run_anchors(c,meta,'model',(None,None,save),None)
+                self.assertTrue(result[1]['manual'])
+                self.assertEqual(result[1]['bbox'],[100,100,200,200])
+                count=search.return_value.propagate.call_count
+                run_anchors(c,meta,'model',(None,None,save),None)
+                self.assertEqual(search.return_value.propagate.call_count,count)
+                self.assertEqual(json.loads(Path(folder,'analysis_progress.json').read_text())['stage'],'anchor_complete')

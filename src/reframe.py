@@ -65,9 +65,9 @@ def load_config(path):
     c['output_dir'] = str((Path(path).resolve().parent / c['output_dir']).resolve())
     c['ffmpeg'] = imageio_ffmpeg.get_ffmpeg_exe()
     set_analysis_fps(c)
-    if c.get('tracking_mode') not in ('single','dual'):
-        raise ValueError('tracking_mode must be single or dual')
-    if c.get('tracking_mode')=='dual':
+    if c.get('tracking_mode') not in ('single','dual','anchor'):
+        raise ValueError('tracking_mode must be single, dual or anchor')
+    if c.get('tracking_mode') in ('dual','anchor'):
         c['color_refinement']=False
         if c.get('tracking_render_path') not in ('raw_angle','leveled','selected'):
             raise ValueError('tracking_render_path must be raw_angle, leveled or selected')
@@ -115,6 +115,9 @@ def prepare(c, max_time=None):
     samples = sorted(set([int(round(t * fps)) for t in np.arange(0, n / fps, c['sample_interval'])] + [n-1]))
     last_sample = None if max_time is None else min(samples,key=lambda i:abs(i/fps-max_time))
     for i in samples:
+        if c.get('tracking_mode')=='anchor':
+            bounds=c.get('anchor_tracking',{})
+            if i/fps<bounds.get('start_time',0)-1/fps or i/fps>bounds.get('end_time',n/fps)+1/fps:continue
         if last_sample is not None and i>last_sample:continue
         path = cache / f'{i:07d}.jpg'
         if path.exists():
@@ -225,6 +228,9 @@ def analyze(c, single=None):
     out = Path(c['output_dir'])
     meta = prepare(c,max_time=single)
     served=api(c['api_url'] + '/models')['data'][0];model=served['id'];c['_model_max_len']=served.get('max_model_len',32768)
+    if c.get('tracking_mode')=='anchor':
+        from anchor_tracking import run_anchors
+        return run_anchors(c,meta,model,(cached_frame,contextual_completion,write_json),api,single)
     if c.get('tracking_mode')=='dual':
         from dual_tracking import run_dual
         return run_dual(c,meta,model,(cached_frame,contextual_completion,write_json),single)
@@ -737,7 +743,7 @@ def render(c):
     ow,oh=c['output_width'],c['output_height']
     tracks=[]
     selection_rows=None
-    if c.get('tracking_mode')=='dual' and c.get('tracking_render_path')=='selected':
+    if c.get('tracking_mode') in ('dual','anchor') and c.get('tracking_render_path')=='selected':
         from tracking_selection import frame_provenance
         provenance={r['frame']:dict(r) for r in observations}
         corrections_path=out/'corrections.json'
@@ -834,7 +840,7 @@ def main():
     if args.stage in ('analyze', 'all'):
         analyze(c, args.single)
     if args.stage == 'backward':
-        if c.get('tracking_mode')=='dual':
+        if c.get('tracking_mode') in ('dual','anchor'):
             raise ValueError('Dual tracking runs independent backward passes via --stage analyze; resume analyze to reuse cached forward requests')
         out=Path(c['output_dir']);first=out/'observations_first_pass.json'
         if not first.exists():

@@ -7,6 +7,8 @@ class VisualTracker:
     def initialize(self, image, box):
         self.gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
         self.box=np.asarray(box,dtype=float)
+        x1,y1,x2,y2=self.box
+        self.corners=np.array([[x1,y1],[x2,y1],[x2,y2],[x1,y2]])
         mask=np.zeros(self.gray.shape,np.uint8)
         x1,y1=np.floor(self.box[:2]).astype(int);x2,y2=np.ceil(self.box[2:]).astype(int)
         mask[max(0,y1):max(0,y2),max(0,x1):max(0,x2)]=255
@@ -31,13 +33,13 @@ class VisualTracker:
         if matrix is None or inliers is None:return self._lost('No consistent target motion')
         good=inliers.ravel().astype(bool);scale=float(np.hypot(matrix[0,0],matrix[0,1]))
         if good.sum()<4 or not .8<=scale<=1.25:return self._lost('Unreliable scale or motion')
-        x1,y1,x2,y2=self.box
-        corners=np.array([[x1,y1],[x2,y1],[x2,y2],[x1,y2]])
-        moved=np.c_[corners,np.ones(4)]@matrix.T
+        moved=np.c_[self.corners,np.ones(4)]@matrix.T
         h,w=gray.shape
         box=np.r_[np.maximum(moved.min(axis=0),0),np.minimum(moved.max(axis=0),[w,h])]
         if np.any(box[2:]<=box[:2]):return self._lost('Target left the image')
         quality=float(good.sum()/len(self.points))
+        if quality<.25:return self._lost('Too few original features remain')
+        self.corners=moved
         self.uncertainty+=float(np.median(residual[valid][good]))+.15
         self.box=box;self.gray=gray;self.points=new[good].reshape(-1,1,2)
         return dict(box=box.tolist(),motion_quality=quality,uncertainty_px=self.uncertainty,

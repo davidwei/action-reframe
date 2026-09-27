@@ -26,6 +26,20 @@ def project_defaults():
     return c
 
 
+def set_anchor_options(config,data):
+    saved={}
+    if 'tracking_mode' in data:
+        if data['tracking_mode'] not in ('single','dual','anchor'):raise ValueError('Invalid tracking mode')
+        config['tracking_mode']=data['tracking_mode'];saved['tracking_mode']=data['tracking_mode']
+    for key in ('anchor_confidence','discovery_fps'):
+        if key in data:
+            config.setdefault('anchor_tracking',{})[key]=data[key];saved[key]=data[key]
+    if saved or config.get('tracking_mode')=='anchor':
+        from anchor_tracking import settings
+        settings(config)
+    return saved
+
+
 def select_project(name):
     if name:
         return name
@@ -68,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
                 out=local_path(config['output_dir'])
                 state={'project':config_name,'config':config,'running':JOB is not None and JOB.poll() is None,
                        'exit_code':None if JOB is None else JOB.poll()}
-                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison'):
+                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 log=out/'job.log'
                 state['log']=log.read_text()[-3000:] if log.exists() else ''
@@ -151,6 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                         c.pop('sample_interval',None)
                     if 'confidence_threshold' in data:
                         saved['confidence_threshold']=set_confidence_threshold(c,data['confidence_threshold'])
+                    saved.update(set_anchor_options(c,data))
                     if not saved:raise ValueError('No supported settings supplied')
                     write_json(config_path,c)
                     return self.json_response(saved)
@@ -180,6 +195,7 @@ class Handler(BaseHTTPRequestHandler):
                         set_analysis_fps(c,data['analysis_fps'],source_fps);c.pop('sample_interval',None);write_json(config_path,c)
                     if 'confidence_threshold' in data:
                         set_confidence_threshold(c,data['confidence_threshold']);write_json(config_path,c)
+                    if set_anchor_options(c,data):write_json(config_path,c)
                     if LOG is not None:LOG.close()
                     LOG=(out/'job.log').open('w')
                     JOB=subprocess.Popen([sys.executable,str(SOURCE_ROOT/'reframe.py'),str(config_path),'--stage',stage],cwd=ROOT,stdout=LOG,stderr=subprocess.STDOUT)

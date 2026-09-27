@@ -26,6 +26,19 @@ class DualTrackingTests(unittest.TestCase):
         self.assertEqual(box_iou(box,box),1)
         self.assertIsNone(box_iou(box,None))
 
+    def test_local_search_box_maps_back_to_original_pixels(self):
+        with tempfile.TemporaryDirectory() as folder:
+            meta={'cache':folder,'width':200,'height':100,'fps':30}
+            c={'target':'boat','verify_boxes':False,'_search_region':[40,20,100,70]}
+            def completion(c,meta,index,direction,rows,model,images,prompt,tokens):
+                self.assertIn('local SEARCH CROP',prompt)
+                return {'choices':[{'message':{'content':'{"bbox":[0,0,1000,1000],"confidence":0.9,"visibility":"visible"}'}}]},{}
+            helpers=(lambda *args:np.zeros((100,200,3),np.uint8),completion,lambda *args:None)
+            for path in ('raw_angle','leveled'):
+                result=observe_path(c,meta,{'frames':[{'roll':0}]},0,'test',[],path,'forward',helpers)
+                np.testing.assert_allclose(result['bbox'],[200,200,500,700])
+                self.assertEqual(result['view_size'],[60,50])
+
     def test_paths_pass_angle_without_previous_hint(self):
         with tempfile.TemporaryDirectory() as folder:
             meta={'cache':folder,'width':200,'height':100,'fps':30}

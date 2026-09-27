@@ -59,15 +59,18 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers)
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
     signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,c['target'],
-        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
+        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=cache/f'{signature}.json'
     if result_path.exists():
         result=json.loads(result_path.read_text())
         if not result.get('error') and not result.get('box_verification',{}).get('error'):return result
     image=frame_loader(c,meta,index)
     h,w=image.shape[:2]
-    matrix,size=(expanded_rotation(w,h,angle) if path=='leveled' else
-                 (np.array([[1.,0,0],[0,1.,0]]),(w,h)))
+    region=c.get('_search_region',[0,0,w,h])
+    x1,y1,x2,y2=region
+    matrix,size=(expanded_rotation(x2-x1,y2-y1,angle) if path=='leveled' else
+                 (np.array([[1.,0,0],[0,1.,0]]),(int(x2-x1),int(y2-y1))))
+    matrix[:,2]-=matrix[:,:2]@np.array([x1,y1])
     view=cv2.warpAffine(image,matrix,size,borderMode=cv2.BORDER_CONSTANT)
     current_path=cache/f'{index:07d}_{path}_view.jpg'
     cv2.imwrite(str(current_path),view)
@@ -80,6 +83,7 @@ Target: {c['target']}
 The user accepts a blurry, distant or low-resolution target. Track it whenever visible evidence supports its identity; do not reject it or lower confidence solely because it is blurry.
 Use coarse shape, color, equipment and motion context when fine details are unreadable. Do not invent missing details; return uncertainty only when the available evidence cannot distinguish the target.
 Current source frame {index}, time {index/meta['fps']:.3f}s. Source size {w}x{h}; IMAGE 2 size {size[0]}x{size[1]}.
+{'IMAGE 2 is a local SEARCH CROP, not the full source. Locate the target within this crop and return coordinates normalized to its full displayed extent; code maps them back to source coordinates.' if c.get('_search_region') else ''}
 Current gyro-derived roll is {angle:.6f} degrees. Positive roll requires counterclockwise correction.
 {'IMAGE 2 has already been rotated counterclockwise by that angle, with expanded black borders to avoid cutting content. Do not rotate again. Black padding is not scene content.' if path=='leveled' else 'IMAGE 2 has NOT been rotated. Use the angle to understand camera tilt; return coordinates in the RAW image.'}
 Additional HISTORY full frames use ORIGINAL RAW views, even in the leveled path. Use their visual motion context; return coordinates only in IMAGE 2.
@@ -97,6 +101,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
     for attempt in range(retries+1):
         attempt_cache=cache/'detection_requests'/signature/str(attempt)
         attempt_cache.mkdir(parents=True,exist_ok=True)
+        raw=None
         try:
             answer,audit=completion(detection_config,dict(meta,cache=str(attempt_cache)),index,direction,history,model,
                 images,prompt+feedback,650)
@@ -124,7 +129,8 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
                     score,verification['description'],verification['comparison'])
                 data['confidence_source']='blind_crop_text_match'
         except Exception as error:
-            data={'bbox':None,'confidence':0,'visibility':'uncertain','error':str(error)}
+            data={'bbox':None,'confidence':0,'visibility':'uncertain','error':str(error),
+                  'error_kind':'invalid_response' if isinstance(error,ValueError) else 'request_error','raw':raw}
         attempts.append(dict(data,attempt=attempt))
         verification=data.get('box_verification')
         threshold=c.get('tracking_selection',{}).get('confidence_threshold',.5)

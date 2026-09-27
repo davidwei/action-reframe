@@ -80,6 +80,7 @@
     const lines = [
       `Frame: ${frame} (zero-based) | Time: ${number(fps ? frame / fps : null, 3)} s`,
       `Result: ${state.config?.output_dir || 'not available'}`,
+      ...(nearest?.origin_anchor!=null?[`Anchor origin: frame ${nearest.origin_anchor} | parent frame: ${nearest.parent_frame??'none'} | direction: ${nearest.direction||'anchor'}`,`Localization: ${nearest.localized?'localized box':'propagated estimate'} | evidence: ${nearest.analysis_source||'manual'}`,`Motion quality: ${percent(nearest.motion_quality)} | uncertainty: ${number(nearest.motion_uncertainty_px)} px`,`Search region (source pixels): ${vector(nearest.search_region_px)}`]:[]),
       `Leveling source: ${level?.level_source==='gyro'?'DJI fused attitude (gyro-derived); final render uses telemetry':'legacy visual estimate; this result does not use gyro leveling'}`,
       `Leveling angle used for render: ${number(track?.roll)}°`,
       ...(level ? [

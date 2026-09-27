@@ -37,5 +37,14 @@
   "feather_pixels": 40,
   "leveling_source": "visual",
   "level_divergence_degrees": 5,
-  "level_workers": 2
+  "level_workers": 2,
+  "anchor_tracking": {
+    "discovery_fps": 2,
+    "anchor_confidence": 0.85,
+    "padding_fraction": 0.15,
+    "min_padding_px": 8,
+    "max_dimension_ratio": 1.5,
+    "max_area_ratio": 2,
+    "max_propagation_attempts": 4
+  }
 }

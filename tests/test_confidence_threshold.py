@@ -15,3 +15,13 @@ class ThresholdTests(unittest.TestCase):
             self.assertEqual(selected['selected_path'],expected)
             provenance=frame_provenance([dict(row,selected_path='raw_angle')],1,[True],threshold)
             self.assertEqual(provenance[0]['selected_path'],expected)
+
+    def test_anchor_threshold_settings(self):
+        from review_server import set_anchor_options
+        c={'tracking_selection':{'confidence_threshold':.5}}
+        saved=set_anchor_options(c,{'anchor_confidence':.9,'discovery_fps':2,'tracking_mode':'anchor'})
+        self.assertEqual(saved['anchor_confidence'],.9)
+        self.assertEqual(c['anchor_tracking']['anchor_confidence'],.9)
+        for invalid in [.4,1.1,True,float('nan')]:
+            with self.subTest(value=invalid),self.assertRaises(ValueError):
+                set_anchor_options({'tracking_selection':{'confidence_threshold':.5}}, {'anchor_confidence':invalid})
