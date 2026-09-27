@@ -18,5 +18,8 @@
   "widen_seconds": 2.0,
   "smoothing_seconds": 0.45,
   "border": "blurred_extension",
-  "feather_pixels": 40
+  "feather_pixels": 40,
+  "leveling_source": "visual",
+  "level_divergence_degrees": 5,
+  "level_workers": 2
 }

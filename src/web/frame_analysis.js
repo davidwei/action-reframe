@@ -23,6 +23,7 @@
     const correction = state.corrections?.[frame] || null;
     const confidence = !nearest?.manual && Number.isFinite(nearest?.confidence) ? nearest.confidence : null;
     const flags = track?.flags || [];
+    const level = track?.level_source ? track : state.level_comparison?.[frame];
     const box = track?.bbox;
     let status = 'No frame analysis', tone = 'neutral';
     if (track) {
@@ -51,7 +52,16 @@
       `Object size: ${box ? `${number(box[2]-box[0],1)} × ${number(box[3]-box[1],1)} px` : 'not available'}`,
       '',
       `Leveling angle used for render: ${number(track?.roll)}°`,
-      'Leveling source: visual shoreline estimate, not verified gravity/IMU data.',
+      `Leveling source: ${level?.level_source==='gyro'?'DJI fused attitude (gyro-derived); final render uses telemetry':'legacy visual estimate'}`,
+      ...(level ? [
+        `Gyro-derived roll: ${number(level.gyro_roll)}° | Qwen independent visual roll: ${number(level.qwen_roll)}°`,
+        `Qwen minus gyro: ${number(level.level_difference)}° | warning threshold: ${number(level.level_divergence_threshold)}°`,
+        `Comparison: ${level.level_divergent?'DIVERGENCE — review':level.qwen_roll==null?'visual estimate unavailable':'within threshold'}`,
+        `Qwen level sample: frame ${level.qwen_level_frame??'?'} (offset ${number(fps&&level.qwen_level_frame!=null?(level.qwen_level_frame-frame)/fps:null,3)} s); ${level.qwen_level_frame===frame?'direct':'nearest sampled frame, not an independent per-frame measurement'}`,
+        `Visual cue: ${level.qwen_level_cue} | orientation confidence: ${percent(level.qwen_level_confidence)} | model-reported confidence: ${percent(level.qwen_level_model_confidence)}`,
+        `Visual evidence: ${level.qwen_level_note||'none'}${level.qwen_level_error?' | '+level.qwen_level_error:''}`,
+        `Telemetry calibration: ${level.gyro_calibration}`
+      ] : []),
       'Angle convention: positive = source shoreline slopes down to the right; correction rotates counterclockwise.',
       `Crop center in source: ${vector(track?.center)} px`,
       `Crop size in source coordinates: ${number(cropWidth,1)} × ${number(track?.crop_height,1)} px`,
@@ -63,10 +73,10 @@
       `Visibility at that observation: ${nearest?.visibility || 'not available'}`,
       `Qwen box in source pixels: ${vector(rawBox)}`,
       `Qwen box in normalized 0–1000 coordinates: ${vector(nearest?.bbox)}`,
-      `Level confidence at that observation: ${percent(nearest?.level_confidence)}`,
-      `Shoreline endpoints [x1, y1, x2, y2], normalized 0–1000: ${vector(nearest?.shoreline)}`,
+      `Legacy tracking-pass level confidence (not independent leveling): ${percent(nearest?.level_confidence)}`,
+      `Legacy tracking-pass shoreline endpoints (not final gyro leveling): ${vector(nearest?.shoreline)}`,
       `Model note: ${nearest?.note || 'none'}`,
-      `Level explanation: ${nearest?.level_note || 'none recorded'}`,
+      `Legacy tracking-pass level explanation: ${nearest?.level_note || 'none recorded'}`,
       ...(nearest?.temporal_context ? [
         `Temporal context: ${nearest.temporal_context.direction}; ${nearest.temporal_context.history_count} prior sampled frames`,
         `History sent individually: ${nearest.temporal_context.individual_record_count}; summarized: ${nearest.temporal_context.summarized_record_count}`,
@@ -86,13 +96,13 @@
       '',
       correction ? 'Saved manual correction at this frame (separate from rendered values; rerender to apply new edits):' : 'Manual correction at this frame: none',
       ...(own(correction, 'bbox') ? [`  Object: ${correction.bbox === null ? 'marked absent' : vector(correction.bbox)+' px'}`] : []),
-      ...(own(correction, 'roll') ? [`  Level angle: ${number(correction.roll)}°`] : []),
+      ...(own(correction, 'roll') ? [`  Level angle: ${number(correction.roll)}°${level?.level_source==='gyro'?' (not applied: gyro is final)':''}`] : []),
       '',
       'Confidence belongs to the labeled Qwen observation. No separate calibrated per-frame tracking confidence is stored.'
     ];
-    return {status, tone, confidence, text: lines.join('\n'), data: {
+    return {status, tone, confidence, level, text: lines.join('\n'), data: {
       frame, time_seconds: fps ? frame/fps : null, rendered_track: track,
-      nearest_observation: nearest, observation_is_exact_frame: exact,
+      level_comparison:level||null, nearest_observation: nearest, observation_is_exact_frame: exact,
       preceding_observation: previous, following_observation: next, saved_manual_correction: correction
     }};
   }
@@ -104,10 +114,13 @@
     if (!element) return;
     if (!element.dataset.mounted) {
       element.classList.add('frame-analysis'); element.dataset.mounted = 'true';
-      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Nearest Qwen object confidence"></meter></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
+      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Nearest Qwen object confidence"></meter></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
     }
     const result = describe(state, frame, options.sourceMatches !== false);
     const badge = element.querySelector('.analysis-badge'); badge.textContent = result.status; badge.dataset.tone = result.tone;
+    const levelBadge=element.querySelector('.analysis-level');
+    levelBadge.hidden=!result.level;
+    if(result.level){const l=result.level;levelBadge.textContent=`Gyro ${number(l.gyro_roll)}° · Qwen ${number(l.qwen_roll)}° · Δ ${number(l.level_difference)}°${l.level_divergent?' — DIVERGENCE':''}`;levelBadge.dataset.tone=l.level_divergent?'lost':l.qwen_roll==null?'uncertain':'neutral';}
     element.querySelector('.analysis-score').textContent = `Nearest Qwen confidence: ${percent(result.confidence)}`;
     const meter = element.querySelector('meter'); meter.hidden = result.confidence === null; meter.value = result.confidence ?? 0;
     element.querySelector('.analysis-text').value = result.text;

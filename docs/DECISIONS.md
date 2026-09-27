@@ -15,4 +15,6 @@
 - Configurable Qwen analysis FPS, currently 10 (0.1-second samples); source-rate output with per-frame refinement.
 - Directional temporal history for both forward and backward passes, bounded to the model context window with auditable summaries.
 - Hold 0.75 seconds, widen over 2 seconds when target is missing.
-- Visual leveling initially. Camera metadata streams exist, but their IMU contents/calibration have not been decoded or validated. Do not describe visual estimates as gravity measurements.
+- Optional gyro-final leveling for inspected DJI Action 6 files: decoded per-frame fused attitude supplies the applied rotation; independent Qwen visual estimates are retained for comparison. The image-axis mapping remains provisional and visible in diagnostics. Other camera adapters and full calibration remain future work.
+- Highlight visual/gyro differences above a configurable threshold (initially 5 degrees). Qwen leveling receives only the current image and image-derived line candidates, without previous angles or telemetry values.
+- A 2 FPS leveling test can reuse completed 2 FPS target tracking; record that provenance and keep the previous outputs.

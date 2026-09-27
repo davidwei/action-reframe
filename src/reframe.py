@@ -20,7 +20,7 @@ from scipy.ndimage import gaussian_filter1d, maximum_filter1d, median_filter
 from backward_tracking import backward_pass, confident
 from temporal_context import build_context, context_key
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 
 
 def set_analysis_fps(c, value=None, source_fps=None):
@@ -125,6 +125,8 @@ def prepare(c, max_time=None):
 
 
 def contextual_completion(c,meta,index,direction,history,model,images,prompt,max_tokens):
+    # Tracking history retains identity/motion but cannot anchor independent leveling.
+    history=[{k:v for k,v in row.items() if k not in ('shoreline','level_confidence','level_note','manual_roll')} for row in history]
     settings=c.get('temporal_context',{})
     limit=min(int(settings.get('context_limit',32768)),int(c.get('_model_max_len',32768)))
     for compression in range(7):
@@ -133,7 +135,7 @@ def contextual_completion(c,meta,index,direction,history,model,images,prompt,max
         content=[image_message(path) for path in images]+[{'type':'text','text':text}]
         for entry in context_images:
             content.extend([{'type':'text','text':entry['label']},image_message(entry['path'])])
-        content.append({'type':'text','text':prompt+'\nHistory estimates can be wrong. Explain significant object or level changes using current image evidence.'})
+        content.append({'type':'text','text':prompt+'\nHistory estimates can be wrong. Explain significant object changes using current image evidence.'})
         messages=[{'role':'user','content':content}]
         request={'model':model,'messages':messages,'temperature':0,'max_tokens':max_tokens}
         # Use the server's actual multimodal tokenizer, not a character/token heuristic.
@@ -159,16 +161,17 @@ def observe(c, meta, i, model, history=None):
         cached = json.loads(result_path.read_text())
         if 'error' not in cached:
             return cached
+    level_task = ('Leveling is handled by an independent visual pass. Return shoreline=null, level_confidence=0 and level_note="separate leveling pass".'
+                  if c.get('leveling_source')=='gyro' else
+                  'Independently estimate visual level from the current frame using a true horizon or defensible background evidence. Do not assume shorelines or terrain are horizontal. Return two left-to-right reference points in shoreline, or null when ambiguous, with honest level_confidence.')
     prompt = f'''You are measuring a frame for an offline object-following video editor.
 Image 1 is a close-up reference of the chosen target. Image 2 is the CURRENT full video frame.
 Additional labeled images are temporal HISTORY, not the current frame.
 Target description: {c['target']}
-Identify only that same separate boat, not the camera boat. It may be extremely small near the shoreline.
-Return the tight bounding box of ALL visible target parts: entire sail, hull, sailor. Exclude reflections.
+Identify only the user-selected subject described above; do not switch to foreground or similar objects.
+Return the tight bounding box of ALL visible target parts and requested equipment. Exclude reflections.
 If outside the frame, hidden, or not identifiable, return bbox=null; do not guess another object.
-Also mark two widely separated points along the distant water/land boundary to estimate camera roll.
-Avoid mountains, cloud edges, boat rigging, waves and foreground boat. Use the shore at water level.
-This is only a visual leveling estimate; reduce level_confidence if perspective/slope/occlusion makes it uncertain.
+{level_task}
 All coordinates are normalized integers 0..1000 relative to IMAGE 2 (top-left origin). NOT pixels.
 Return ONLY JSON with these keys:
 {{"bbox":[x1,y1,x2,y2] or null,"confidence":0.0 to 1.0,
@@ -349,7 +352,9 @@ Return ONLY JSON: {{"bbox":[x1,y1,x2,y2] or null,"confidence":0..1,
 "shoreline":[x1,y1,x2,y2] or null,"level_confidence":0..1,"level_note":"background level evidence and change from later frames"}}.
 Bounding box coordinates are normalized 0..1000 within IMAGE 3 ONLY.
 Shoreline coordinates MUST be normalized 0..1000 within FULL IMAGE 4. Estimate its signed slope from the actual background,
-using the later frame level history as a fallible reference. Do not use the sail or rigging as a level reference.'''
+using only the current background evidence. Do not use the sail or rigging as a level reference.'''
+        if c.get('leveling_source')=='gyro':
+            prompt+='\nLeveling is a separate independent pass. For this tracking request return shoreline=null, level_confidence=0, level_note="separate leveling pass".'
         if c.get('color_refinement',False):
             prompt+=f'''\nImage 3 has {len(proposals)} NUMBERED candidate rectangles, with ids starting at 0.
 Select the rectangle containing the SAME target. Add "candidate": integer or null to your JSON.
@@ -692,6 +697,18 @@ def render(c):
     set_analysis_fps(c,meta.get('analysis_fps',1/meta.get('sample_interval',.5)))
     observations=json.loads((out/'observations.json').read_text())
     boxes,supported,roll,flags=measurements(c,meta,observations)
+    level_rows=None
+    if c.get('leveling_source')=='gyro':
+        from leveling import build_comparison
+        level_rows=build_comparison(c,meta)
+        roll=np.array([row['final_roll'] for row in level_rows])
+        for i,row in enumerate(level_rows):
+            flags[i]=[flag for flag in flags[i] if flag!='level_needs_review']
+            if row['level_divergent']:flags[i].append('qwen_gyro_divergence')
+            if row['qwen_roll'] is None:flags[i].append('visual_level_unavailable')
+            elif (row['qwen_level_confidence'] or 0)<.65:flags[i].append('visual_level_uncertain')
+            if row['qwen_direction_mismatch']:flags[i].append('visual_level_direction_inconsistent')
+        # Manual roll keys cannot silently override an explicitly selected gyro final source.
     centers,extent=camera_path(c,meta,boxes,supported,roll)
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
@@ -717,7 +734,8 @@ def render(c):
             encoder.stdin.write(result.tobytes())
             tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
                 'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),
-                'zoom':float(h/extent[i]),'flags':flags[i]})
+                'zoom':float(h/extent[i]),'flags':flags[i],
+                **({k:v for k,v in level_rows[i].items() if k not in ('frame','time')} if level_rows else {})})
             if i in meta['samples']:
                 cv2.imwrite(str(thumbs/f'{i:07d}.jpg'),cv2.resize(frame,(960,540)))
                 cv2.imwrite(str(thumbs/f'{i:07d}_out.jpg'),cv2.resize(result,(640,360)))
@@ -765,7 +783,7 @@ def make_comparison(c):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('config')
-    parser.add_argument('--stage', choices=['analyze', 'backward', 'render', 'compare', 'all'], default='all')
+    parser.add_argument('--stage', choices=['analyze', 'backward', 'level', 'level-render', 'render', 'compare', 'all'], default='all')
     parser.add_argument('--single', type=float)
     parser.add_argument('--analysis-fps',type=float,help='Qwen sample rate; independent of video playback FPS')
     parser.add_argument('--output-dir',help='Separate output directory for an FPS experiment')
@@ -790,7 +808,10 @@ def main():
         model=api(c['api_url']+'/models')['data'][0]['id']
         results=run_backward(c,meta,json.loads(first.read_text()),model)
         write_json(out/'observations.json',results)
-    if args.stage in ('render', 'all'):
+    if args.stage in ('level','level-render') or (args.stage=='all' and c.get('leveling_source')=='gyro'):
+        from leveling import run_leveling
+        run_leveling(c,api,args.single)
+    if args.stage in ('render', 'level-render', 'all'):
         render(c)
     if args.stage == 'compare':
         make_comparison(c)

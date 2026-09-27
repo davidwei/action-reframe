@@ -67,3 +67,31 @@ Tests generate tiny synthetic media in temporary directories and do not call Qwe
 Keep media, outputs, environments, and credentials out of Git. No workspace symlink is needed or automatically selected. An existing local symlink can be used explicitly through `--workspace data/workspace`. Avoid simultaneous jobs writing to the same output directory; durable multi-worker coordination is future work.
 
 Follow acceptance checks in `docs/PROJECT_PLAN.md`. Verify changed UI behavior as well as tests. The repository does not yet declare an open-source license; choose one before offering it for public reuse.
+
+## Gyro-final leveling with independent Qwen comparison
+
+For inspected DJI Osmo Action 6 (`dvtm_ac206.proto`) telemetry, set these fields in your project:
+
+```json
+{
+  "leveling_source": "gyro",
+  "level_divergence_degrees": 5,
+  "level_workers": 2
+}
+```
+
+`--stage all` performs tracking, independent visual leveling, and rendering. To reuse completed tracking in an existing output directory:
+
+```bash
+./scripts/run_reframe.sh /path/to/project.json --stage level-render
+```
+
+Use `--stage level --single 30` for one visual check, or `--stage level` for the configured sample grid. Analysis rate comes from that run's saved `meta.json`; change FPS by creating a new analysis run. `--stage render` uses saved visual observations and extracts telemetry again.
+
+The independent leveling request sees only the current original image and its measured line candidates. It receives no previous leveling answers and no telemetry angles. Qwen chooses visual evidence; the application computes the line angle, checks contradictory direction claims, and lowers absolute-orientation confidence for shorelines. This addresses repeated historical estimates without claiming every visual measurement is correct.
+
+In gyro mode, the final applied rotation is the per-frame DJI fused-attitude roll. Qwen estimates cannot override it. Manual roll corrections are disabled for that project. Missing, invalid, unsupported, or misaligned telemetry stops gyro rendering rather than silently substituting Qwen. The current axis mapping has visual corroboration but is still explicitly marked provisional; other cameras require their own validated adapters. Gyro-free projects retain `leveling_source: "visual"` by default.
+
+The comparison UI shows final gyro roll, independent Qwen roll, their signed difference, confidence, sample-frame offset, and evidence. Differences greater than the configured threshold get a red badge and separate jump-to-interval buttons. Comparison at intervening frames uses the nearest visual sample, explicitly labeled. A missing visual estimate is marked unavailable, not agreement. `level_summary.json` warns if the new visual pass repeats one angle throughout.
+
+Artifacts include `gyro.json`, `level_observations.json`, `level_comparison.json`, `level_summary.json`, `level_progress.json`, and content-keyed `level_cache/`. All remain in the ignored output workspace. Tracking and independent leveling observations are stored separately; the UI labels legacy tracking-pass level fields to avoid confusing them with the final rotation.

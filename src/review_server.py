@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
                 out=local_path(config['output_dir'])
                 state={'project':config_name,'config':config,'running':JOB is not None and JOB.poll() is None,
                        'exit_code':None if JOB is None else JOB.poll()}
-                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress'):
+                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 log=out/'job.log'
                 state['log']=log.read_text()[-3000:] if log.exists() else ''
@@ -157,6 +157,8 @@ class Handler(BaseHTTPRequestHandler):
                         if b is not None:
                             if len(b)!=4 or not (0<=b[0]<b[2]<=meta['width'] and 0<=b[1]<b[3]<=meta['height']):raise ValueError('Invalid rectangle')
                         v['bbox']=b
+                    if 'roll' in data and c.get('leveling_source')=='gyro':
+                        raise ValueError('Gyro is the final leveling source; manual roll overrides are disabled for this project')
                     if 'roll' in data:
                         r=float(data['roll'])
                         if not -90<=r<=90:raise ValueError('Roll must be between -90 and 90 degrees')
@@ -165,7 +167,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json_response({'saved':i})
                 if self.path=='/api/run':
                     stage=data.get('stage','all')
-                    if stage not in ('all','analyze','backward','render','compare'):raise ValueError('Invalid stage')
+                    if stage not in ('all','analyze','backward','level','level-render','render','compare'):raise ValueError('Invalid stage')
                     if 'analysis_fps' in data and stage in ('all','analyze'):
                         cap=cv2.VideoCapture(str(local_path(c['video'])));source_fps=cap.get(cv2.CAP_PROP_FPS);cap.release()
                         set_analysis_fps(c,data['analysis_fps'],source_fps);c.pop('sample_interval',None);write_json(config_path,c)

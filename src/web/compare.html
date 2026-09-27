@@ -11,17 +11,17 @@
 <div id="frameAnalysis"></div>
 <p id="status">Loading comparison…</p><p class="hint">Space: play/pause · Left/Right: step one frame · Shift+Left/Right: skip five seconds. Audio plays once. Both panels are display copies; the source file is unchanged.</p>
 <div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
-<div id="flags"></div>
+<p id="levelSummary"></p><div id="levelFlags"></div><div id="flags"></div>
 <script src="/files/frame_analysis.js"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
-let analysisState={},analysisFrame=-1;
+let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
 function showAnalysis(){if(currentFrame!==analysisFrame){FrameAnalysis.update($('frameAnalysis'),analysisState,currentFrame);analysisFrame=currentFrame}}
 $('review').href='/?config='+encodeURIComponent(project);
 function format(t){const m=Math.floor(t/60);return `${m}:${(t%60).toFixed(3).padStart(6,'0')}`}
 function update(mediaTime=v.currentTime){if(!ready)return;currentFrame=Math.max(0,Math.min(count-1,Math.floor(mediaTime*fps+0.0001)));$('seek').value=currentFrame;$('readout').textContent=`${format(mediaTime)} / ${format(count/fps)} · frame ${currentFrame} / ${count-1}`;showAnalysis()}
 function stepTo(i){if(!ready)return;v.pause();pendingFrame=Math.max(0,Math.min(count-1,Math.round(i)));v.currentTime=(pendingFrame+.1)/fps;$('seek').value=pendingFrame}
-v.onloadedmetadata=()=>{ready=true;for(const id of ['play','back','forward','minus','plus','seek'])$(id).disabled=false;update();$('status').textContent='Synchronized comparison ready. Both panels are encoded together, so they cannot drift.'};
+v.onloadedmetadata=()=>{ready=true;for(const id of ['play','back','forward','minus','plus','seek'])$(id).disabled=false;if(initialSeek!==null&&Number.isFinite(initialSeek)){stepTo(initialSeek*fps);initialSeek=null}update();$('status').textContent='Synchronized comparison ready. Both panels are encoded together, so they cannot drift.'};
 v.onplay=()=>{$('play').textContent='Pause both'};v.onpause=()=>{$('play').textContent='Play both'};
 v.onseeked=()=>{update();pendingFrame=null};v.ontimeupdate=()=>update();
 v.onerror=()=>{$('status').textContent='Could not load the comparison. Render the video first, then reload.'};
@@ -31,8 +31,15 @@ $('play').onclick=toggle;$('back').onclick=()=>stepTo((pendingFrame??currentFram
 $('seek').oninput=()=>stepTo(Number($('seek').value));$('speed').onchange=()=>v.playbackRate=Number($('speed').value);$('mute').onclick=()=>{v.muted=!v.muted;$('mute').textContent=v.muted?'Unmute':'Mute'};
 $('fullscreen').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else $('stage').requestFullscreen().catch(e=>$('status').textContent=e.message)};
 document.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}else if(['ArrowLeft','ArrowRight'].includes(e.code)){e.preventDefault();stepTo((pendingFrame??currentFrame)+(e.code==='ArrowLeft'?-1:1)*(e.shiftKey?5*fps:1))}});
-async function load(){try{const r=await fetch('/api/state?config='+encodeURIComponent(project));const s=await r.json();if(!r.ok)throw Error(s.error);analysisState=s;analysisFrame=-1;showAnalysis();if(!s.comparison){$('status').textContent='The comparison has not been rendered yet. Use the review page to render it.';return}fps=s.meta.fps;count=s.meta.frames;$('seek').max=count-1;const url='/files/'+s.comparison+'?v='+s.comparison_version;if(version!==s.comparison_version){version=s.comparison_version;ready=false;v.src=url;v.load()}$('download').href=url;$('download').download='comparison.mp4';$('download').hidden=false;
+async function load(){try{const r=await fetch('/api/state?config='+encodeURIComponent(project));const s=await r.json();if(!r.ok)throw Error(s.error);analysisState=s;analysisFrame=-1;renderLevelFlags(s);showAnalysis();if(!s.comparison){$('status').textContent='The comparison has not been rendered yet. Use the review page to render it.';return}fps=s.meta.fps;count=s.meta.frames;$('seek').max=count-1;const url='/files/'+s.comparison+'?v='+s.comparison_version;if(version!==s.comparison_version){version=s.comparison_version;ready=false;v.src=url;v.load()}$('download').href=url;$('download').download='comparison.mp4';$('download').hidden=false;
  $('flags').replaceChildren();const groups=[];for(const t of s.tracks||[]){if(!t.flags.length)continue;let g=groups.at(-1);if(!g||g.end!==t.frame-1){g={start:t.frame,end:t.frame};groups.push(g)}g.end=t.frame}for(const g of groups){const b=document.createElement('button');b.textContent=`Review ${format(g.start/fps)}–${format((g.end+1)/fps)}`;b.onclick=()=>stepTo(g.start);$('flags').append(b)}
 }catch(e){$('status').textContent=e.message}}
+function renderLevelFlags(s){
+ const rows=s.level_comparison||[],summary=s.level_summary;
+ $('levelSummary').textContent=summary?`Independent Qwen leveling: ${summary.valid_visual_samples}/${summary.visual_samples} samples · gyro is final · mean sampled difference ${summary.mean_absolute_difference==null?'unavailable':summary.mean_absolute_difference.toFixed(2)+'°'} · ${summary.divergent_frames} frames differ by more than ${summary.threshold_degrees}°${summary.repeated_visual_estimate_warning?' · WARNING: visual estimate repeats across all samples':''}`:'';
+ const root=$('levelFlags');root.replaceChildren();let groups=[];
+ for(const row of rows){if(!row.level_divergent)continue;let g=groups.at(-1);if(!g||g.end!==row.frame-1){g={start:row.frame,end:row.frame};groups.push(g)}g.end=row.frame;}
+ for(const g of groups){const b=document.createElement('button');b.style.background='#792e3b';b.style.margin='4px';b.textContent=`Level divergence ${format(g.start/s.meta.fps)}–${format((g.end+1)/s.meta.fps)}`;b.onclick=()=>stepTo(g.start);root.append(b)}
+}
 $('reload').onclick=load;load();
 </script></html>

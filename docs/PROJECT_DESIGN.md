@@ -163,6 +163,7 @@ Already present in the prototype:
 - Sampled analysis, temporal context, backward recovery, per-frame geometry/refinement, smooth reframing, and blurred feathered borders.
 - Configurable analysis FPS, cached observations, run metadata, basic progress records, and separate output directories.
 - Synchronized comparison, frame diagnostics, uncertainty flags, and basic corrections.
+- Optional Action 6 fused-attitude extraction, independent Qwen visual leveling, gyro-final rendering, and separate divergence indicators. This adapter has a provisional image-axis mapping; it is not general calibrated IMU support.
 
 Still proposed:
 
