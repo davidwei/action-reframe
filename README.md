@@ -1,5 +1,7 @@
 # Action Reframe
 
+See [current approach](docs/CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
+
 Offline subject tracking, camera leveling, smooth reframing, and review for action footage.
 
 The current prototype supports frame analysis, backward recovery, rendering, synchronized comparison, and corrections. The proposed three-part workflow—design plans, validate offline trials, then process approved videos—is described in [the design](docs/PROJECT_DESIGN.md) and [implementation plan](docs/PROJECT_PLAN.md).

@@ -1,5 +1,7 @@
 # Action video reframing: project design
 
+See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
+
 Design agreed through discussion on 2026-09-26. This document describes the intended product; the implementation boundary is listed below. See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the staged implementation and acceptance checks, and [prototype guide](PROTOTYPE.md) for current commands.
 
 ## 1. Goal

@@ -1,5 +1,7 @@
 # Agreed behavior
 
+See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
+
 - Target for the example: the other lime-green-sailed dinghy, including sail, hull and sailor, selected around 40 seconds.
 - Offline analysis; use the local Qwen3-VL model frequently for identification, verification and recovery.
 - Permit strong digital zoom and resulting blur. Do not discard poor segments: the user will select usable footage afterward.
@@ -7,7 +9,7 @@
 - Permit the viewport to extend beyond source boundaries. Feather source edges into a blurred extension; the extension is decorative, not recovered scene content.
 - Briefly hold the camera path when tracking is uncertain, then widen. Ask the VL model to reacquire. Flag frames for relabeling rather than silently changing identity.
 - Automatic first pass, with a review interface and correction data retained separately from model predictions.
-- After the first pass, use a later confident detection to track backward through each preceding uncertain interval once. Extend the confident interval only when new evidence passes the confidence threshold; preserve first-pass results and report recovery provenance.
+- Preferred new tracking mode: expand forward and backward from human or verified high-confidence anchors, then discover new anchors through full-frame scans of unresolved, previously unscanned positions. Existing forward/backward modes remain available for comparison; retain provenance and protect human labels.
 
 # Prototype defaults (adjustable, not user-mandated)
 

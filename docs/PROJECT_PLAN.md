@@ -1,5 +1,7 @@
 # Action video reframing: implementation plan
 
+See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
+
 This plan implements [PROJECT_DESIGN.md](PROJECT_DESIGN.md). Each step ends with a result the user can inspect. These are planned milestones, not claims of completed functionality. Reuse existing prototype components where they satisfy the acceptance checks.
 
 Work in order unless a dependency explicitly permits otherwise. Finish a narrow end-to-end workflow before broad performance tuning. Keep the existing comparison and source videos intact. Use the dedicated project environment.
@@ -181,3 +183,30 @@ Work in order unless a dependency explicitly permits otherwise. Finish a narrow 
 | Editing and hardening | 13–14 | Export selected moments and run validated long-video workloads |
 
 For every checkpoint, record the demonstrated artifact, the verification performed, remaining limitations, and the next incomplete step. A working button, generated JSON, or passing unit test alone is insufficient when the acceptance check requires a visual result.
+
+
+## Incremental prototype work — live human-label updates
+
+**Status:** Proposed; saving labels during processing is implemented, automatic
+reload inside an active analysis pass is not.
+
+**Build:** Track label revisions at task boundaries and before publishing model
+results. Insert new human anchors, invalidate affected context/cache dependencies,
+retire descendants of replaced/removed anchors, and enqueue bounded bidirectional
+recovery. Preserve unrelated completed work and checkpoint the consumed revision.
+Debounce repeated edits and prevent duplicate tasks. Keep the existing UI settings
+and new-job lock during active processing.
+
+**Result:** Saving an approval while analysis is running visibly updates the
+worker's active label revision and schedules relevant recovery without restarting
+the entire run.
+
+**User verification:** During a run, approve a zero-confidence box on an already
+processed frame and draw another label on an unsampled frame. Confirm both become
+human anchors, propagate in both directions, and survive an in-flight model result.
+Replace and remove a label, then restart from a checkpoint; verify stale anchor
+work cannot restore the old label. Confirm unrelated results remain unchanged.
+
+**Pass when:** The worker reports the consumed revision, final results preserve
+all current human labels, obsolete work cannot overwrite them, and the request
+log shows that only affected work was repeated.

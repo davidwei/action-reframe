@@ -1,5 +1,7 @@
 # Video focus prototype
 
+See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
+
 Offline object-focused reframing with a local Qwen3-VL endpoint, reviewable observations, per-frame crop/roll data, and a synchronized original/processed comparison.
 
 ## Environment
@@ -22,8 +24,8 @@ The comparison combines the original on the left and processed result on the rig
 - Space plays/pauses; arrow keys step; Shift+arrow keys jump five seconds when controls are not focused.
 - Review buttons jump to flagged intervals.
 - Reload latest render after rerendering a project.
-- Both pages include a frame-analysis text panel: rendered box/center/size, leveling angle, crop/zoom, review flags, visibility, model notes, and confidence indicators. The comparison panel follows playback and seeking; the selection page follows the displayed source frame. Expand “All stored values (JSON)” for the complete track, neighboring observations, and saved corrections.
-- Confidence is model-reported for the explicitly labeled nearest sampled Qwen frame, not a calibrated score for every intervening frame. Lost or uncertain tracks have a separate status badge. Saved manual corrections are shown separately from rendered values.
+- Both pages include a frame-analysis text panel: rendered box/center/size, leveling angle, crop/zoom, review flags, visibility, model notes, and confidence indicators. The comparison panel follows playback and seeking; the selection page follows the displayed source frame. Expand “All stored values (JSON)” for the complete track, exact-frame observations, and saved corrections.
+- Confidence uses exact-frame verification evidence (or human authority), not a neighboring sample. Interpolated frames have no fresh identity score; scores are not calibrated probabilities. Lost or uncertain tracks have a separate status badge. Saved manual corrections are shown separately from rendered values.
 
 Browser seeking/frame display depends on the browser decoder; synchronization of the two panels is guaranteed by their shared encoded frame.
 
@@ -51,7 +53,7 @@ For this green-sail example, `target_hue: 43` selects the sail color in OpenCV's
 
 The review page can select another video, load a timestamp, draw a target rectangle, and create a separate project. Supply an unambiguous target description. For example, explicitly distinguish a separate boat from the camera boat.
 
-After analysis, draw corrections at specific frames, mark absence, or add roll keyframes. Render again to apply saved corrections. Rectangle corrections are pixel coordinates in the original video; positive roll means a line slopes downward toward the right in the source image. Manual roll keyframes adjust the visual roll curve and are interpolated between keyframes.
+Draw corrections at specific frames or mark absence, including during analysis. Visual-leveling projects also support roll keyframes; gyro-final projects disable manual roll overrides. Render again to apply saved corrections. Rectangle corrections are pixel coordinates in the original video; positive roll means a line slopes downward toward the right in the source image. Manual roll keyframes adjust the visual roll curve and are interpolated between keyframes.
 
 ## Saved outputs
 
@@ -70,9 +72,9 @@ In `outputs/sailboat_example/`:
 
 ## Current limitations
 
-This is a first-pass prototype, not a validated general-purpose tracker. Qwen examines samples at the configured analysis FPS. Between them, geometry is interpolated; the example also enables sail-color refinement gated by VL location. New projects disable that specialized refinement. Tiny recovery candidates require nearby temporal confirmation before acceptance. A dedicated video tracker remains a next improvement for arbitrary subjects and abrupt motion.
+This is a first-pass prototype, not a validated general-purpose tracker. Qwen examines samples at the configured analysis FPS. Between them, geometry is interpolated; the example also enables sail-color refinement gated by VL location. New projects disable that specialized refinement. Tiny recovery candidates require nearby temporal confirmation before acceptance. Anchor mode now uses CPU optical flow through intervening frames; a learned appearance tracker remains a possible improvement for arbitrary subjects and abrupt motion.
 
-Leveling is a visual shoreline estimate, not decoded IMU/gravity data. Shoreline perspective and inaccurate VL coordinates can cause residual tilt. The review interface supports correction keyframes. Actual box/identity errors may also survive automated confidence checks: flags are heuristics, not guarantees.
+Visual leveling can be uncertain because of perspective and inaccurate VL evidence. Supported DJI projects can instead use decoded fused attitude as the final roll, with independent Qwen comparison; the axis mapping remains provisional. Visual-mode correction keyframes are supported. Actual box/identity errors may also survive automated confidence checks: flags are heuristics, not guarantees.
 
 The supplied example is constant-frame-rate 29.97 fps. The current renderer uses a constant output frame rate; variable-frame-rate sources and slow-motion timing need additional validation before general use. Cuts are not automatically detected yet.
 
@@ -276,10 +278,11 @@ the no-margin forward/backward comparison. Legacy single-path gap recovery is un
 
 ### Human-confirmed tracking anchors
 
-In an existing project, draw a rectangle on the original source frame and use
-**Save target box**. This saves one authoritative label in the project's
+In an existing project, draw on either the original or leveled/zoomed image and use
+**Save target box**, or approve a displayed cyan/orange estimate in Frame Analysis. This saves one authoritative label in the project's
 `output_dir/corrections.json`, keyed by zero-based source frame number, with
-`bbox: [left, top, right, bottom]` in original source pixels. Saving again at the
+`source_polygon_px`, its enclosing `bbox: [left, top, right, bottom]` in original
+source pixels, preview geometry, and approval provenance when applicable. Saving again at the
 same frame replaces that label. No project is created and no processing starts.
 The original video remains the image source; a separate reference-image copy is
 not necessary. Initial project creation remains available when no project exists.
@@ -303,8 +306,9 @@ is an instruction, not a calibrated model probability.
 Reanalyze and render to propagate a new label through tracking. Rendering saved
 analysis applies corrections to framing but does not update model tracking.
 The review UI shows the saved label immediately; existing rendered output remains
-unchanged until regenerated. The service currently blocks saving while its managed
-processing job is running.
+unchanged until regenerated. Saving is allowed while processing. The current pass may already have loaded
+its labels; live worker reloading is proposed, not implemented. Reanalysis or
+rerendering afterward guarantees application of the saved correction.
 
 ### Clean detection inputs and verification retries (dual tracking v4)
 
