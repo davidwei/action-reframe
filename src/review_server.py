@@ -206,23 +206,27 @@ class Handler(BaseHTTPRequestHandler):
                         if 'approve_path' in data:
                             selected_path=data['approve_path']
                             if selected_path not in ('raw_angle','leveled'):raise ValueError('Invalid path')
-                            comparisons=json.loads((out/'tracking_comparison.json').read_text())
-                            row=next((r for r in comparisons if r['frame']==i),None)
-                            candidate=row.get(selected_path) if row else None
-                            if not candidate or not candidate.get('bbox'):raise ValueError('No direct candidate at this frame; select a sampled frame')
-                            points=candidate.get('source_polygon_px') if selected_path=='raw_angle' else None
-                            # Orange is the displayed source-space enclosing rectangle.
-                            if not points:
-                                box=[v*(meta['height'] if j%2 else meta['width'])/1000 for j,v in enumerate(candidate['bbox'])]
-                                points=box_polygon(box)
+                            # The shared UI submits the exact displayed outline, including
+                            # interpolated/held estimates. Human approval needs no model score.
+                            points=data.get('polygon')
+                            if points is None:
+                                comparisons=json.loads((out/'tracking_comparison.json').read_text())
+                                row=next((r for r in comparisons if r['frame']==i),None)
+                                candidate=row.get(selected_path) if row else None
+                                if not candidate or not candidate.get('bbox'):raise ValueError('No candidate box supplied for this frame')
+                                points=candidate.get('source_polygon_px') if selected_path=='raw_angle' else None
+                                if not points:
+                                    box=[v*(meta['height'] if j%2 else meta['width'])/1000 for j,v in enumerate(candidate['bbox'])]
+                                    points=box_polygon(box)
                             label=canonical_label(points,'raw',geometry);label['approved_path']=selected_path
+                            label['approval_estimate']=data.get('approval_estimate')
                         elif data.get('polygon') is not None:
                             label=canonical_label(data['polygon'],data.get('space','raw'),geometry)
                         elif data.get('bbox') is not None:
                             label=canonical_label(box_polygon(data['bbox']),'raw',geometry)
                         else:
                             label={'bbox':None,'source_polygon_px':None,'processed_polygon_px':None,'confidence_source':'human'}
-                        for key in ('source_polygon_px','processed_polygon_px','selection_space','view_polygon_px','preview_geometry','approved_path','confidence_source'):
+                        for key in ('source_polygon_px','processed_polygon_px','selection_space','view_polygon_px','preview_geometry','approved_path','approval_estimate','confidence_source'):
                             v.pop(key,None)
                         v.update(label)
                     if 'roll' in data and c.get('leveling_source')=='gyro':

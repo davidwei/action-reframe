@@ -128,8 +128,9 @@ selections; a selection entirely outside source content is rejected. The blurred
 extension does not supply additional source pixels.
 
 Both views share **Approve Cyan (raw path)** and **Approve Orange (leveled path)**
-inside Frame Analysis. Approval requires a candidate recorded at this exact frame;
-interpolated playback outlines cannot be approved. Approval saves the displayed
+inside Frame Analysis. Approval is enabled whenever that path has a displayed box, including zero-confidence,
+interpolated, and held estimates. The exact displayed outline is saved for the
+currently displayed frame; approval provenance records the estimate type. Approval saves the displayed
 outline: cyan's source polygon, or orange's enclosing source rectangle. It does
 not replace that outline with an unseen detector-space box.
 

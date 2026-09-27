@@ -106,7 +106,7 @@ class PortabilityTests(unittest.TestCase):
         saved=json.loads((out/'corrections.json').read_text())['0']
         self.assertEqual(saved['selection_space'],'processed')
         np.testing.assert_allclose(saved['processed_polygon_px'],points,atol=.001)
-        candidate={'bbox':[100,100,400,400],'source_polygon_px':[[7,5],[25,6],[24,18],[6,17]]}
+        candidate={'confidence':0,'bbox':[100,100,400,400],'source_polygon_px':[[7,5],[25,6],[24,18],[6,17]]}
         (out/'tracking_comparison.json').write_text(json.dumps([{'frame':1,'raw_angle':candidate,'leveled':candidate}]))
         self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'raw_angle'})
         saved=json.loads((out/'corrections.json').read_text())['1']
@@ -114,6 +114,13 @@ class PortabilityTests(unittest.TestCase):
         self.assertEqual(saved['source_polygon_px'],candidate['source_polygon_px'])
         with self.assertRaises(urllib.error.HTTPError):
             self.request('/api/correct',{'config':'labels.json','frame':0,'approve_path':'raw_angle'})
+        # A displayed estimate can be approved on a frame without a direct sample.
+        estimate={'interpolated':True,'sample_frame':1}
+        self.request('/api/correct',{'config':'labels.json','frame':0,'approve_path':'leveled','polygon':points,'approval_estimate':estimate})
+        approved=json.loads((out/'corrections.json').read_text())['0']
+        self.assertEqual(approved['source_polygon_px'],points)
+        self.assertEqual(approved['confidence_source'],'human')
+        self.assertEqual(approved['approval_estimate'],estimate)
         self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'leveled'})
         saved=json.loads((out/'corrections.json').read_text())['1']
         np.testing.assert_allclose(saved['bbox'],[6.4,4.8,25.6,19.2],atol=.001)

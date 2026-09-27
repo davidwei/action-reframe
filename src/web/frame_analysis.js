@@ -210,19 +210,19 @@
       element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><div class="analysis-approval" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><button type="button" data-approve="raw_angle">Approve Cyan (raw path)</button><button type="button" data-approve="leveled">Approve Orange (leveled path)</button><span class="analysis-approval-status" role="status"></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
     }
     const result = describe(state, frame, options.sourceMatches !== false);
-    const paired=state.tracking_comparison?.find(row=>row.frame===frame);
+    const displayed=playbackBoxes(state,frame);
     for(const button of element.querySelectorAll('[data-approve]')){
-      const path=button.dataset.approve,candidate=paired?.[path];
-      button.disabled=!!state.running||options.sourceMatches===false||!candidate?.bbox;
-      button.title=candidate?.bbox?'Save this displayed candidate as a human-confirmed polygon':'No direct candidate at this frame; select a sampled frame';
+      const path=button.dataset.approve,candidate=displayed.find(box=>box.path===path);
+      button.disabled=!!state.running||options.sourceMatches===false||!candidate?.polygon;
+      button.title=candidate?.polygon?'Approve the displayed box regardless of confidence':'No box displayed for this path at this frame';
       button.onclick=async()=>{
         const message=element.querySelector('.analysis-approval-status');button.disabled=true;message.textContent='Saving…';
         try{
-          const response=await fetch('/api/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:state.project||new URLSearchParams(location.search).get('config'),frame,approve_path:path})});
+          const response=await fetch('/api/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:state.project||new URLSearchParams(location.search).get('config'),frame,approve_path:path,polygon:candidate.polygon,approval_estimate:{interpolated:candidate.interpolated,sample_frame:candidate.sampleFrame}})});
           const value=await response.json();if(!response.ok)throw Error(value.error||response.status);
           message.textContent='Approved as human label (100%). Reanalyze or render to apply.';
           element.dispatchEvent(new CustomEvent('analysis-approved',{bubbles:true,detail:{frame,path}}));
-        }catch(error){message.textContent=error.message;}finally{button.disabled=!!state.running||!candidate?.bbox;}
+        }catch(error){message.textContent=error.message;}finally{button.disabled=!!state.running||!candidate?.polygon;}
       };
     }
 
