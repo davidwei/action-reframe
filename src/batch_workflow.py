@@ -374,37 +374,8 @@ class Batch:
 
 
 def draft_description(batch, project):
-    import base64
-    import cv2
-    from reframe import api, load_config
-    config=load_config(batch.path(project));batch.validate(config)
-    _,labels,_=batch.inputs(project)
-    cap=cv2.VideoCapture(config['video']);fps=cap.get(5)
-    reference=round(config['reference_time']*fps)
-    selections={reference:{'bbox':config['reference_box']}}
-    selections.update({int(i):label for i,label in labels.items()})
-    candidates=[(i,r) for i,r in selections.items() if r.get('bbox')]
-    candidates.sort(key=lambda pair:(pair[0]!=reference,pair[0]))
-    content=[]
-    from label_geometry import human_crop
-    for index,record in candidates[:5]:
-        cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,image=cap.read()
-        if not ok:continue
-        h,w=image.shape[:2]
-        normalized=dict(record,bbox=[v/(h if j%2 else w)*1000 for j,v in enumerate(record['bbox'])])
-        crop=human_crop(image,normalized)
-        if not crop.size:continue
-        scale=min(1,960/max(crop.shape[:2]))
-        if scale<1:crop=cv2.resize(crop,(max(1,round(crop.shape[1]*scale)),max(1,round(crop.shape[0]*scale))))
-        ok,encoded=cv2.imencode('.jpg',crop)
-        if ok:content.append({'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()}})
-    cap.release()
-    if not content:raise ValueError('Add a readable ground-truth crop before drafting with Qwen')
-    model=api(config['api_url']+'/models')['data'][0]['id']
-    content.append({'type':'text','text':"These are human-labeled crops of the same target at different times. Summarize the subject's identity across these references: type, colors, shape, equipment, markings, visible parts and limitations. Separate stable traits from viewpoint-dependent appearance. Blur is acceptable; do not invent unreadable details or assume every crop contains all parts. Do not use image location or background as identity. User intent: "+config['target']+'\nReturn one plain-text draft for human review and editing.'})
-    response=api(config['api_url']+'/chat/completions',{'model':model,'temperature':0,'max_tokens':600,
-        'messages':[{'role':'user','content':content}]})
-    return response['choices'][0]['message']['content']
+    from description_review import review
+    return review(batch,project,'draft')['description']
 
 
 if __name__=='__main__':

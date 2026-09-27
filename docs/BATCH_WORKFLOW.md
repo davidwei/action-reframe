@@ -19,7 +19,7 @@ that folder; recursive subfolder import is not yet implemented.
    Existing projects are listed separately, including multiple targets per video.
 2. **Prepare inputs.** Open labels/settings to set analysis FPS, tracking mode and
    confidence thresholds. Use Review descriptions to open the description editor in Video focus. With
-   labeled crops and no saved text, Qwen prepopulates a draft using up to five
+   labeled crops and no saved text, Qwen prepopulates a draft using all
    ground-truth crops; without crops the editor starts empty. Saved text is
    preserved, and a regenerate control can draft again from the crops. Edit the
    text and save a draft or explicitly approve it; drafting never approves it.
@@ -27,8 +27,8 @@ that folder; recursive subfolder import is not yet implemented.
    configuration/label/source revision. Changing these inputs makes readiness
    stale. Unapproved projects cannot be queued. The approved description is used
    directly by crop-text verification; its candidate crop description remains
-   blind to the target. Legacy projects without an approved description retain
-   their previous reference-description behavior.
+   blind to the target. Legacy projects without an approved description use the same blind crop
+   descriptor on their initial reference crop.
 4. **Queue selected projects.** Select ready projects individually or select all
    ready. Each run receives a saved input snapshot and an isolated output folder.
    Queueing is separate from starting. Duplicate pending jobs for the same
@@ -136,3 +136,36 @@ Each project (including discarded projects) shows **Last updated** in the browse
 local time zone, with an exact UTC timestamp on hover. It reflects the latest
 saved configuration, labels, description/approval, discard/restore, job status or
 processing output update. Merely refreshing the library does not change it.
+
+### Description review and consistency checks
+
+Video focus → Review descriptions displays every positive human selection (including
+its initial reference, overridden by any correction at that frame). Polygon labels
+use the same masked source-space crops as tracking. Each card shows its frame/time,
+crop image, independent crop description, identity confidence, discrepancies,
+reason, and completeness assessment. These text-consistency scores do not reduce
+human labels’ authoritative 100% tracking confidence.
+
+1. `crop_description.describe_crop` describes each image with one identical blind
+   prompt, whether it is a human selection or a detected box. It receives no target
+   instruction, role hint, earlier description, or detector claim.
+2. Qwen summarizes only those independent descriptions into an editable identity
+   description, preserving uncertainty, contradictions and appearance variations.
+3. `description_comparison.compare_descriptions` compares the summary against each
+   crop description. Tracking verification calls this exact same function/prompt.
+   Confidence is its match score when target presence is supported, otherwise zero.
+   Completeness is separate. Scores are model judgments, not calibrated probabilities.
+4. Each score must reach 80% to pass this consistency check. Below-threshold cards
+   show feedback. **Revise using feedback** retries step 2 once per click and then
+   rechecks every crop; cached image descriptions remain unchanged. There is no
+   unbounded automatic retry loop or automatic approval. Conflicting labels may
+   require human correction rather than a more generic summary.
+5. **Check against crops** checks manually edited text without rewriting it.
+   Text edits hide old scores; label/source changes invalidate cached evidence.
+   Saving/approving remains explicit and may retain unresolved warnings: consistency
+   is review feedback, not a replacement for human authority or a new Ready gate.
+
+Observations, summary requests, comparison responses and each completed attempt are
+stored under the workspace `.batch/description_drafts/`, keyed by source/labels and
+prompt version; observation caches additionally separate models. Existing tracking
+results are not rewritten. New tracking calls use the updated verifier version.

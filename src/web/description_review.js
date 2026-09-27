@@ -1,42 +1,65 @@
-/* Description editing lives in Video focus; library links to this section. */
+/* Shared blind observations and identity checks; human approval stays explicit. */
 window.DescriptionReview=(()=>{
- const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,autoAttempted=false;
+ const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,autoAttempted=false,review=null,lastPoll=0,polling=false;
  async function request(action,body){const r=await fetch('/api/batch/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json();if(!r.ok)throw Error(result.error||r.status);return result}
  function status(text){$('descriptionStatus').textContent=text}
+ function current(){return review?.description===$('descriptionText').value.trim()}
+ function crops(){
+  const parent=$('descriptionCrops');parent.replaceChildren();
+  for(const r of review?.references||[]){
+   const card=document.createElement('article');card.style.cssText='width:260px;padding:10px;border:1px solid #666;border-radius:6px';
+   const image=document.createElement('img');image.src='/files/'+r.crop_path.split('/').map(encodeURIComponent).join('/');image.alt='Ground-truth crop at frame '+r.frame;image.style.cssText='width:100%;height:150px;object-fit:contain';card.append(image);
+   const add=(tag,text)=>{const e=document.createElement(tag);e.textContent=text;card.append(e);return e};
+   add('h3',`Frame ${r.frame} · ${r.time.toFixed(3)}s`);
+   const valid=current()&&Number.isFinite(r.confidence);
+   const score=add('p',valid?`Identity confidence: ${(r.confidence*100).toFixed(1)}% — ${r.passed?'Pass':'Below 80%: review / revise summary'}`:r.comparison?'Score outdated — check this description again.':'Not checked yet.');
+   if(valid)score.style.color=r.passed?'#65dfab':'#ffba70';
+   add('p',r.box_description||'Crop description will be generated when you draft or check.');
+   if(valid){add('p',r.comparison.reason);if(r.comparison.differences.length)add('p','Differences / missing evidence: '+r.comparison.differences.join('; '));add('p','Complete object supported: '+(r.comparison.target_complete?'Yes':'No / uncertain'))}
+   parent.append(card);
+  }
+ }
  function controls(){const readonly=!!state?.config?.batch_input_revision,hasBox=!!state?.config?.reference_box;
   $('descriptionText').disabled=busy||!project||readonly;
-  $('draftDescription').disabled=busy||!project||!hasBox||readonly;
+  for(const id of ['draftDescription','checkDescription','retryDescription','approveDescription'])$(id).disabled=busy||!project||!hasBox||readonly;
+  $('retryDescription').disabled ||= !current()||!review?.references?.some(r=>r.passed===false);
   $('saveDescription').disabled=busy||!project||readonly;
-  $('approveDescription').disabled=busy||!project||!hasBox||readonly;
  }
- async function generate(){
+ async function generate(action='draft'){
   if(busy||!state?.config?.reference_box)return;
-  const current=++token;busy=true;controls();status('Qwen is summarizing up to five labeled crops…');
-  try{const result=await request('draft',{project});if(current!==token)return;$('descriptionText').value=result.description;dirty=true;status('Draft ready. Review and edit before approving.')}
-  catch(e){status(e.message+' You can write the description manually.')}
-  finally{if(current===token){busy=false;controls()}}
+  const active=++token;busy=true;controls();status(action==='draft'?'Qwen is describing all labeled crops, summarizing, and checking each crop…':action==='retry-description'?'Qwen is revising the summary using feedback, then rechecking each crop…':'Comparing each crop description with your edited description…');
+  try{const result=await request(action,{project,description:$('descriptionText').value.trim()});if(active!==token)return;review=result;if(action!=='check-description'){$('descriptionText').value=result.description;dirty=true}crops();status(result.all_passed?'All crops pass 80%. Review and approve when satisfied.':'Some crops score below 80%. Review their feedback and revise the summary or labels.');}
+  catch(e){if(active===token)status(e.message+' You can edit the description manually.')}
+  finally{if(active===token){busy=false;controls()}}
+ }
+ async function refreshReview(){
+  if(polling||busy||!project)return;const active=token,selected=project;polling=true;lastPoll=Date.now();
+  try{const result=await request('description-status',{project:selected});if(active===token&&project===selected){review=result;crops();controls()}}
+  catch(e){if(active===token)status(e.message)}finally{polling=false}
  }
  async function maybeDraft(){if(location.hash==='#identity-description'&&!autoAttempted&&!busy&&state?.config?.reference_box&&!state?.config?.batch_input_revision&&!$('descriptionText').value.trim()){autoAttempted=true;await generate()}}
  async function update(next){
   state=next;
   if(project!==next.project){
-   project=next.project;const current=++token;dirty=false;busy=true;autoAttempted=false;controls();
+   project=next.project;const active=++token;dirty=false;busy=true;autoAttempted=false;review=null;crops();controls();
    if(!project){$('descriptionText').value='';status('Create a project to save a description.');busy=false;controls();return}
-   if(next.config.batch_input_revision){$('descriptionText').value=next.config.approved_target_description||'';status('Approved description for this saved run. Edit descriptions in its source project to prepare a new revision.');busy=false;controls();return}
-   try{const response=await fetch('/api/batch');const data=await response.json();if(!response.ok)throw Error(data.error);if(current!==token)return;const p=data.projects.find(p=>p.project===project);$('descriptionText').value=p?.description||'';status(p?.ready?'Description approved for current inputs.':next.config.reference_box?'Review or draft the identity description.':'Write a draft, then label the subject before approving.')}
-   finally{if(current===token){busy=false;controls()}}
+   try{
+    if(next.config.batch_input_revision){$('descriptionText').value=next.config.approved_target_description||'';status('Approved description for this saved run. Edit its source project to prepare a new revision.')}
+    else{const response=await fetch('/api/batch');const data=await response.json();if(!response.ok)throw Error(data.error);if(active!==token)return;const p=data.projects.find(p=>p.project===project);$('descriptionText').value=p?.description||'';status(p?.ready?'Description approved for current inputs.':'Review or draft the identity description.')}
+   }catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
+   await refreshReview();
+   if(!dirty&&!$('descriptionText').value.trim()&&review?.description){$('descriptionText').value=review.description;dirty=true;autoAttempted=true;crops();status('Restored the last checked draft. Review and save or approve it.')}
   }
+  if(Date.now()-lastPoll>10000)await refreshReview();
   controls();await maybeDraft();
  }
- $('descriptionText').oninput=()=>{dirty=true;status('Unsaved changes — save as draft or approve.')};
- $('draftDescription').onclick=()=>generate();
+ $('descriptionText').oninput=()=>{dirty=true;crops();controls();status('Unsaved changes — check against crops, then save or approve.')};
+ $('draftDescription').onclick=()=>generate();$('checkDescription').onclick=()=>generate('check-description');$('retryDescription').onclick=()=>generate('retry-description');
  for(const [id,ready] of [['saveDescription',false],['approveDescription',true]])$(id).onclick=async()=>{
-  if(busy)return;busy=true;controls();
-  try{await request('prepare',{project,description:$('descriptionText').value,ready});dirty=false;status(ready?'Description approved. Project is Ready in the library.':'Draft saved. Project is Draft in the library.')}
-  catch(e){status(e.message)}finally{busy=false;controls()}
+  if(busy)return;const active=++token;busy=true;controls();
+  try{await request('prepare',{project,description:$('descriptionText').value,ready});if(active!==token)return;dirty=false;status((ready?'Description approved. Project is Ready in the library.':'Draft saved.')+(!current()?' Crop scores have not been checked for this description.':review?.all_passed?'':' Some crops remain below 80%.'))}
+  catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
  };
- window.addEventListener('hashchange',()=>maybeDraft());
- window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue=''}});
- controls();
- return {update};
+ window.addEventListener('hashchange',()=>maybeDraft());window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue=''}});
+ controls();return {update};
 })();

@@ -182,3 +182,14 @@ retry and per-run comparison/correction links. Batch verification consumes the
 approved description directly. This implements the label-driven batch route;
 the richer model-generated planner and trial-plan approval route described above
 remain future work. Live label ingestion and selective repair remain future work.
+
+
+### Shared crop-description consistency review
+
+Human-label crops and detected crops now use the same blind image-to-text function
+(`crop_description.py`). Description review summarizes all labeled observations,
+then scores every observation against the summary using the tracking comparator
+(`description_comparison.py`). Video focus shows the crops, scores, discrepancies
+and completeness separately; scores below 80% offer a feedback-driven summary retry.
+Retries reuse observations. Edited text requires rechecking to display current scores.
+See [batch workflow](BATCH_WORKFLOW.md#description-review-and-consistency-checks).

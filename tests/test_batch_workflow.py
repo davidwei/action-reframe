@@ -150,19 +150,47 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(self.batch.library()['projects'],[])
         self.assertEqual(self.batch.library()['archived'][0]['project'],'project.json')
 
-    def test_description_draft_uses_multiple_human_crops(self):
-        from batch_workflow import draft_description
+    def test_description_review_shared_prompts_retry_cache_and_stale_labels(self):
+        from description_review import review
+        from crop_description import PROMPT
+        from description_comparison import PROMPT as COMPARE
         write(self.root/'outputs/source/corrections.json',{'1':{'bbox':[12,12,32,32],'source_polygon_px':[[12,12],[32,12],[32,32],[12,32]]}})
-        calls=[]
+        calls=[];value=.79
         def api(url,payload=None):
             if payload is None:return {'data':[{'id':'fixture'}]}
-            calls.append(payload)
-            return {'choices':[{'message':{'content':'A green target'}}]}
+            calls.append(payload);content=payload['messages'][0]['content'];prompt=content[-1]['text']
+            if prompt==PROMPT:
+                self.assertEqual(sum(c['type']=='image_url' for c in content),1)
+                result=json.dumps({'box_description':'A green target'})
+            elif prompt.startswith('Compare Description A'):
+                self.assertEqual(prompt,COMPARE.format(a=json.dumps('A green target'),b=json.dumps('A green target')))
+                self.assertEqual(len(content),1)
+                result=json.dumps(dict(match_score=value,target_present=True,target_complete=False,differences=['Clipped edge'],reason='Green appearance matches'))
+            else:
+                self.assertEqual(len(content),1);self.assertNotIn('ground truth',prompt);self.assertNotIn('candidate crop',prompt)
+                result='A green target'
+            return {'choices':[{'message':{'content':result}}]}
+        initial=review(self.batch,'project.json')
+        self.assertEqual(len(initial['references']),2)
         with patch('reframe.api',side_effect=api):
-            self.assertEqual(draft_description(self.batch,'project.json'),'A green target')
-        content=calls[0]['messages'][0]['content']
-        self.assertEqual(sum(c['type']=='image_url' for c in content),2)
-        self.assertIn('same target',content[-1]['text'])
+            result=review(self.batch,'project.json','draft')
+            self.assertFalse(result['all_passed']);self.assertEqual(len(calls),5)
+            self.assertTrue(all(r['confidence']==.79 for r in result['references']))
+            self.assertFalse(result['approved'])
+            value=.8
+            retried=review(self.batch,'project.json','retry',result['description'])
+            self.assertTrue(retried['all_passed']);self.assertEqual(len(calls),8)
+            self.assertIn('Consistency-check results',calls[5]['messages'][0]['content'][0]['text'])
+            self.assertEqual(sum(p['messages'][0]['content'][-1]['text']==PROMPT for p in calls),2)
+            checked=review(self.batch,'project.json','check','A green target')
+            self.assertTrue(checked['all_passed']);self.assertEqual(len(calls),10)
+            with self.assertRaises(ValueError):review(self.batch,'project.json','retry','Edited text')
+        self.assertEqual(review(self.batch,'project.json')['description'],'A green target')
+        self.batch.prepare('project.json','A green target',True)
+        self.assertEqual(review(self.batch,'project.json')['evidence_key'],initial['evidence_key'])
+        write(self.root/'outputs/source/corrections.json',{'1':{'bbox':[14,12,32,32]}})
+        stale=review(self.batch,'project.json')
+        self.assertNotEqual(stale['evidence_key'],initial['evidence_key']);self.assertNotIn('description',stale)
 
     def test_invalid_inputs_and_batch_atomic_validation(self):
         self.queue()

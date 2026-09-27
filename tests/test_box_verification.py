@@ -12,12 +12,11 @@ class BoxVerificationTests(unittest.TestCase):
             def api(url,payload):
                 calls.append(payload);content=payload['messages'][0]['content'];prompt=content[-1]['text']
                 self.assertEqual(len(payload['messages']),1)
-                if 'human-selected crop' in prompt:
-                    result={'target_description':'TRUSTED_SENTINEL green triangular sailboat'}
-                elif 'Describe only what' in prompt:
+                if 'Describe only what' in prompt:
                     self.assertNotIn('CLAIM_SENTINEL',prompt);self.assertNotIn('TARGET_SENTINEL',prompt);self.assertNotIn('TRUSTED_SENTINEL',prompt)
                     self.assertEqual(sum(p['type']=='image_url' for p in content),1)
-                    result={'box_description':'Only water'}
+                    result={'box_description':'TRUSTED_SENTINEL green triangular sailboat' if len(calls)==1 else 'Only water'}
+                    if len(calls)==2:self.assertEqual(prompt,calls[0]['messages'][0]['content'][-1]['text'])
                 else:
                     self.assertNotIn('CLAIM_SENTINEL',prompt);self.assertNotIn('TARGET_SENTINEL',prompt)
                     self.assertIn('TRUSTED_SENTINEL',prompt);self.assertIn('Only water',prompt)

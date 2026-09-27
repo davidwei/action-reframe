@@ -209,9 +209,11 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(length))
             config_name=select_project(data.get('config'))
             config_path=local_path(config_name) if config_name else None
-            if self.path=='/api/batch/draft':
-                from batch_workflow import Batch,draft_description
-                return self.json_response({'description':draft_description(Batch(ROOT),data['project'])})
+            if self.path in ('/api/batch/draft','/api/batch/description-status','/api/batch/check-description','/api/batch/retry-description'):
+                from batch_workflow import Batch
+                from description_review import review
+                action={'draft':'draft','description-status':'status','check-description':'check','retry-description':'retry'}[self.path.rsplit('/',1)[-1]]
+                return self.json_response(review(Batch(ROOT),data['project'],action,data.get('description')))
             with LOCK:
                 if self.path.startswith('/api/batch/'):
                     from batch_workflow import Batch
