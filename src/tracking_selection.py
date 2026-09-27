@@ -66,7 +66,8 @@ class TrackSelector:
         flags.extend(sorted({flag for r in candidates.values() for flag in r.get('direction_flags',[])}))
         if any(r.get('error') for r in candidates.values()):flags.append('tracking_candidate_error')
         if any(r.get('box_verification',{}).get('error') for r in candidates.values()):flags.append('tracking_crop_verification_error')
-        if any(r.get('confidence_source')=='crop_verified_heuristic' and r['confidence']<s['confidence_threshold'] and r.get('bbox') is not None for r in candidates.values()):flags.append('tracking_crop_verification_uncertain')
+        if any(r.get('confidence_source') in ('crop_verified_heuristic','blind_crop_text_match') and r['confidence']<s['confidence_threshold'] and r.get('bbox') is not None for r in candidates.values()):flags.append('tracking_crop_verification_uncertain')
+        if any(r.get('box_verification',{}).get('version',0)>=2 and r.get('box_verification',{}).get('comparison',{}).get('target_complete') is False for r in candidates.values()):flags.append('tracking_box_incomplete')
         if disagreement:flags.append('tracking_path_disagreement')
         if valid and (disagreement or not all(continuity.values())):
             if not all(continuity.values()):flags.append('tracking_motion_discontinuity')

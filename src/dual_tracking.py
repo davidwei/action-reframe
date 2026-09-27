@@ -12,7 +12,7 @@ import numpy as np
 from backward_tracking import bidirectional_pass
 from leveling import extract_gyro
 
-VERSION = 4
+VERSION = 5
 PATHS = ('raw_angle', 'leveled')
 
 
@@ -113,19 +113,21 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
             if box is not None and c.get('verify_boxes',True):
                 from box_verification import verify_box, confidence_from_verification
                 from reframe import api
+                trusted_reference=next((Path(entry['path']) for entry in reversed(audit.get('images',[]))
+                                        if entry.get('kind')=='human_target_crop'),cache/'reference.jpg')
                 verification=verify_box(c,cv2.imread(str(current_path)),box,data.get('box_note'),model,
-                                        cache/'reference.jpg',cache/'box_verification',api)
+                                        trusted_reference,cache/'box_verification',api)
                 data['box_verification']=verification
                 data['confidence']=0 if verification.get('error') or original is None else confidence_from_verification(
                     score,verification['description'],verification['comparison'])
-                data['confidence_source']='crop_verified_heuristic'
+                data['confidence_source']='blind_crop_text_match'
         except Exception as error:
             data={'bbox':None,'confidence':0,'visibility':'uncertain','error':str(error)}
         attempts.append(dict(data,attempt=attempt))
         verification=data.get('box_verification')
         threshold=c.get('tracking_selection',{}).get('confidence_threshold',.5)
         if (attempt==retries or not verification or verification.get('error') or data.get('error')
-                or data['confidence']>=threshold):break
+                or (data['confidence']>=threshold and verification.get('comparison',{}).get('target_complete',True))):break
         # Feedback contains crop evidence, never the rejected coordinates or previous answer.
         crop=verification.get('crop_path')
         if not crop:break

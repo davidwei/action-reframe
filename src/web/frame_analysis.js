@@ -10,7 +10,13 @@
     return [
       ...(row.verification_retry_count!=null?[`${label} crop-verification retries: ${row.verification_retry_count} | attempts: ${row.detection_attempts?.length||1} (all attempts in JSON)`]:[]),
       `${label} box_note: ${row.box_note||'not recorded'}`,
-      ...(v?[
+      ...(v?.version>=2?[
+        `${label} trusted target description: ${v.reference_description?.target_description||'not available'}`,
+        `${label} blind crop description: ${v.description?.box_description||v.error||'not available'}`,
+        `${label} text-match identity score: ${percent(v.identity_score)} | target present=${v.comparison?.target_present??'?'} | box complete=${v.comparison?.target_complete??'?'}`,
+        `${label} match evidence: ${v.comparison?.reason||'not available'} | differences: ${v.comparison?.differences?.join('; ')||'none recorded'}`,
+        `${label} confidence used: ${percent(row.confidence)} (text-match reliability, not calibrated probability); detector self-score: ${percent(row.model_confidence)} (diagnostic only)`
+      ]:v?[
         `${label} independent crop description: ${v.description?.box_description||v.error||'not available'}`,
         `${label} crop evidence: target present=${v.description?.target_present??'?'}; complete=${v.description?.target_complete??'?'}; verifier confidence=${percent(v.description?.confidence)}`,
         `${label} note/crop consistency: ${percent(v.comparison?.consistency)} | differences: ${v.comparison?.differences?.join('; ')||'none recorded'}`,
@@ -127,7 +133,7 @@
       `Review flags: ${flags.length ? flags.join(', ') : track ? 'none recorded (not a guarantee of accuracy)' : 'not available'}`,
       '',
       nearest ? `Qwen observation: frame ${nearest.frame}, ${number(nearest.time ?? (fps ? nearest.frame / fps : null),3)} s (${exact ? 'direct observation of this frame' : `nearest sampled frame; offset ${number(fps ? (nearest.frame-frame)/fps : null,3)} s`})` : 'Qwen observation: not available',
-      `Object confidence at that observation: ${percent(confidence)} (${nearest?.confidence_source==='crop_verified_heuristic'?'crop-verified heuristic':'model-reported'}; not calibrated)`,
+      `Object confidence at that observation: ${percent(confidence)} (${nearest?.confidence_source==='blind_crop_text_match'?'blind crop text-match reliability':nearest?.confidence_source==='crop_verified_heuristic'?'crop-verified heuristic':'model-reported'}; not calibrated)`,
       `Visibility at that observation: ${nearest?.visibility || 'not available'}`,
       `Qwen box in source pixels: ${vector(rawBox)}`,
       `Qwen box in normalized 0–1000 coordinates: ${vector(nearest?.bbox)}`,

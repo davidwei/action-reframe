@@ -32,7 +32,7 @@ class DetectionRetryTests(unittest.TestCase):
                 return {'choices':[{'message':{'content':json.dumps(dict(bbox=[100,200,300,600],confidence=.9,visibility='visible',box_note='boat'))}}]},{}
             def verify(*args):
                 verifications.append(1);good=len(verifications)==success_at
-                return dict(crop_path=str(Path(folder)/'crop.png'),description=dict(target_present=good,target_complete=good,confidence=.9 if good else .2,box_description='boat' if good else 'water'),comparison=dict(consistency=.9 if good else 0))
+                return dict(crop_path=str(Path(folder)/'crop.png'),description=dict(target_present=good,target_complete=good,confidence=.9 if good else .2,box_description='boat' if good else 'water'),comparison=dict(match_score=.9 if good else 0,target_present=good,target_complete=good))
             c={'target':'boat','verify_boxes':True}
             with patch('box_verification.verify_box',side_effect=verify):
                 result=observe_path(c,{'cache':folder,'fps':30}, {'frames':[{'roll':10}]},0,'test',[],'leveled',direction,

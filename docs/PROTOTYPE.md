@@ -365,3 +365,33 @@ outputs. Reanalyze to reconsider rejected path choices and retries. Rendering
 saved analysis applies the threshold to stored observations but cannot restore a
 candidate already discarded by selection. The review server blocks settings
 changes while a managed job is running.
+
+### Blind description-based reliability (dual v5 / verification v2)
+
+The verified candidate score now comes from semantic identity matching between two
+texts. First, describe a trusted human-selected target crop and cache its visible
+identity features. Use the most recently visited human crop admitted by context
+selection when available, otherwise the initial target reference. Second, describe
+only the proposed current-frame crop in a fresh request with **no target text,
+reference image, detection note, confidence, or history**. Third, send only these
+two descriptions to a text comparison call. It returns `match_score`,
+`target_present`, `target_complete`, discrepancies and evidence.
+
+The candidate confidence is `match_score` if target_present, otherwise zero.
+Detector self-confidence, detector `box_note`, and claimed contents do not enter
+this calculation. Model self-confidence is preserved as `model_confidence` for
+diagnostics. This is a model-generated semantic reliability score, not a calibrated
+probability. Similar-looking targets can still have indistinguishable descriptions.
+The existing confidence-threshold setting applies to the new score. Manual labels
+remain authoritative at their labeled frames.
+
+Completeness is separate from identity confidence: the former fixed 0.64 cap is
+removed. Either low identity score or an incomplete box can trigger the bounded
+verification retry loop. Remaining incomplete boxes are flagged for review without
+automatically declaring the identity lost. Cross-path disagreement/motion checks
+and adjudication remain in place. The UI distinguishes this score from legacy
+verification and shows the trusted description, blind description and comparison.
+
+All descriptions, prompts, and comparison outputs remain cached and auditable.
+Cache versions prevent old verification or detection results from being reused
+under the new score. Existing runs/results are unchanged; reanalyze to apply.
