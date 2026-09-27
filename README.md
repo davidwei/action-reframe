@@ -1,5 +1,7 @@
 # Action Reframe
 
+The [architecture and next steps](docs/ARCHITECTURE_ROADMAP.md) define the agreed four core components, video-level scheduling, folder-level workflow, and separate feature-building and optimization tracks.
+
 See [current approach](docs/CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
 
 Offline subject tracking, camera leveling, smooth reframing, and review for action footage.

@@ -1,5 +1,7 @@
 # Agreed behavior
 
+The [architecture and next steps](ARCHITECTURE_ROADMAP.md) define the agreed four core components, video-level scheduling, folder-level workflow, and separate feature-building and optimization tracks.
+
 See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
 
 - Target for the example: the other lime-green-sailed dinghy, including sail, hull and sailor, selected around 40 seconds.

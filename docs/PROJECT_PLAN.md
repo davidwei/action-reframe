@@ -1,5 +1,7 @@
 # Action video reframing: implementation plan
 
+The [architecture and next steps](ARCHITECTURE_ROADMAP.md) define the agreed four core components, video-level scheduling, folder-level workflow, and separate feature-building and optimization tracks. That roadmap takes precedence for the immediate development sequence; the milestones below remain the broader product plan.
+
 See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
 
 This plan implements [PROJECT_DESIGN.md](PROJECT_DESIGN.md). Each step ends with a result the user can inspect. These are planned milestones, not claims of completed functionality. Reuse existing prototype components where they satisfy the acceptance checks.

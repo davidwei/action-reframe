@@ -1,5 +1,7 @@
 # Current approach
 
+The [architecture and next steps](ARCHITECTURE_ROADMAP.md) define the agreed four core components, video-level scheduling, folder-level workflow, and separate feature-building and optimization tracks.
+
 This summary records the approach as of 2026-09-27. It distinguishes implemented
 prototype behavior from the intended product workflow and proposed next work.
 See [design](PROJECT_DESIGN.md) for the product specification,
