@@ -5,6 +5,8 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
+from dual_tracking import VERSION as DETECTION_VERSION
+from box_verification import VERSION as VERIFICATION_VERSION
 from dual_tracking import observe_path,adjudicate_pair,box_points,expanded_rotation,transform_points
 from tracking_selection import TrackSelector,confidence_threshold
 from box_verification import verify_box,confidence_from_verification
@@ -25,7 +27,7 @@ class TrackingSearch:
         return sorted([r for r in rows.values() if (r['frame']<index if direction=='forward' else r['frame']>index)],key=lambda r:r['frame'],reverse=direction=='backward')
 
     def namespace(self,index,kind,history,region):
-        key=hashlib.sha256(json.dumps([VERSION,index,kind,history,region,self.c.get('anchor_tracking'),self.c.get('tracking_selection')],sort_keys=True).encode()).hexdigest()[:24]
+        key=hashlib.sha256(json.dumps([VERSION,DETECTION_VERSION,VERIFICATION_VERSION,self.model,index,kind,history,region,self.c],sort_keys=True).encode()).hexdigest()[:24]
         folder=self.folder/key;folder.mkdir(exist_ok=True)
         reference=Path(self.meta['cache'])/'reference.jpg'
         manual=next((r for r in reversed(history) if r.get('manual') and r.get('bbox')),None)
