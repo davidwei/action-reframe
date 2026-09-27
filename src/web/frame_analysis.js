@@ -34,6 +34,7 @@
 
   function describe(state, frame, sourceMatches = true) {
     const meta = state.meta || {};
+    const threshold=state.config?.tracking_selection?.confidence_threshold??.5;
     const fps = meta.fps;
     if (!sourceMatches) return {status: 'No analysis for this source', tone: 'neutral', confidence: null,
       text: 'Select the project’s source video, or create and analyze a project for this video.', data: null};
@@ -58,13 +59,13 @@
     if (track) {
       if (!box) { status = 'Lost / not confidently located'; tone = 'lost'; }
       else if (flags.some(f => /target|identity|appearance|visibility|reidentification|vl_error/.test(f)) ||
-               (confidence !== null && confidence < .65)) {
+               (confidence !== null && confidence < threshold)) {
         status = 'Target located — needs review'; tone = 'uncertain';
       } else { status = 'Target tracked'; tone = 'tracked'; }
     } else if (nearest) {
-      status = exact ? (nearest.bbox && confidence >= .65 ? 'Detected — not rendered' : 'Lost / uncertain observation') :
+      status = exact ? (nearest.bbox && confidence >= threshold ? 'Detected — not rendered' : 'Lost / uncertain observation') :
         'Between observations — no per-frame track yet';
-      tone = exact ? (nearest.bbox && confidence >= .65 ? 'tracked' : 'lost') : 'neutral';
+      tone = exact ? (nearest.bbox && confidence >= threshold ? 'tracked' : 'lost') : 'neutral';
     }
     if(own(correction,'bbox')){status=correction.bbox?'Human-confirmed target — saved':'Human-confirmed absence — saved';tone=correction.bbox?'tracked':'lost';}
     const rawBox = nearest?.bbox && meta.width && meta.height ? nearest.bbox.map((v, i) => v / 1000 * (i % 2 ? meta.height : meta.width)) : null;
@@ -228,7 +229,7 @@
     levelBadge.hidden=!result.level;
     if(result.level){const l=result.level;levelBadge.textContent=`Gyro ${number(l.gyro_roll)}° · Qwen ${number(l.qwen_roll)}° · Δ ${number(l.level_difference)}°${l.level_divergent?' — DIVERGENCE':''}`;levelBadge.dataset.tone=l.level_divergent?'lost':l.qwen_roll==null?'uncertain':'neutral';}
     element.querySelector('.analysis-score').textContent = `Tracking confidence: ${percent(result.confidence)}${state.corrections?.[frame] && own(state.corrections[frame],'bbox') || result.data?.nearest_observation?.manual ? ' (human label)' : ''}`;
-    const meter = element.querySelector('meter'); meter.hidden = result.confidence === null; meter.value = result.confidence ?? 0;
+    const meter = element.querySelector('meter'); meter.hidden = result.confidence === null; meter.value = result.confidence ?? 0;meter.low=state.config?.tracking_selection?.confidence_threshold??.5;meter.high=Math.max(meter.low,.85);
     const text=element.querySelector('.analysis-text');
     if(element._analysisFrame!==frame){element._boxToken=null;element.querySelector('.analysis-box-preview').hidden=true;}
     element._analysisFrame=frame;

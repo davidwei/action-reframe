@@ -6,7 +6,7 @@
   "verify_boxes": true,
   "box_verification_retries": 2,
   "tracking_selection": {
-    "confidence_threshold": 0.65,
+    "confidence_threshold": 0.5,
     "agreement_iou": 0.35,
     "switch_advantage": 0.15,
     "switch_samples": 3,

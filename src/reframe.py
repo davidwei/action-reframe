@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Local, resumable VL-assisted video reframing. See README.md for limitations."""
+from tracking_selection import confidence_threshold
+
 import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -246,7 +248,7 @@ def analyze(c, single=None):
         if c.get('color_refinement',False):
             with ThreadPoolExecutor(max_workers=c['workers']) as pool:
                 pending={pool.submit(recover_small,c,meta,r,model,[s for s in results if s['frame']<r['frame']]):r['frame'] for r in results
-                         if not r.get('manual') and (r.get('bbox') is None or r.get('confidence',0)<.65)}
+                         if not r.get('manual') and (r.get('bbox') is None or r.get('confidence',0)<confidence_threshold(c))}
                 recovered={}
                 for f in as_completed(pending):
                     r=f.result();recovered[r['frame']]=r
@@ -258,7 +260,7 @@ def analyze(c, single=None):
             for r in results:
                 if r.get('recovered'):
                     b=np.array(r['bbox']);center=(b[:2]+b[2:])/2
-                    neighbors=[s for s in results if s is not r and s.get('bbox') is not None and s.get('confidence',0)>=.65
+                    neighbors=[s for s in results if s is not r and s.get('bbox') is not None and s.get('confidence',0)>=confidence_threshold(c)
                                and abs(s['time']-r['time'])<=1.01
                                and np.linalg.norm((np.array(s['bbox'][:2])+s['bbox'][2:])/2-center)<100]
                     if not neighbors:
@@ -420,7 +422,7 @@ def run_backward(c,meta,observations,model):
         r=backward_observe(c,meta,current,seed,model,history)
         print(f"Backward {seed['time']:.2f}s -> {current['time']:.2f}s confidence={r.get('confidence',0)} visibility={r.get('visibility')} {r.get('note','')}",flush=True)
         return r
-    results,report=backward_pass(list(working.values()),attempt,with_history=True)
+    results,report=backward_pass(list(working.values()),attempt,threshold=confidence_threshold(c),with_history=True)
     report.update(sample_interval=c['sample_interval'],fps=meta['fps'])
     write_json(out/'backward_report.json',report)
     print(f"Backward pass: recovered {report['recovered_samples']} of {report['attempted_samples']} attempted samples",flush=True)
@@ -477,7 +479,7 @@ excluding the 30-pixel label strip, with coordinates normalized to 0..1000 withi
             [cache/'reference.jpg',montage],prompt,220)
         raw=response['choices'][0]['message']['content'];v=json.loads(raw[raw.index('{'):raw.rindex('}')+1])
         k=v.get('candidate');b=v.get('bbox')
-        if isinstance(k,int) and 0<=k<len(regions) and v.get('confidence',0)>=.65 and b is not None:
+        if isinstance(k,int) and 0<=k<len(regions) and v.get('confidence',0)>=confidence_threshold(c) and b is not None:
             b=np.array(b,float)
             if b.shape!=(4,) or not np.isfinite(b).all() or not (0<=b[0]<b[2]<=1000 and 0<=b[1]<b[3]<=1000):raise ValueError('Invalid recovery rectangle')
             xa,ya,xb,yb=regions[k]
@@ -571,7 +573,7 @@ def measurements(c, meta, observations):
         obs[i]=r
     observations=sorted(obs.values(),key=lambda x:x['frame'])
     ix=np.array([r['frame'] for r in observations])
-    valid=np.array([r.get('bbox') is not None and r.get('confidence',0)>=.65 and r.get('visibility') not in ('absent','uncertain') for r in observations])
+    valid=np.array([r.get('bbox') is not None and r.get('confidence',0)>=confidence_threshold(c) and r.get('visibility') not in ('absent','uncertain') for r in observations])
     if not valid.any():
         raise RuntimeError('No reliable target observations. Use the review UI to supply a correction.')
     boxes=np.array([r['bbox'] for r,v in zip(observations,valid) if v])*[w/1000,h/1000,w/1000,h/1000]
@@ -746,7 +748,7 @@ def render(c):
             provenance[i]={'frame':i,'time':i/fps,'bbox':None if box is None else (np.array(box)/[w,h,w,h]*1000).tolist(),
                            'confidence':0 if box is None else 1,'visibility':'absent' if box is None else 'visible',
                            'manual':True,'selected_path':'manual' if box else 'neither','selection_reason':'Manual correction'}
-        selection_rows=frame_provenance(list(provenance.values()),n,supported)
+        selection_rows=frame_provenance(list(provenance.values()),n,supported,confidence_threshold(c))
     preview=out/'focused.mp4'
     temp=out/'focused.encoding.mp4'
     command=[c['ffmpeg'],'-y','-hide_banner','-loglevel','error','-f','rawvideo','-pix_fmt','bgr24',

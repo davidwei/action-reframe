@@ -348,3 +348,20 @@ strictly before/after the current frame, does not wrap, and disables unavailable
 directions. Comparison navigation pauses and seeks the shared video timeline;
 its buttons remain disabled until that video is ready. Source-editor navigation
 also works before rendering. Button tooltips show destination frame and time.
+
+### Configurable tracking confidence
+
+Output includes **Confidence threshold (%)**, default 50% for new projects. Saved
+project values are preserved and displayed; the JSON field is
+`tracking_selection.confidence_threshold` in the inclusive range 0–1. The settings
+API validates finite numeric values. Analyze and render saves the displayed value
+before launching. The threshold controls candidate/adjudication acceptance,
+verification retry stopping, backward recovery, render support, and provenance.
+Detection caches include the threshold because it can alter retry behavior.
+Temporal context's moderate/high quotas and visual-level confidence are separate.
+
+Changing a threshold does not update an already running analysis or existing
+outputs. Reanalyze to reconsider rejected path choices and retries. Rendering
+saved analysis applies the threshold to stored observations but cannot restore a
+candidate already discarded by selection. The review server blocks settings
+changes while a managed job is running.

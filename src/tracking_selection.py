@@ -3,10 +3,21 @@ import math
 import numpy as np
 from backward_tracking import confident
 
-DEFAULTS = {'confidence_threshold': .65, 'agreement_iou': .35,
+DEFAULTS = {'confidence_threshold': .5, 'agreement_iou': .35,
             'switch_advantage': .15, 'switch_samples': 3,
             'max_center_speed': 1000., 'motion_slack': 50.,
             'continuity_window_seconds': 2.}
+
+
+def set_confidence_threshold(config, value):
+    if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0<=value<=1:
+        raise ValueError('Confidence threshold must be a finite number from 0 to 1')
+    config.setdefault('tracking_selection',{})['confidence_threshold']=float(value)
+    return float(value)
+
+
+def confidence_threshold(config):
+    return config.get('tracking_selection',{}).get('confidence_threshold',.5)
 
 
 def overlap(a, b):
@@ -100,10 +111,10 @@ class TrackSelector:
         return result
 
 
-def frame_provenance(observations, count, supported):
+def frame_provenance(observations, count, supported, threshold=.5):
     """Label interpolated playback frames without claiming a new model decision."""
     rows=sorted(observations,key=lambda r:r['frame'])
-    valid=[r for r in rows if confident(r) and not r.get('error')]
+    valid=[r for r in rows if confident(r,threshold) and not r.get('error')]
     indices=np.array([r['frame'] for r in rows]);vi=np.array([r['frame'] for r in valid])
     result=[]
     for index in range(count):

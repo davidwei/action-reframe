@@ -59,7 +59,7 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers)
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
     signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,c['target'],
-        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('box_verification_retries',2),history],sort_keys=True).encode()).hexdigest()[:24]
+        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=cache/f'{signature}.json'
     if result_path.exists():
         result=json.loads(result_path.read_text())
@@ -123,7 +123,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
             data={'bbox':None,'confidence':0,'visibility':'uncertain','error':str(error)}
         attempts.append(dict(data,attempt=attempt))
         verification=data.get('box_verification')
-        threshold=c.get('tracking_selection',{}).get('confidence_threshold',.65)
+        threshold=c.get('tracking_selection',{}).get('confidence_threshold',.5)
         if (attempt==retries or not verification or verification.get('error') or data.get('error')
                 or data['confidence']>=threshold):break
         # Feedback contains crop evidence, never the rejected coordinates or previous answer.
@@ -245,7 +245,7 @@ def run_dual(c, meta, model, api_helpers, single=None):
                     print(f"Backward {path} t={row['time']:.2f} choice={row['direction_choice']} {row['direction_reason']}",flush=True)
                 settings=c.get('tracking_selection',{})
                 rows,report=bidirectional_pass(results[path],attempt,resolve,
-                    threshold=settings.get('confidence_threshold',.65),agreement_iou=settings.get('agreement_iou',.35),progress=progress)
+                    threshold=settings.get('confidence_threshold',.5),agreement_iou=settings.get('agreement_iou',.35),progress=progress)
                 save(out/f'tracking_{path}_directions.json',[
                     {'frame':r['frame'],'time':r['time'],'chosen_direction':r.get('direction_choice'),
                      'reason':r.get('direction_reason'),'comparison':r.get('direction_comparison')} for r in rows])

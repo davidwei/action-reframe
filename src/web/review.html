@@ -21,11 +21,13 @@
 </section>
 <section><h2>Output</h2><p>Strong zoom is allowed. Original edges feather into a blurred extension. Poor or uncertain footage is retained for your review.</p>
 <div class="row"><label>Analysis FPS <input id="analysisFps" type="number" min="0.01" step="any" value="10" style="width:90px"></label><button id="saveFps">Save analysis FPS</button><span id="analysisRateInfo"></span></div>
+<div class="row"><label>Confidence threshold (%) <input id="confidenceThreshold" type="number" min="0" max="100" step="1" value="50" style="width:90px"></label><button id="saveThreshold">Save confidence threshold</button></div>
+<p>Minimum tracking confidence accepted after verification. Applies on the next analysis; existing results stay unchanged. Context confidence quotas and leveling confidence are separate.</p>
 <p>Controls how often Qwen analyzes a frame. Playback FPS stays unchanged. Higher rates take longer. The next analysis uses the saved rate.</p>
 <div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
 <video id="preview" controls playsinline></video><pre id="log"></pre></section>
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
-<script src="/files/frame_analysis.js?v=frame-navigation-1"></script>
+<script src="/files/frame_analysis.js?v=confidence-threshold-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';
 let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='';
@@ -57,6 +59,8 @@ $('source').onpointermove=e=>{if(!drag)return;const p=point(e);selection=[Math.m
 $('source').onpointerup=()=>{drag=null};
 async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project));project=state.project||'';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
+ if(!$('confidenceThreshold').dataset.initialized){$('confidenceThreshold').value=100*(state.config.tracking_selection?.confidence_threshold??.5);$('confidenceThreshold').dataset.initialized='true'}
+ $('confidenceThreshold').disabled=$('saveThreshold').disabled=state.running||!project;
  $('analysisFps').max=state.meta?.fps||60;$('analysisFps').disabled=$('saveFps').disabled=state.running||!project;
  $('analysisRateInfo').textContent=`Source: ${state.meta?.fps?.toFixed(2)||'?'} FPS · configured analysis: ${state.config.analysis_fps??(1/(state.config.sample_interval||.5))} FPS`+(state.running&&state.analysis_progress?` · ${state.analysis_progress.completed}/${state.analysis_progress.total} samples analyzed`:'');
  showAnalysis();draw();
@@ -73,7 +77,8 @@ $('saveBox').onclick=safe(async()=>{requireProjectVideo();if(!selection)throw Er
 $('absent').onclick=safe(async()=>{requireProjectVideo();await request('/api/correct',{frame,bbox:null});await refresh();notice('Absence saved. Render again to apply it.')});
 $('saveRoll').onclick=safe(async()=>{requireProjectVideo();await request('/api/correct',{frame,roll:Number($('roll').value)});await refresh();notice('Level keyframe saved. Render again to apply it.')});
 $('newProject').onclick=safe(async()=>{if(!selection)throw Error('Draw a rectangle first');const d=await request('/api/create',{video:sourceVideo,time:frame/info.fps,bbox:selection,target:$('target').value});location.href='/?config='+encodeURIComponent(d.config)});
+$('saveThreshold').onclick=safe(async()=>{const d=await request('/api/settings',{confidence_threshold:Number($('confidenceThreshold').value)/100});notice(`Confidence threshold saved: ${100*d.confidence_threshold}%. Reanalyze and render to apply.`)});
 $('saveFps').onclick=safe(async()=>{const d=await request('/api/settings',{analysis_fps:Number($('analysisFps').value)});await refresh();notice(`Analysis FPS saved: ${d.analysis_fps}. Applies to the next analysis.`)});
-$('run').onclick=safe(async()=>{await request('/api/run',{stage:'all',analysis_fps:Number($('analysisFps').value)});await refresh()});$('render').onclick=safe(async()=>{await request('/api/run',{stage:'render'});await refresh()});
+$('run').onclick=safe(async()=>{await request('/api/run',{stage:'all',analysis_fps:Number($('analysisFps').value),confidence_threshold:Number($('confidenceThreshold').value)/100});await refresh()});$('render').onclick=safe(async()=>{await request('/api/run',{stage:'render'});await refresh()});
 (async()=>{try{const videos=await request('/api/videos');for(const v of videos){const o=document.createElement('option');o.value=o.textContent=v;$('videos').append(o)}await refresh();if(state.config.video)$('videos').value=state.config.video;$('time').value=state.config.reference_time||0;if(videos.length)await loadVideo();else notice('No videos yet. Add a video file to the configured workspace, then reload.');setInterval(()=>refresh().catch(e=>notice(e.message)),5000)}catch(e){notice(e.message)}})();
 </script></html>

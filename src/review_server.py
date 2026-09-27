@@ -13,6 +13,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 import cv2
 from reframe import write_json, set_analysis_fps
+from tracking_selection import set_confidence_threshold
 
 SOURCE_ROOT=Path(__file__).resolve().parent
 WEB_ROOT=SOURCE_ROOT/"web"
@@ -143,10 +144,16 @@ class Handler(BaseHTTPRequestHandler):
                 if config_path is None:raise ValueError('Create a project first')
                 c=json.loads(config_path.read_text());out=local_path(c['output_dir']);out.mkdir(parents=True,exist_ok=True)
                 if self.path=='/api/settings':
-                    cap=cv2.VideoCapture(str(local_path(c['video'])));source_fps=cap.get(cv2.CAP_PROP_FPS);cap.release()
-                    rate=set_analysis_fps(c,data['analysis_fps'],source_fps)
-                    c.pop('sample_interval',None);write_json(config_path,c)
-                    return self.json_response({'analysis_fps':rate})
+                    saved={}
+                    if 'analysis_fps' in data:
+                        cap=cv2.VideoCapture(str(local_path(c['video'])));source_fps=cap.get(cv2.CAP_PROP_FPS);cap.release()
+                        saved['analysis_fps']=set_analysis_fps(c,data['analysis_fps'],source_fps)
+                        c.pop('sample_interval',None)
+                    if 'confidence_threshold' in data:
+                        saved['confidence_threshold']=set_confidence_threshold(c,data['confidence_threshold'])
+                    if not saved:raise ValueError('No supported settings supplied')
+                    write_json(config_path,c)
+                    return self.json_response(saved)
                 if self.path=='/api/correct':
                     i=int(data['frame']);meta=json.loads((out/'meta.json').read_text())
                     if not 0<=i<meta['frames']:raise ValueError('Frame out of range')
@@ -171,6 +178,8 @@ class Handler(BaseHTTPRequestHandler):
                     if 'analysis_fps' in data and stage in ('all','analyze'):
                         cap=cv2.VideoCapture(str(local_path(c['video'])));source_fps=cap.get(cv2.CAP_PROP_FPS);cap.release()
                         set_analysis_fps(c,data['analysis_fps'],source_fps);c.pop('sample_interval',None);write_json(config_path,c)
+                    if 'confidence_threshold' in data:
+                        set_confidence_threshold(c,data['confidence_threshold']);write_json(config_path,c)
                     if LOG is not None:LOG.close()
                     LOG=(out/'job.log').open('w')
                     JOB=subprocess.Popen([sys.executable,str(SOURCE_ROOT/'reframe.py'),str(config_path),'--stage',stage],cwd=ROOT,stdout=LOG,stderr=subprocess.STDOUT)
