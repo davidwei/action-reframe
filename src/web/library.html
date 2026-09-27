@@ -13,6 +13,7 @@
 <script>
 const $=id=>document.getElementById(id);let state={},drafts=new Map(),selected=new Set();
 function text(tag,value){const e=document.createElement(tag);e.textContent=value;return e}
+function updated(value){if(!Number.isFinite(value))return text('span','Last updated: unavailable');const element=document.createElement('time'),date=new Date(value*1000);element.dateTime=date.toISOString();element.textContent='Last updated: '+date.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',second:'2-digit',timeZoneName:'short'});element.title=date.toISOString();return element}
 function notice(value){$('notice').textContent=value}
 async function api(path,body){const response=await fetch('/api/batch'+path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const value=await response.json();if(!response.ok)throw Error(value.error||response.status);return value}
 function safe(fn){return async()=>{try{await fn()}catch(error){notice(error.message)}}}
@@ -23,7 +24,7 @@ function renderProjects(){
  for(const p of state.projects){
   const card=document.createElement('article'),row=document.createElement('div');row.className='row';
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selected.has(p.project);checkbox.disabled=!p.ready||p.status==='Processing'||p.discard_pending||drafts.has(p.project);checkbox.setAttribute('aria-label','Queue '+p.project);checkbox.onchange=()=>checkbox.checked?selected.add(p.project):selected.delete(p.project);
-  row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row);
+  row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at));
   card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} analysis FPS · ${p.labels} additional labels`));
   card.append(text('p','Actions: '+p.actions.join(' · ')));
   if(p.stale)card.append(text('p','Inputs changed — review and approve again.'));
@@ -34,11 +35,12 @@ function renderProjects(){
   actions.append(link('Label subject','/?config='+encodeURIComponent(p.project)+'#subject-labels'),link('Review descriptions','/?config='+encodeURIComponent(p.project)+'#identity-description'));
   if(p.status==='Ready')actions.append(button('Queue processing',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Queued. Start/resume the queue when ready.')}));
   if(['Processing','Done'].includes(p.status))actions.append(link('Open video focus','/?config='+encodeURIComponent(p.active_config||p.completed_config||p.project)));
+  if(p.status==='Done'&&p.completed_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.completed_config)));
   actions.append(button('Discard project',async()=>{const r=await api('/discard',{project:p.project});drafts.delete(p.project);selected.delete(p.project);await load();notice(r.finishing?'Discard requested; the running job will finish first.':'Project discarded. Video and results preserved; restore it below if needed.')}));
   if(p.discard_pending)for(const b of actions.querySelectorAll('button'))b.disabled=true;
   card.append(actions);$('projects').append(card);
  }
- $('archived').replaceChildren();for(const p of state.archived||[]){const row=document.createElement('div');row.className='row';row.append(text('span',p.project+' · '+p.video),button('Restore project',async()=>{await api('/restore',{project:p.project});await load()}));$('archived').append(row)}
+ $('archived').replaceChildren();for(const p of state.archived||[]){const row=document.createElement('div');row.className='row';row.append(text('span',p.project+' · '+p.video),updated(p.updated_at),button('Restore project',async()=>{await api('/restore',{project:p.project});await load()}));$('archived').append(row)}
 }
 function renderJobs(){
  $('queueState').textContent=(state.paused?'Paused':'Queue enabled')+(state.legacy_running?' · existing single-video job still running':'');$('start').disabled=state.legacy_running;

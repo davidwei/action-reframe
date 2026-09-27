@@ -108,7 +108,7 @@ links to each video's existing flags and comparison view.
 | Draft | Some user input exists; readiness requirements are incomplete | Label subject; Review descriptions; Discard project |
 | Ready | At least one cropped box and an approved description for current inputs | Label subject; Review descriptions; Queue processing; Discard project |
 | Processing | Queued, starting or running | Label subject; Review descriptions; Open video focus; Discard project |
-| Done | Successful processing for current inputs (including unchanged legacy output) | Label subject; Review descriptions; Open video focus; Discard project |
+| Done | Successful processing for current inputs (including unchanged legacy output) | Label subject; Review descriptions; Open video focus; Watch side by side; Discard project |
 
 These names are canonical across states. **Label subject** opens Video focus at
 `#subject-labels`; **Review descriptions** opens that same workspace at
@@ -128,3 +128,8 @@ Discard is reversible archival, not file deletion. Queued jobs are cancelled;
 running jobs finish before the project disappears from Existing projects. Source
 videos, labels, descriptions and outputs are retained. Discarded projects can be
 restored in the library. Restoring does not restart cancelled jobs automatically.
+
+Each project (including discarded projects) shows **Last updated** in the browser's
+local time zone, with an exact UTC timestamp on hover. It reflects the latest
+saved configuration, labels, description/approval, discard/restore, job status or
+processing output update. Merely refreshing the library does not change it.

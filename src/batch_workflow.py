@@ -68,6 +68,7 @@ class Batch:
                 CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, project TEXT NOT NULL,
                     revision TEXT NOT NULL, status TEXT NOT NULL, created REAL NOT NULL,
                     updated REAL NOT NULL, config TEXT NOT NULL, error TEXT, attempts INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS project_updates (project TEXT PRIMARY KEY, updated_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS discarded (project TEXT PRIMARY KEY, discarded_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
                 INSERT OR IGNORE INTO settings VALUES ('paused','1');
@@ -118,11 +119,14 @@ class Batch:
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             db.execute('INSERT OR REPLACE INTO discarded VALUES (?,?)',(project,time.time()))
+            db.execute('INSERT OR REPLACE INTO project_updates VALUES (?,?)',(project,time.time()))
             db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE project=? AND status='queued'",(time.time(),project))
         return {'discarded':project,'finishing':any(j['project']==project and j['status'] in ('starting','running') for j in self.jobs())}
 
     def restore(self, project):
-        with self.db() as db:db.execute('DELETE FROM discarded WHERE project=?',(project,))
+        with self.db() as db:
+            db.execute('DELETE FROM discarded WHERE project=?',(project,))
+            db.execute('INSERT OR REPLACE INTO project_updates VALUES (?,?)',(project,time.time()))
         return {'restored':project}
 
     def preparation(self, project):
@@ -159,10 +163,28 @@ class Batch:
                 config['target']=description;write(self.path(project),config)
                 _,_,revision=self.inputs(project)
         payload = dict(description=description, ready=bool(ready), revision=revision,
-                       approved_at=time.time() if ready else None)
+                       approved_at=time.time() if ready else None,updated_at=time.time())
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO preparations VALUES (?,?)',(project,json.dumps(payload)))
         return payload
+
+    def last_updated(self, project, config, preparation, jobs):
+        times=[self.path(project).stat().st_mtime,preparation.get('updated_at') or preparation.get('approved_at') or 0]
+        with self.db() as db:
+            row=db.execute('SELECT updated_at FROM project_updates WHERE project=?',(project,)).fetchone()
+            if row:times.append(row[0])
+            row=db.execute('SELECT discarded_at FROM discarded WHERE project=?',(project,)).fetchone()
+            if row:times.append(row[0])
+        outputs={self.path(config['output_dir'])}
+        for job in jobs:
+            times.append(job['updated'])
+            snapshot=read(self.path(job['config']))
+            if snapshot:outputs.add(self.path(snapshot['output_dir']))
+        for output in outputs:
+            for name in ('corrections.json','review_corrections.json','analysis_progress.json','level_progress.json','tracks.json','focused.mp4','comparison.mp4'):
+                path=output/name
+                if path.exists():times.append(path.stat().st_mtime)
+        return max(times)
 
     def library(self, active_project=None):
         projects=[];jobs=self.jobs();discarded=self.discarded();archived=[]
@@ -173,10 +195,11 @@ class Batch:
                 ready=bool(prep.get('ready') and prep.get('revision')==rev and prep.get('description','').strip() and c.get('reference_box'))
                 revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
                 related=[j for j in jobs if j['project']==path.name]
+                updated_at=self.last_updated(path.name,c,prep,related)
                 pending=next((j for j in reversed(related) if j['status'] in ('queued','starting','running')),None)
                 if path.name==active_project:pending={'id':None,'config':path.name,'status':'running'}
                 if path.name in discarded and not pending:
-                    archived.append({'project':path.name,'video':c['video']});continue
+                    archived.append({'project':path.name,'video':c['video'],'updated_at':updated_at});continue
                 completed=next((j for j in reversed(related) if j['status']=='succeeded' and j['revision']==revision),None)
                 comparison=self.path(c['output_dir'])/'comparison.mp4'
                 inputs_mtime=max(path.stat().st_mtime,(self.path(c['output_dir'])/'corrections.json').stat().st_mtime if (self.path(c['output_dir'])/'corrections.json').exists() else 0)
@@ -186,8 +209,9 @@ class Batch:
                 actions=['Label subject','Review descriptions']
                 if status=='Ready':actions.append('Queue processing')
                 if status in ('Processing','Done'):actions.append('Open video focus')
+                if status=='Done':actions.append('Watch side by side')
                 actions.append('Discard project')
-                projects.append(dict(project=path.name,status=status,actions=actions,discard_pending=path.name in discarded,
+                projects.append(dict(project=path.name,updated_at=updated_at,status=status,actions=actions,discard_pending=path.name in discarded,
                     active_job=pending['id'] if pending else None,active_config=pending['config'] if pending else None,completed_config=completed['config'] if completed else path.name if legacy_done else None,
                     latest_job=pending['status'] if pending else related[-1]['status'] if related else None,
                     has_box=bool(c.get('reference_box')),video=c['video'],target=c['target'],
