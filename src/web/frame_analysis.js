@@ -264,5 +264,33 @@
       return polygon?[{path,polygon,interpolated,sampleFrame:nearest.frame}]:[];
     });
   }
-  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes};
+  function navigationTargets(state, frame) {
+    const reviewed=Object.keys(state.corrections||{}).map(Number);
+    const sampled=state.meta?.samples ?? (state.tracking_comparison?.length ? state.tracking_comparison : state.observations||[]).filter(r=>!r.manual && !r.raw_angle?.manual).map(r=>r.frame);
+    const result={};
+    for(const [kind,values] of Object.entries({reviewed,sampled})){
+      const frames=[...new Set(values)].filter(i=>Number.isInteger(i)&&i>=0&&(!state.meta?.frames||i<state.meta.frames)).sort((a,b)=>a-b);
+      result['previous'+kind]=frames.filter(i=>i<frame).at(-1)??null;
+      result['next'+kind]=frames.find(i=>i>frame)??null;
+    }
+    return result;
+  }
+  function updateNavigation(element,state,frame,seek,enabled=true){
+    if(!element.dataset.mounted){
+      element.dataset.mounted='true';
+      for(const kind of ['reviewed','sampled'])for(const direction of ['previous','next']){
+        const button=document.createElement('button');button.type='button';button.dataset.target=direction+kind;
+        button.textContent=`${direction==='previous'?'Previous':'Next'} ${kind} frame`;
+        element.append(button);
+      }
+      element.title='Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule.';
+    }
+    const targets=navigationTargets(state,frame);
+    for(const button of element.querySelectorAll('button')){
+      const target=targets[button.dataset.target];button.disabled=!enabled||target===null;
+      button.title=target===null?'No matching frame in this direction':`Frame ${target}${state.meta?.fps?' · '+(target/state.meta.fps).toFixed(3)+' s':''}`;
+      button.onclick=()=>{if(enabled&&target!==null)seek(target);};
+    }
+  }
+  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes, navigationTargets, updateNavigation};
 })();

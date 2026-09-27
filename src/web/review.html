@@ -11,6 +11,7 @@
 <canvas id="source" width="1920" height="1080"></canvas>
 <input id="scrub" type="range" min="0" max="1901" value="0" aria-label="Frame">
 <div class="row"><button id="previous">Previous frame</button><button id="next">Next frame</button><span id="frameInfo"></span></div>
+<div id="frameNavigation" class="row" aria-label="Review and sample navigation"></div>
 <div id="frameAnalysis"></div>
 <p>Drag a rectangle around the complete target. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear automatically when available, including uncertain estimates; between samples they may be interpolated. The green rectangle is the current track; your selection is white.</p>
 <p>Save target box keeps this project and makes your selection a human-confirmed tracking anchor. It is eligible for the existing context quotas; saving does not start processing.</p>
@@ -24,7 +25,7 @@
 <div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
 <video id="preview" controls playsinline></video><pre id="log"></pre></section>
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
-<script src="/files/frame_analysis.js?v=detection-retries-1"></script>
+<script src="/files/frame_analysis.js?v=frame-navigation-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';
 let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='';
@@ -36,7 +37,7 @@ $('frameAnalysis').addEventListener('analysis-box',async event=>{
  catch(error){notice(error.message);}
 });
 function notice(s){$('notice').textContent=s}
-function showAnalysis(){FrameAnalysis.update($('frameAnalysis'),state,frame,{sourceMatches:sourceVideo===state.config?.video})}
+function showAnalysis(){FrameAnalysis.updateNavigation($('frameNavigation'),state,frame,i=>safe(async()=>{frame=i;await showFrame()})(),sourceVideo===state.config?.video);FrameAnalysis.update($('frameAnalysis'),state,frame,{sourceMatches:sourceVideo===state.config?.video})}
 async function request(url,body){const r=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,config:project})}:{});const d=await r.json();if(!r.ok)throw Error(d.error||r.status);return d}
 function safe(fn){return async()=>{try{await fn()}catch(e){notice(e.message)}}}
 function draw(){if(loadedFrame!==frame||loadedVideo!==sourceVideo)return;ctx.clearRect(0,0,$('source').width,$('source').height);ctx.drawImage(img,0,0);let b=state.tracks?.[frame]?.bbox;

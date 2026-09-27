@@ -9,12 +9,13 @@
 <div id="stage"><div class="labels"><span>Original</span><span>Processed</span></div><div style="position:relative"><video id="video" playsinline preload="metadata"></video><svg id="playbackBoxes" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg><svg id="inspectedBox" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg></div></div>
 <div class="controls"><button id="play" disabled>Play both</button><button id="back" disabled>−1 frame</button><button id="forward" disabled>+1 frame</button><button id="minus" disabled>−5 seconds</button><button id="plus" disabled>+5 seconds</button><label>Speed <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button id="mute">Mute</button><button id="fullscreen">Fullscreen</button><span id="readout">Loading…</span></div>
 <input id="seek" type="range" min="0" max="1" step="1" value="0" disabled aria-label="Shared video frame">
+<div id="frameNavigation" class="controls" aria-label="Review and sample navigation"></div>
 <div id="frameAnalysis"></div>
 <section id="trackingComparison" hidden><p id="trackingCaption"></p><div style="position:relative;max-width:960px"><img id="trackingSource" style="display:block;width:100%" alt="Original sampled frame with both tracking boxes"><svg id="trackingBoxes" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg></div></section>
 <p id="status">Loading comparison…</p><p class="hint">Space: play/pause · Left/Right: step one frame · Shift+Left/Right: skip five seconds. Audio plays once. Both panels are display copies; the source file is unchanged.</p>
 <div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
 <p id="levelSummary"></p><div id="levelFlags"></div><div id="selectionFlags"></div><div id="flags"></div>
-<script src="/files/frame_analysis.js?v=detection-retries-1"></script>
+<script src="/files/frame_analysis.js?v=frame-navigation-1"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
@@ -42,7 +43,8 @@ function drawInspectedBox(){
  svg.append(rect);
 }
 $('frameAnalysis').addEventListener('analysis-box',event=>{inspectedBox=event.detail;v.pause();if(inspectedBox?.box&&ready)stepTo(inspectedBox.frame);drawInspectedBox();});
-function showAnalysis(){if(currentFrame!==analysisFrame){FrameAnalysis.update($('frameAnalysis'),analysisState,currentFrame);showTrackingComparison();drawPlaybackBoxes();drawInspectedBox();analysisFrame=currentFrame}}
+function updateNavigation(){FrameAnalysis.updateNavigation($('frameNavigation'),analysisState,pendingFrame??currentFrame,stepTo,ready)}
+function showAnalysis(){updateNavigation();if(currentFrame!==analysisFrame){FrameAnalysis.update($('frameAnalysis'),analysisState,currentFrame);showTrackingComparison();drawPlaybackBoxes();drawInspectedBox();analysisFrame=currentFrame}}
 function showTrackingComparison(){
  const rows=analysisState.tracking_comparison||[];
  const row=rows.reduce((best,r)=>!best||Math.abs(r.frame-currentFrame)<Math.abs(best.frame-currentFrame)?r:best,null);
@@ -64,10 +66,10 @@ function showTrackingComparison(){
 $('review').href='/?config='+encodeURIComponent(project);
 function format(t){const m=Math.floor(t/60);return `${m}:${(t%60).toFixed(3).padStart(6,'0')}`}
 function update(mediaTime=v.currentTime){if(!ready)return;currentFrame=Math.max(0,Math.min(count-1,Math.floor(mediaTime*fps+0.0001)));$('seek').value=currentFrame;$('readout').textContent=`${format(mediaTime)} / ${format(count/fps)} · frame ${currentFrame} / ${count-1}`;showAnalysis()}
-function stepTo(i){if(!ready)return;v.pause();pendingFrame=Math.max(0,Math.min(count-1,Math.round(i)));v.currentTime=(pendingFrame+.1)/fps;$('seek').value=pendingFrame}
+function stepTo(i){if(!ready)return;v.pause();pendingFrame=Math.max(0,Math.min(count-1,Math.round(i)));v.currentTime=(pendingFrame+.1)/fps;$('seek').value=pendingFrame;updateNavigation()}
 v.onloadedmetadata=()=>{ready=true;for(const id of ['play','back','forward','minus','plus','seek'])$(id).disabled=false;if(initialSeek!==null&&Number.isFinite(initialSeek)){stepTo(initialSeek*fps);initialSeek=null}update();$('status').textContent='Synchronized comparison ready. Both panels are encoded together, so they cannot drift.'};
 v.onplay=()=>{$('play').textContent='Pause both'};v.onpause=()=>{$('play').textContent='Play both'};
-v.onseeked=()=>{update();pendingFrame=null};v.ontimeupdate=()=>update();
+v.onseeked=()=>{pendingFrame=null;update()};v.ontimeupdate=()=>update();
 v.onerror=()=>{$('status').textContent='Could not load the comparison. Render the video first, then reload.'};
 if(v.requestVideoFrameCallback){const tick=(now,metadata)=>{update(metadata.mediaTime);v.requestVideoFrameCallback(tick)};v.requestVideoFrameCallback(tick)}
 function toggle(){if(ready){if(v.paused)v.play().catch(e=>$('status').textContent=e.message);else v.pause()}}
@@ -75,7 +77,7 @@ $('play').onclick=toggle;$('back').onclick=()=>stepTo((pendingFrame??currentFram
 $('seek').oninput=()=>stepTo(Number($('seek').value));$('speed').onchange=()=>v.playbackRate=Number($('speed').value);$('mute').onclick=()=>{v.muted=!v.muted;$('mute').textContent=v.muted?'Unmute':'Mute'};
 $('fullscreen').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else $('stage').requestFullscreen().catch(e=>$('status').textContent=e.message)};
 document.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}else if(['ArrowLeft','ArrowRight'].includes(e.code)){e.preventDefault();stepTo((pendingFrame??currentFrame)+(e.code==='ArrowLeft'?-1:1)*(e.shiftKey?5*fps:1))}});
-async function load(){try{const r=await fetch('/api/state?config='+encodeURIComponent(project));const s=await r.json();if(!r.ok)throw Error(s.error);analysisState=s;analysisFrame=-1;renderLevelFlags(s);showAnalysis();if(!s.comparison){$('status').textContent='The comparison has not been rendered yet. Use the review page to render it.';return}fps=s.meta.fps;count=s.meta.frames;$('seek').max=count-1;const url='/files/'+s.comparison+'?v='+s.comparison_version;if(version!==s.comparison_version){version=s.comparison_version;ready=false;v.src=url;v.load()}$('download').href=url;$('download').download='comparison.mp4';$('download').hidden=false;
+async function load(){try{const r=await fetch('/api/state?config='+encodeURIComponent(project));const s=await r.json();if(!r.ok)throw Error(s.error);analysisState=s;analysisFrame=-1;renderLevelFlags(s);showAnalysis();if(!s.comparison){$('status').textContent='The comparison has not been rendered yet. Use the review page to render it.';return}fps=s.meta.fps;count=s.meta.frames;$('seek').max=count-1;const url='/files/'+s.comparison+'?v='+s.comparison_version;if(version!==s.comparison_version){version=s.comparison_version;ready=false;updateNavigation();v.src=url;v.load()}$('download').href=url;$('download').download='comparison.mp4';$('download').hidden=false;
  $('flags').replaceChildren();const groups=[];for(const t of s.tracks||[]){if(!t.flags.length)continue;let g=groups.at(-1);if(!g||g.end!==t.frame-1){g={start:t.frame,end:t.frame};groups.push(g)}g.end=t.frame}for(const g of groups){const b=document.createElement('button');b.textContent=`Review ${format(g.start/fps)}–${format((g.end+1)/fps)}`;b.onclick=()=>stepTo(g.start);$('flags').append(b)}
 }catch(e){$('status').textContent=e.message}}
 function renderLevelFlags(s){

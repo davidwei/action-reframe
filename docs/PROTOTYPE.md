@@ -336,3 +336,15 @@ retained under `detection_attempts`; the UI shows the retry count for each path.
 Per-attempt cache directories prevent request audits from overwriting one another.
 The dual cache namespace is bumped to v4, so new analyses do not reuse v3 results.
 Existing running processes and previously rendered videos are not modified.
+
+### Review navigation
+
+Both the source editor and synchronized comparison page provide **Previous reviewed
+frame**, **Next reviewed frame**, **Previous sampled frame**, and **Next sampled
+frame**. Reviewed frames have a saved manual correction (box, target absence, or
+level correction). Sampled frames use the stored analysis sample schedule, falling
+back to recorded non-manual tracking samples for older results. Navigation is
+strictly before/after the current frame, does not wrap, and disables unavailable
+directions. Comparison navigation pauses and seeks the shared video timeline;
+its buttons remain disabled until that video is ready. Source-editor navigation
+also works before rendering. Button tooltips show destination frame and time.
