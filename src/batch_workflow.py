@@ -222,7 +222,7 @@ class Batch:
                     analysis_fps=c.get('analysis_fps'),tracking_mode=c.get('tracking_mode','single')))
             except (ValueError,OSError,TypeError,KeyError):
                 continue
-        videos=[str(p.relative_to(self.root)) for p in sorted(self.root.iterdir()) if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES]
+        videos=[str(p.relative_to(self.root)) for p in sorted(self.root.iterdir()) if p.is_file() and not p.name.startswith('.') and p.suffix.lower() in VIDEO_SUFFIXES]
         jobs=self.jobs()
         for job in jobs:
             c=read(self.path(job['config']));out=self.path(c['output_dir'])

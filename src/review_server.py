@@ -161,6 +161,9 @@ class Handler(BaseHTTPRequestHandler):
                     x1,y1,x2,y2=map(round,reference_config['reference_box']);f=f[y1:y2,x1:x2]
                 ok,b=cv2.imencode('.jpg',f,[cv2.IMWRITE_JPEG_QUALITY,92])
                 self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b.tobytes());return
+            if parsed.path=='/api/preview':
+                from video_preview import preview
+                return self.json_response(preview(ROOT,local_path(q['video'][0]),q.get('time',['0'])[0]))
             if parsed.path=='/api/info':
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}

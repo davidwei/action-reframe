@@ -59,18 +59,42 @@ function renderJobs(){
  }
 }
 async function load(initial=false){state=await api('');const video=$('videos').value;$('videos').replaceChildren(...state.videos.map(v=>{const o=text('option',v);o.value=v;return o}));if(state.videos.includes(video))$('videos').value=video;if(previewVideo!==$('videos').value)previewSelected().catch(e=>notice(e.message));if(initial||!document.activeElement?.matches('#projects textarea'))renderProjects();renderJobs()}
-let previewVideo='',previewInfo=null,previewToken=0,previewTimer=null;
+let previewVideo='',previewInfo=null,previewToken=0,previewTimer=null,clipStart=0,clipLoading=false;
+async function loadPreview(seconds,play=false){
+ const token=++previewToken,name=previewVideo,video=$('quickVideo');clipLoading=true;video.pause();video.removeAttribute('src');video.load();video.hidden=true;$('quickFrame').hidden=false;
+ $('quickFrame').src='/api/frame?video='+encodeURIComponent(name)+'&frame='+Math.round(seconds*(previewInfo?.fps||30));
+ $('previewHint').textContent='Preparing a browser-compatible preview…';
+ try{
+  for(;;){
+   const response=await fetch('/api/preview?video='+encodeURIComponent(name)+'&time='+seconds);const result=await response.json();if(token!==previewToken)return;
+   if(!response.ok||result.status==='error')throw Error(result.error||'Preview unavailable');
+   if(result.status==='ready'){
+    clipStart=result.start;video.onloadedmetadata=()=>{if(token!==previewToken)return;video.currentTime=Math.max(0,Math.min(seconds-clipStart,video.duration-.05));if(play)video.play().catch(()=>{});};
+    video.src=result.url;video.hidden=false;$('quickFrame').hidden=true;video.load();
+    $('previewHint').textContent=`Preview clip from ${clipStart.toFixed(1)} s. Use the slider to seek anywhere in the source.`;return;
+   }
+   await new Promise(resolve=>setTimeout(resolve,500));if(token!==previewToken)return;
+  }
+ }catch(error){if(token===previewToken)$('previewHint').textContent=error.message+' Frame scrubbing is still available.'}
+ finally{if(token===previewToken)clipLoading=false}
+}
 async function previewSelected(){
  const name=$('videos').value,token=++previewToken;previewVideo=name;$('quickPreview').hidden=!name;if(!name)return;
- const video=$('quickVideo'),image=$('quickFrame');video.pause();video.hidden=false;image.hidden=true;previewInfo=null;
- image.src=video.poster='/api/frame?video='+encodeURIComponent(name)+'&frame=0';video.src='/files/'+encodeURIComponent(name);video.load();
- $('previewHint').textContent='Play the video or scrub to preview a frame.';
+ $('quickVideo').pause();previewInfo=null;
  const response=await fetch('/api/info?video='+encodeURIComponent(name));const info=await response.json();if(token!==previewToken)return;if(!response.ok)throw Error(info.error);
- previewInfo=info;$('previewPosition').max=Math.max(0,info.frames-1);$('previewPosition').value=0;$('previewTime').textContent='0.00 s / '+(info.frames/info.fps).toFixed(2)+' s';
+ previewInfo=info;$('previewPosition').max=Math.max(0,info.frames-1);$('previewPosition').value=0;$('previewTime').textContent='0.00 s / '+(info.frames/info.fps).toFixed(2)+' s';await loadPreview(0);
 }
-$('quickVideo').onerror=()=>{$('quickVideo').hidden=true;$('quickFrame').hidden=false;$('previewHint').textContent='This browser cannot play the source codec. Scrub below for decoded frame previews (including MOV/HEVC).'};
+$('quickVideo').onerror=()=>{if(clipLoading)return;$('quickVideo').hidden=true;$('quickFrame').hidden=false;$('previewHint').textContent='Preview playback failed. Use the slider for decoded frame previews.'};
+$('quickVideo').ontimeupdate=()=>{if(!previewInfo||clipLoading)return;const seconds=clipStart+$('quickVideo').currentTime;$('previewPosition').value=Math.round(seconds*previewInfo.fps);$('previewTime').textContent=seconds.toFixed(2)+' s / '+(previewInfo.frames/previewInfo.fps).toFixed(2)+' s'};
+$('quickVideo').onended=()=>{if(previewInfo&&clipStart+$('quickVideo').duration<previewInfo.frames/previewInfo.fps-.1)loadPreview(clipStart+20,true)};
 $('videos').onchange=()=>previewSelected().catch(e=>notice(e.message));
-$('previewPosition').oninput=()=>{if(!previewInfo)return;const frame=Number($('previewPosition').value),time=frame/previewInfo.fps;$('previewTime').textContent=time.toFixed(2)+' s';if(!$('quickVideo').hidden)$('quickVideo').currentTime=time;clearTimeout(previewTimer);previewTimer=setTimeout(()=>{$('quickFrame').src='/api/frame?video='+encodeURIComponent(previewVideo)+'&frame='+frame},120)};
+$('previewPosition').oninput=()=>{
+ if(!previewInfo)return;const frame=Number($('previewPosition').value),seconds=frame/previewInfo.fps;
+ $('previewTime').textContent=seconds.toFixed(2)+' s';clearTimeout(previewTimer);
+ if(!clipLoading&&!$('quickVideo').hidden&&seconds>=clipStart&&seconds<clipStart+$('quickVideo').duration){$('quickVideo').currentTime=seconds-clipStart;return}
+ $('quickVideo').pause();$('quickFrame').src='/api/frame?video='+encodeURIComponent(previewVideo)+'&frame='+frame;
+ previewTimer=setTimeout(()=>loadPreview(seconds),200);
+};
 $('create').onclick=safe(async()=>{if(!$('videos').value)throw Error('Add a video to the workspace first.');const result=await api('/create',{video:$('videos').value});await load();notice('New project added: '+result.project+'. Open labels and settings, or start with a description.');});
 $('reload').onclick=safe(()=>load(true));$('selectReady').onclick=()=>{for(const p of state.projects)if(p.ready&&p.status!=='Processing'&&!p.discard_pending&&!drafts.has(p.project))selected.add(p.project);renderProjects()};
 $('queue').onclick=safe(async()=>{const projects=[...selected].filter(p=>!drafts.has(p));if(!projects.length)throw Error('Select ready projects; save/approve unsaved description edits first.');const result=await api('/queue',{projects});selected.clear();await load();notice(`${result.jobs.length} job(s) queued with saved input snapshots. Start/resume the queue to process them.`)});

@@ -8,8 +8,11 @@ that folder; recursive subfolder import is not yet implemented.
 ## Prepare, queue, process, review
 
 1. **Add a video project.** Select a video for a quick preview, then Add project.
-   MOV files use native browser playback where supported; a decoded frame scrubber
-   remains available when the browser cannot play the codec. The project starts
+   Previews use cached H.264/AAC clips, avoiding browser HEVC/MOV decoding failures
+   that can play sound with a frozen picture. Twenty-second clips are generated
+   on demand at up to 640×360 and 15 FPS; the source-position slider seeks across
+   the entire video. Frame previews remain available during conversion. Original
+   videos and analysis/output FPS are unchanged. The project starts
    New with no assumed subject. Open the focus editor to draw its first box, or
    use Review descriptions to jump to the description section of Video focus. New projects default
    to anchor tracking. You can save additional polygon labels before analysis.
