@@ -305,3 +305,34 @@ analysis applies corrections to framing but does not update model tracking.
 The review UI shows the saved label immediately; existing rendered output remains
 unchanged until regenerated. The service currently blocks saving while its managed
 processing job is running.
+
+### Clean detection inputs and verification retries (dual tracking v4)
+
+Both dual-tracking paths, in both traversal directions, now locate the target in a
+clean full frame without the yellow previous-box overlay or numerical previous
+boxes. Detection history keeps the same frame/confidence selection quotas but
+omits bounding boxes and free-form old notes (which could repeat coordinates).
+History full-frame images still provide motion context. This does not introduce
+an expanded search crop or change the source-coordinate conversion.
+
+For each selected historical human target label, context also attaches an exact
+PNG crop from its original source frame, labeled as an identity reference rather
+than a current-location hint. It counts as the same historical frame for quota
+selection, but is an additional image attachment. The audit records
+`manual_crop_frames` and `attached_image_count`; the original full frame remains.
+
+A proposal below the confidence threshold after successful crop verification
+triggers a retry, up to `box_verification_retries` (default 2, allowed 0–2).
+The retry receives the clean full frame, the rejected crop explicitly labeled as
+such, and the independent verifier's findings. It must search the full frame
+again and return full-frame coordinates. It receives neither the rejected box
+coordinates nor the previous proposal response. Every new proposal is verified.
+A null box, request/verification error, accepted proposal, or exhausted retry
+budget ends the loop. Final low confidence remains uncertain; retries never
+promote an unverified proposal. Manual anchors still bypass this entire process.
+
+All attempts, responses, confidence adjustments, and request-file paths are
+retained under `detection_attempts`; the UI shows the retry count for each path.
+Per-attempt cache directories prevent request audits from overwriting one another.
+The dual cache namespace is bumped to v4, so new analyses do not reuse v3 results.
+Existing running processes and previously rendered videos are not modified.

@@ -4,6 +4,7 @@
   "tracking_mode": "single",
   "tracking_render_path": "selected",
   "verify_boxes": true,
+  "box_verification_retries": 2,
   "tracking_selection": {
     "confidence_threshold": 0.65,
     "agreement_iou": 0.35,

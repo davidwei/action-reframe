@@ -26,7 +26,7 @@ class DualTrackingTests(unittest.TestCase):
         self.assertEqual(box_iou(box,box),1)
         self.assertIsNone(box_iou(box,None))
 
-    def test_paths_pass_angle_and_map_previous_hint(self):
+    def test_paths_pass_angle_without_previous_hint(self):
         with tempfile.TemporaryDirectory() as folder:
             meta={'cache':folder,'width':200,'height':100,'fps':30}
             c={'target':'boat','temporal_context':{},'verify_boxes':False}
@@ -41,8 +41,10 @@ class DualTrackingTests(unittest.TestCase):
             level=observe_path(c,meta,gyro,1,'test',history,'leveled','forward',helpers)
             self.assertEqual(raw['bbox'],[400,400,500,500])
             self.assertNotEqual(level['bbox'],raw['bbox'])
-            self.assertEqual(level['previous_hint_frame'],0)
-            np.testing.assert_allclose(level['previous_hint_polygon_px'],transform_points(box_points([40,30,80,60]),np.array(level['source_to_view'])))
+            self.assertIsNone(level['previous_hint_frame'])
+            self.assertIsNone(level['previous_hint_polygon_px'])
+            self.assertEqual(len(requests[0][1]),2)
+            self.assertNotIn('projected hint polygon',requests[0][0])
             self.assertIn('30.000000',requests[0][0])
             self.assertIn('already been rotated',requests[1][0])
             self.assertEqual(history[0]['bbox'],[200,300,400,600])

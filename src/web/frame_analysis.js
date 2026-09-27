@@ -8,6 +8,7 @@
     if(!row)return [];
     const v=row.box_verification;
     return [
+      ...(row.verification_retry_count!=null?[`${label} crop-verification retries: ${row.verification_retry_count} | attempts: ${row.detection_attempts?.length||1} (all attempts in JSON)`]:[]),
       `${label} box_note: ${row.box_note||'not recorded'}`,
       ...(v?[
         `${label} independent crop description: ${v.description?.box_description||v.error||'not available'}`,

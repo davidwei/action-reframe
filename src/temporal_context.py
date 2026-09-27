@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-CONTEXT_VERSION = 2
+CONTEXT_VERSION = 3
 
 
 def frame_record(r, meta):
@@ -92,6 +92,8 @@ def build_context(history,meta,current_frame,direction,settings,frame_loader,com
     selected,groups=select_history(records,settings)
     # Keep membership fixed when a request is large; reduce image resolution instead.
     compact=[dict(r,note=r['note'][:240],level_note=(r.get('level_note') or '')[:180]) for r in selected]
+    if settings.get('omit_box_coordinates'):
+        compact=[{k:v for k,v in r.items() if k not in ('bbox','note')} for r in compact]
     text=('TEMPORAL HISTORY — '+direction.upper()+' traversal. '
           'These are prior hypotheses, NOT ground truth. Verify identity and motion against the CURRENT image. '
           'Start with recent frames, then top up moderate-or-high and high confidence quotas from nearest older frames; only selected records are sent; all history remains on disk. '
@@ -100,6 +102,8 @@ def build_context(history,meta,current_frame,direction,settings,frame_loader,com
           'User-selected reference frames can be from any time and are identity references, NOT preceding motion evidence. '
           'Moderate and high confidence are model reports, not guarantees. Image group membership can overlap; images are deduplicated.\n'+
           json.dumps({'image_groups':groups,'user_reference_frames':references,'individual_frame_records':compact},separators=(',',':'),allow_nan=False))
+    if settings.get('omit_box_coordinates'):
+        text=text.replace('All historical boxes and images use ORIGINAL RAW FULL frames with boxes normalized 0–1000.', 'Historical full-frame images use ORIGINAL RAW views. Previous box coordinates are withheld.')
     order=list(dict.fromkeys(references+[r['frame'] for r in selected]))
     images=[];width=max(224,768//(2**compression))
     for index in order:
@@ -112,12 +116,27 @@ def build_context(history,meta,current_frame,direction,settings,frame_loader,com
             im=cv2.resize(im,(width,max(1,round(h*width/w))))
             cv2.imwrite(str(path),im,[cv2.IMWRITE_JPEG_QUALITY,90])
         images.append({'path':str(path),'label':label,'frames':[index]})
+    # Add exact identity crops only for human labels admitted by the existing frame quotas.
+    manual_crops=[]
+    for record in selected:
+        if record['source']!='manual' or record.get('bbox') is None:continue
+        index=record['frame'];im=frame_loader(index);h,w=im.shape[:2]
+        original_record=next(r for r in reversed(history) if r['frame']==index)
+        box=np.asarray(original_record['bbox'])*[w/1000,h/1000,w/1000,h/1000]
+        x1,y1=np.maximum(0,np.floor(box[:2])).astype(int)
+        x2,y2=np.minimum([w,h],np.ceil(box[2:])).astype(int)
+        if x2<=x1 or y2<=y1:continue
+        path=folder/f'human_target_{index:07d}.png'
+        cv2.imwrite(str(path),im[y1:y2,x1:x2])
+        entry={'path':str(path),'label':f'HUMAN-CONFIRMED TARGET CROP | frame {index} | {index/meta["fps"]:.3f}s | identity only, not current location','frames':[index],'kind':'human_target_crop'}
+        images.append(entry);manual_crops.append(index)
     selected_ids=set(order)
     audit={'version':CONTEXT_VERSION,'direction':direction,'history_key':key,'history_count':len(records),
            'individual_record_count':len(compact),'summarized_record_count':0,
            'omitted_record_count':len(records)-len(compact),
            'visual_frame_count':len(order),'unsent_visual_frame_count':sum(r['frame'] not in selected_ids for r in records),
            'recent_image_frames':groups['recent'],'image_groups':groups,'user_reference_frames':references,
+           'manual_crop_frames':manual_crops,'attached_image_count':len(images),
            'selected_image_frames':order,'compression':compression,'image_width':width,
            'history_file':str(folder/'history.json'),'images':images}
     return text,images,audit,folder
