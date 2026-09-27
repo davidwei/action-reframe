@@ -192,7 +192,7 @@
       svg.setAttribute('viewBox',`0 0 ${item.width} ${item.height}`);
       const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
       const [x1,y1,x2,y2]=item.box;
-      for(const [key,value] of Object.entries({x:x1,y:y1,width:x2-x1,height:y2-y1,fill:'none',stroke:item.color,'stroke-width':4,'vector-effect':'non-scaling-stroke'}))rect.setAttribute(key,value);
+      for(const [key,value] of Object.entries({x:x1,y:y1,width:x2-x1,height:y2-y1,fill:'none',stroke:item.color,'stroke-width':4,'stroke-dasharray':'7 4','vector-effect':'non-scaling-stroke'}))rect.setAttribute(key,value);
       svg.append(rect);
       caption.textContent=`${item.label} — original frame ${item.frame}, ${(item.frame/state.meta.fps).toFixed(3)} s. Inspection only; the selected tracking path is unchanged.`;
       element.dispatchEvent(new CustomEvent('analysis-box',{bubbles:true,detail:item}));

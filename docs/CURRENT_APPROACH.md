@@ -133,8 +133,8 @@ certainty does not transfer to neighboring frames. Original model predictions
 remain available; users may replace a label or mark the target absent.
 
 The comparison page plays original and processed panels on one synchronized
-encoded timeline. Cyan/orange show candidate estimates, while dashed green shows
-the saved render track. Frame Analysis names human, independent-detection,
+encoded timeline. Dotted cyan/orange show candidate estimates, while dotted green shows
+the saved render track. Solid white outlines identify human labels in both views. Frame Analysis names human, independent-detection,
 flow-validation or interpolation provenance. Detailed model analysis belongs to
 the exact displayed frame; neighboring sample details are not substituted.
 Navigation jumps between reviewed frames, sampled frames and flagged intervals.
