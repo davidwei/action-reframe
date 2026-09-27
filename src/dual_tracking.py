@@ -12,7 +12,7 @@ import numpy as np
 from backward_tracking import bidirectional_pass
 from leveling import extract_gyro
 
-VERSION = 5
+VERSION = 6
 PATHS = ('raw_angle', 'leveled')
 
 
@@ -77,6 +77,8 @@ Image 1: original target reference crop. Image 2: current {'leveled' if path=='l
 Locate the target afresh in clean IMAGE 2. No previous box coordinates or target outline are supplied.
 Additional human-labeled target crops are identity references at their labeled timestamps, not current-position hints.
 Target: {c['target']}
+The user accepts a blurry, distant or low-resolution target. Track it whenever visible evidence supports its identity; do not reject it or lower confidence solely because it is blurry.
+Use coarse shape, color, equipment and motion context when fine details are unreadable. Do not invent missing details; return uncertainty only when the available evidence cannot distinguish the target.
 Current source frame {index}, time {index/meta['fps']:.3f}s. Source size {w}x{h}; IMAGE 2 size {size[0]}x{size[1]}.
 Current gyro-derived roll is {angle:.6f} degrees. Positive roll requires counterclockwise correction.
 {'IMAGE 2 has already been rotated counterclockwise by that angle, with expanded black borders to avoid cutting content. Do not rotate again. Black padding is not scene content.' if path=='leveled' else 'IMAGE 2 has NOT been rotated. Use the angle to understand camera tilt; return coordinates in the RAW image.'}
@@ -154,7 +156,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
 def adjudicate_pair(c,meta,index,model,candidates,history,helpers,labels=PATHS,direction='forward'):
     loader,completion,save=helpers
     folder=Path(meta['cache'])/('adjudication_'+'_'.join(labels)+'_'+direction);folder.mkdir(parents=True,exist_ok=True)
-    key=hashlib.sha256(json.dumps([2,labels,direction,model,c['target'],c.get('reference_frames',[]),
+    key=hashlib.sha256(json.dumps([3,labels,direction,model,c['target'],c.get('reference_frames',[]),
         c.get('temporal_context',{}),candidates,history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=folder/f'{key}.json'
     if result_path.exists():
@@ -174,6 +176,7 @@ Image 1 is the target reference. Image 2 is the CURRENT RAW frame. Image 3 marks
 {labels[0]} = cyan, {labels[1]} = orange. All candidate boxes use normalized ORIGINAL RAW coordinates.
 Target: {c['target']}. Current frame: {index}.
 Candidates: {json.dumps({k:{'bbox':r.get('bbox'),'note':r.get('note')} for k,r in candidates.items()})}
+The user accepts blurry or low-resolution targets. Blur alone is not a reason to choose neither or lower confidence; use the available shape, color and motion evidence. Unreadable fine details are not identity contradictions. Remain uncertain if the visible evidence cannot distinguish the target.
 Use visible identity evidence and supplied selected-track motion history. Do not choose merely because a candidate has a box.
 If neither can be verified, choose neither. A camera movement can explain a jump, but confirm it from image evidence.
 Return ONLY JSON: {{"choice":"{labels[0]}|{labels[1]}|neither","confidence":0.0,"reason":"identity and motion evidence"}}.'''

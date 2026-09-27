@@ -395,3 +395,14 @@ verification and shows the trusted description, blind description and comparison
 All descriptions, prompts, and comparison outputs remain cached and auditable.
 Cache versions prevent old verification or detection results from being reused
 under the new score. Existing runs/results are unchanged; reanalyze to apply.
+
+### Blur tolerance (dual v6 / verification v3)
+
+Tracking, candidate adjudication, trusted-target description, blind crop description,
+and text matching explicitly accept blurry, distant or low-resolution objects.
+Blur alone must not reduce identity reliability or imply target absence. Coarse
+shape, color and equipment can establish identity even when fine markings are
+unreadable. Ambiguous identity, contradictory evidence and insufficient visible
+features still warrant uncertainty; prompts must not invent detail. This changes
+identity judgments, not image enhancement or output sharpness. Detection,
+adjudication and verification cache versions are bumped for fresh analysis.
