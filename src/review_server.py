@@ -192,10 +192,11 @@ class Handler(BaseHTTPRequestHandler):
                     if stage not in ('all','analyze','backward','level','level-render','render','compare'):raise ValueError('Invalid stage')
                     if 'analysis_fps' in data and stage in ('all','analyze'):
                         cap=cv2.VideoCapture(str(local_path(c['video'])));source_fps=cap.get(cv2.CAP_PROP_FPS);cap.release()
-                        set_analysis_fps(c,data['analysis_fps'],source_fps);c.pop('sample_interval',None);write_json(config_path,c)
+                        set_analysis_fps(c,data['analysis_fps'],source_fps);c.pop('sample_interval',None)
                     if 'confidence_threshold' in data:
-                        set_confidence_threshold(c,data['confidence_threshold']);write_json(config_path,c)
-                    if set_anchor_options(c,data):write_json(config_path,c)
+                        set_confidence_threshold(c,data['confidence_threshold'])
+                    set_anchor_options(c,data)
+                    write_json(config_path,c)
                     if LOG is not None:LOG.close()
                     LOG=(out/'job.log').open('w')
                     JOB=subprocess.Popen([sys.executable,str(SOURCE_ROOT/'reframe.py'),str(config_path),'--stage',stage],cwd=ROOT,stdout=LOG,stderr=subprocess.STDOUT)
