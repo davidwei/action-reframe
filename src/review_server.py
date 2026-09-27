@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local video selector, rectangle editor and review server (loopback only)."""
 import argparse
+import base64
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -38,6 +39,17 @@ def set_anchor_options(config,data):
         from anchor_tracking import settings
         settings(config)
     return saved
+
+
+def review_geometry(config,out,index):
+    from label_geometry import preview_geometry
+    meta=json.loads((out/'meta.json').read_text())
+    if not 0<=index<meta['frames']:raise ValueError('Frame out of range')
+    track_path=out/'tracks.json';tracks=json.loads(track_path.read_text()) if track_path.exists() else []
+    track=tracks[index] if index<len(tracks) else None
+    level_path=out/'level_comparison.json';levels=json.loads(level_path.read_text()) if not track and level_path.exists() else []
+    roll=levels[index].get('final_roll',0) if index<len(levels) else 0
+    return meta,track,preview_geometry(config,meta,track,roll)
 
 
 def select_project(name):
@@ -90,6 +102,18 @@ class Handler(BaseHTTPRequestHandler):
                 state['comparison']=str((out/'comparison.mp4').relative_to(ROOT)) if (out/'comparison.mp4').exists() else None
                 state['comparison_version']=(out/'comparison.mp4').stat().st_mtime_ns if state['comparison'] else None
                 return self.json_response(state)
+            if parsed.path=='/api/review-frame':
+                if not config_name:raise ValueError('Create a project first')
+                config=json.loads(local_path(config_name).read_text());out=local_path(config['output_dir']);index=int(q['frame'][0])
+                meta,track,geometry=review_geometry(config,out,index)
+                cap=cv2.VideoCapture(str(local_path(config['video'])));cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read();cap.release()
+                if not ok:raise ValueError('Cannot decode source frame')
+                import numpy as np
+                from reframe import composite
+                processed=composite(frame,np.asarray(geometry['source_to_view']), (geometry['width'],geometry['height']),config.get('feather_pixels',40),track.get('bbox') if track else None)
+                ok,encoded=cv2.imencode('.jpg',processed,[cv2.IMWRITE_JPEG_QUALITY,92])
+                if not ok:raise ValueError('Cannot encode processed preview')
+                return self.json_response({'frame':index,'geometry':geometry,'image':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()})
             if parsed.path=='/api/frame':
                 video=local_path(q['video'][0]);i=int(q.get('frame',['0'])[0])
                 cap=cv2.VideoCapture(str(video));cap.set(cv2.CAP_PROP_POS_FRAMES,max(0,i));ok,f=cap.read();cap.release()
@@ -174,11 +198,33 @@ class Handler(BaseHTTPRequestHandler):
                     if not 0<=i<meta['frames']:raise ValueError('Frame out of range')
                     p=out/'corrections.json';values=json.loads(p.read_text()) if p.exists() else {}
                     v=values.get(str(i),{})
-                    if 'bbox' in data:
-                        b=data['bbox']
-                        if b is not None:
-                            if len(b)!=4 or not (0<=b[0]<b[2]<=meta['width'] and 0<=b[1]<b[3]<=meta['height']):raise ValueError('Invalid rectangle')
-                        v['bbox']=b
+                    if any(k in data for k in ('polygon','approve_path','bbox')):
+                        from label_geometry import canonical_label,box_polygon
+                        _,_,geometry=review_geometry(c,out,i)
+                        if data.get('view_signature') and data['view_signature']!=geometry['signature']:
+                            raise ValueError('Preview changed; reload the frame before saving the selection')
+                        if 'approve_path' in data:
+                            selected_path=data['approve_path']
+                            if selected_path not in ('raw_angle','leveled'):raise ValueError('Invalid path')
+                            comparisons=json.loads((out/'tracking_comparison.json').read_text())
+                            row=next((r for r in comparisons if r['frame']==i),None)
+                            candidate=row.get(selected_path) if row else None
+                            if not candidate or not candidate.get('bbox'):raise ValueError('No direct candidate at this frame; select a sampled frame')
+                            points=candidate.get('source_polygon_px') if selected_path=='raw_angle' else None
+                            # Orange is the displayed source-space enclosing rectangle.
+                            if not points:
+                                box=[v*(meta['height'] if j%2 else meta['width'])/1000 for j,v in enumerate(candidate['bbox'])]
+                                points=box_polygon(box)
+                            label=canonical_label(points,'raw',geometry);label['approved_path']=selected_path
+                        elif data.get('polygon') is not None:
+                            label=canonical_label(data['polygon'],data.get('space','raw'),geometry)
+                        elif data.get('bbox') is not None:
+                            label=canonical_label(box_polygon(data['bbox']),'raw',geometry)
+                        else:
+                            label={'bbox':None,'source_polygon_px':None,'processed_polygon_px':None,'confidence_source':'human'}
+                        for key in ('source_polygon_px','processed_polygon_px','selection_space','view_polygon_px','preview_geometry','approved_path','confidence_source'):
+                            v.pop(key,None)
+                        v.update(label)
                     if 'roll' in data and c.get('leveling_source')=='gyro':
                         raise ValueError('Gyro is the final leveling source; manual roll overrides are disabled for this project')
                     if 'roll' in data:

@@ -4,7 +4,7 @@ import numpy as np
 
 
 class VisualTracker:
-    def initialize(self, image, box):
+    def initialize(self, image, box, polygon=None):
         self.gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
         self.box=np.asarray(box,dtype=float)
         x1,y1,x2,y2=self.box
@@ -12,6 +12,8 @@ class VisualTracker:
         mask=np.zeros(self.gray.shape,np.uint8)
         x1,y1=np.floor(self.box[:2]).astype(int);x2,y2=np.ceil(self.box[2:]).astype(int)
         mask[max(0,y1):max(0,y2),max(0,x1):max(0,x2)]=255
+        if polygon:
+            mask[:]=0;cv2.fillConvexPoly(mask,np.rint(polygon).astype(np.int32),255)
         self.points=cv2.goodFeaturesToTrack(self.gray,80,.01,3,mask=mask,blockSize=3)
         self.uncertainty=0.
         return self

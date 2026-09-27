@@ -141,6 +141,7 @@
       ...(track?[`Render crop center: ${vector(track.center)} | crop height: ${number(track.crop_height)} px | zoom: ${number(track.zoom)}×`,`Render flags: ${track.flags?.join(', ')||'none'}`]:[]),
       ...(correction?['','Saved manual correction at this frame (rerender to apply):',
         ...(own(correction,'bbox')?[`  Object: ${correction.bbox===null?'marked absent':vector(correction.bbox)+' px'}`]:[]),
+        ...(correction.source_polygon_px?[`  Source polygon (pixels): ${JSON.stringify(correction.source_polygon_px)}`]:[]),
         ...(own(correction,'roll')?[`  Level angle: ${number(correction.roll)}°`]:[])] : [])
     ];
     return {status,tone,confidence,confidenceSource,level,text:lines.join('\n'),data:{
@@ -206,9 +207,25 @@
     if (!element) return;
     if (!element.dataset.mounted) {
       element.classList.add('frame-analysis'); element.dataset.mounted = 'true';
-      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
+      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><div class="analysis-approval" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><button type="button" data-approve="raw_angle">Approve Cyan (raw path)</button><button type="button" data-approve="leveled">Approve Orange (leveled path)</button><span class="analysis-approval-status" role="status"></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
     }
     const result = describe(state, frame, options.sourceMatches !== false);
+    const paired=state.tracking_comparison?.find(row=>row.frame===frame);
+    for(const button of element.querySelectorAll('[data-approve]')){
+      const path=button.dataset.approve,candidate=paired?.[path];
+      button.disabled=!!state.running||options.sourceMatches===false||!candidate?.bbox;
+      button.title=candidate?.bbox?'Save this displayed candidate as a human-confirmed polygon':'No direct candidate at this frame; select a sampled frame';
+      button.onclick=async()=>{
+        const message=element.querySelector('.analysis-approval-status');button.disabled=true;message.textContent='Saving…';
+        try{
+          const response=await fetch('/api/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:state.project||new URLSearchParams(location.search).get('config'),frame,approve_path:path})});
+          const value=await response.json();if(!response.ok)throw Error(value.error||response.status);
+          message.textContent='Approved as human label (100%). Reanalyze or render to apply.';
+          element.dispatchEvent(new CustomEvent('analysis-approved',{bubbles:true,detail:{frame,path}}));
+        }catch(error){message.textContent=error.message;}finally{button.disabled=!!state.running||!candidate?.bbox;}
+      };
+    }
+
     const badge = element.querySelector('.analysis-badge'); badge.textContent = result.status; badge.dataset.tone = result.tone;
     const levelBadge=element.querySelector('.analysis-level');
     levelBadge.hidden=!result.level;
@@ -236,14 +253,14 @@
     const valid=r=>Array.isArray(r?.bbox)&&r.bbox.length===4&&r.bbox.every(Number.isFinite)&&r.bbox[2]>r.bbox[0]&&r.bbox[3]>r.bbox[1]&&!r.error;
     const points=(row,path)=>{
       const r=row[path];if(!valid(r))return null;
-      if(path==='raw_angle'&&r.source_polygon_px?.length===4&&r.source_polygon_px.every(p=>p.length===2&&p.every(Number.isFinite)))return r.source_polygon_px;
+      if(path==='raw_angle'&&r.source_polygon_px?.length>=3&&r.source_polygon_px.every(p=>p.length===2&&p.every(Number.isFinite)))return r.source_polygon_px;
       const [x1,y1,x2,y2]=r.bbox.map((v,i)=>v*(i%2?meta.height:meta.width)/1000);
       return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
     };
     return ['raw_angle','leveled'].flatMap(path=>{
       let polygon,interpolated=false;
       const a=points(left,path),b=points(right,path);
-      if(a&&b&&left.frame<frame&&frame<right.frame&&right.frame-left.frame<=step*1.5){
+      if(a&&b&&a.length===b.length&&left.frame<frame&&frame<right.frame&&right.frame-left.frame<=step*1.5){
         const weight=(frame-left.frame)/(right.frame-left.frame);
         polygon=a.map((point,i)=>point.map((v,j)=>v+(b[i][j]-v)*weight));interpolated=true;
       }else if(Math.abs(nearest.frame-frame)<=Math.max(1,step/2+.5))polygon=points(nearest,path);

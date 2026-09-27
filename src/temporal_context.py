@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-CONTEXT_VERSION = 3
+CONTEXT_VERSION = 4
 
 
 def frame_record(r, meta):
@@ -16,6 +16,7 @@ def frame_record(r, meta):
         angle=math.degrees(math.atan((shore[3]-shore[1])*meta['height']/((shore[2]-shore[0])*meta['width'])))
     return {'frame':r['frame'],'time':round(r.get('time',r['frame']/meta['fps']),3),
         'bbox':None if r.get('bbox') is None else [round(v,2) for v in r['bbox']],
+        'source_polygon_px':r.get('source_polygon_px'),
         'confidence':r.get('confidence'),'visibility':r.get('visibility'),
         'shoreline':shore,'roll_degrees':None if angle is None else round(angle,3),
         'level_confidence':r.get('level_confidence'),'level_note':r.get('level_note'),
@@ -91,7 +92,7 @@ def build_context(history,meta,current_frame,direction,settings,frame_loader,com
     (folder/'history.json').write_text(json.dumps(records,indent=2,allow_nan=False))
     selected,groups=select_history(records,settings)
     # Keep membership fixed when a request is large; reduce image resolution instead.
-    compact=[dict(r,note=r['note'][:240],level_note=(r.get('level_note') or '')[:180]) for r in selected]
+    compact=[dict({k:v for k,v in r.items() if k!='source_polygon_px'},note=r['note'][:240],level_note=(r.get('level_note') or '')[:180]) for r in selected]
     if settings.get('omit_box_coordinates'):
         compact=[{k:v for k,v in r.items() if k not in ('bbox','note')} for r in compact]
     text=('TEMPORAL HISTORY — '+direction.upper()+' traversal. '
@@ -127,7 +128,8 @@ def build_context(history,meta,current_frame,direction,settings,frame_loader,com
         x2,y2=np.minimum([w,h],np.ceil(box[2:])).astype(int)
         if x2<=x1 or y2<=y1:continue
         path=folder/f'human_target_{index:07d}.png'
-        cv2.imwrite(str(path),im[y1:y2,x1:x2])
+        from label_geometry import human_crop
+        cv2.imwrite(str(path),human_crop(im,original_record))
         entry={'path':str(path),'label':f'HUMAN-CONFIRMED TARGET CROP | frame {index} | {index/meta["fps"]:.3f}s | identity only, not current location','frames':[index],'kind':'human_target_crop'}
         images.append(entry);manual_crops.append(index)
     selected_ids=set(order)

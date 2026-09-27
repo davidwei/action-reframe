@@ -116,3 +116,34 @@ Unsampled frames retain their own saved render box, interpolation provenance,
 render parameters and telemetry. Historical outputs do not persist every internal
 optical-flow update; the UI does not invent those measurements or describe
 interpolation as optical flow. No reanalysis is required for this display change.
+
+### Human polygons and candidate approval
+
+The focus page displays the raw source frame and a leveled/zoomed preview side by
+side. The preview is generated from the exact source frame using the saved render
+transform; before a render is available it uses the full leveled frame. Drag a
+rectangle on either image, then choose **Save target box**. A processed rectangle
+maps back to a polygon in original-video pixel coordinates. Source bounds clip
+selections; a selection entirely outside source content is rejected. The blurred
+extension does not supply additional source pixels.
+
+Both views share **Approve Cyan (raw path)** and **Approve Orange (leveled path)**
+inside Frame Analysis. Approval requires a candidate recorded at this exact frame;
+interpolated playback outlines cannot be approved. Approval saves the displayed
+outline: cyan's source polygon, or orange's enclosing source rectangle. It does
+not replace that outline with an unseen detector-space box.
+
+Drawing and approval both update the existing project's `corrections.json`.
+Records preserve the canonical `source_polygon_px`, its enclosing `bbox` for
+existing framing code, `processed_polygon_px`, and the preview transform.
+`approved_path` records which candidate the user approved. Original model results
+remain available. A human label has 100% confidence, overrides automatic results,
+skips detection at that frame, and serves as a bidirectional anchor and reference
+under the existing context limits. Neighboring frames still need their own
+verification. Polygon masks exclude unselected corners from human reference crops
+and optical-flow feature initialization.
+
+Saving does not launch processing. Reanalyze to propagate the new anchor, or render
+with saved corrections to apply labels without Qwen analysis. Labels can be
+replaced by another selection/approval or cleared by marking the target absent.
+Editing is disabled while a managed processing job is running.

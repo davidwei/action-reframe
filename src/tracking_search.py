@@ -32,10 +32,9 @@ class TrackingSearch:
         reference=Path(self.meta['cache'])/'reference.jpg'
         manual=next((r for r in reversed(history) if r.get('manual') and r.get('bbox')),None)
         if manual:
-            image=self.frame(manual['frame']);h,w=image.shape[:2]
-            box=np.array(manual['bbox'])*[w,h,w,h]/1000
-            x1,y1=np.floor(box[:2]).astype(int);x2,y2=np.ceil(box[2:]).astype(int)
-            cv2.imwrite(str(folder/'reference.jpg'),image[y1:y2,x1:x2])
+            image=self.frame(manual['frame'])
+            from label_geometry import human_crop
+            cv2.imwrite(str(folder/'reference.jpg'),human_crop(image,manual))
         else:(folder/'reference.jpg').write_bytes(reference.read_bytes())
         return folder
 
@@ -69,7 +68,7 @@ class TrackingSearch:
         direction='forward' if step>0 else 'backward';history=self.history(rows,index,direction)
         frame=self.frame(source['frame']);h,w=frame.shape[:2]
         box=np.asarray(source['bbox'])*[w,h,w,h]/1000
-        tracker=VisualTracker().initialize(frame,box);motion=None
+        tracker=VisualTracker().initialize(frame,box,source.get('source_polygon_px'));motion=None
         for i in range(source['frame']+step,index+step,step):
             frame=self.frame(i);motion=tracker.update(frame)
             if not motion['reliable']:break

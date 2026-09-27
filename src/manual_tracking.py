@@ -18,5 +18,8 @@ def manual_observations(config, meta):
                            confidence_source='human', manual=True, analysis_source='manual',
                            visibility='visible' if box is not None else 'absent',
                            direction='manual', note='Human-confirmed target box' if box is not None else 'Human-confirmed absence',
-                           shoreline=None, level_confidence=0)
+                           shoreline=None, level_confidence=0,
+                           source_polygon_px=correction.get('source_polygon_px'),
+                           processed_polygon_px=correction.get('processed_polygon_px'),
+                           approved_path=correction.get('approved_path'))
     return rows

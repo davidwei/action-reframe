@@ -15,7 +15,7 @@
 <p id="status">Loading comparison…</p><p class="hint">Space: play/pause · Left/Right: step one frame · Shift+Left/Right: skip five seconds. Audio plays once. Both panels are display copies; the source file is unchanged.</p>
 <div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
 <p id="levelSummary"></p><div id="levelFlags"></div><div id="selectionFlags"></div><div id="flags"></div>
-<script src="/files/frame_analysis.js?v=exact-frame-analysis-1"></script>
+<script src="/files/frame_analysis.js?v=polygon-labels-1"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
@@ -99,5 +99,6 @@ function renderLevelFlags(s){
  for(const row of rows){if(!row.level_divergent)continue;let g=groups.at(-1);if(!g||g.end!==row.frame-1){g={start:row.frame,end:row.frame};groups.push(g)}g.end=row.frame;}
  for(const g of groups){const b=document.createElement('button');b.style.background='#792e3b';b.style.margin='4px';b.textContent=`Level divergence ${format(g.start/s.meta.fps)}–${format((g.end+1)/s.meta.fps)}`;b.onclick=()=>stepTo(g.start);root.append(b)}
 }
+$('frameAnalysis').addEventListener('analysis-approved',load);
 $('reload').onclick=load;load();
 </script></html>

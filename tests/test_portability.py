@@ -90,6 +90,38 @@ class PortabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             review_server.local_path('../outside.mp4')
 
+    def test_polygon_save_and_path_approval(self):
+        out=self.root/'outputs'/'labels';out.mkdir(parents=True)
+        config={'video':'sample.avi','output_dir':'outputs/labels','reference_time':0,'reference_box':[10,10,30,30],'target':'boat','output_width':64,'output_height':48}
+        (self.root/'labels.json').write_text(json.dumps(config))
+        (out/'meta.json').write_text(json.dumps({'frames':2,'width':64,'height':48,'fps':10}))
+        (out/'tracks.json').write_text(json.dumps([{'center':[32,24],'crop_height':48,'roll':20,'bbox':None}]*2))
+        writer=cv2.VideoWriter(str(self.root/'sample.avi'),cv2.VideoWriter_fourcc(*'MJPG'),10,(64,48))
+        for _ in range(2):writer.write(np.zeros((48,64,3),np.uint8))
+        writer.release()
+        preview=self.request('/api/review-frame?config=labels.json&frame=0')
+        self.assertTrue(preview['image'].startswith('data:image/jpeg;base64,'))
+        points=[[20,15],[40,15],[40,30],[20,30]]
+        self.request('/api/correct',{'config':'labels.json','frame':0,'polygon':points,'space':'processed','view_signature':preview['geometry']['signature']})
+        saved=json.loads((out/'corrections.json').read_text())['0']
+        self.assertEqual(saved['selection_space'],'processed')
+        np.testing.assert_allclose(saved['processed_polygon_px'],points,atol=.001)
+        candidate={'bbox':[100,100,400,400],'source_polygon_px':[[7,5],[25,6],[24,18],[6,17]]}
+        (out/'tracking_comparison.json').write_text(json.dumps([{'frame':1,'raw_angle':candidate,'leveled':candidate}]))
+        self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'raw_angle'})
+        saved=json.loads((out/'corrections.json').read_text())['1']
+        self.assertEqual(saved['approved_path'],'raw_angle')
+        self.assertEqual(saved['source_polygon_px'],candidate['source_polygon_px'])
+        with self.assertRaises(urllib.error.HTTPError):
+            self.request('/api/correct',{'config':'labels.json','frame':0,'approve_path':'raw_angle'})
+        self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'leveled'})
+        saved=json.loads((out/'corrections.json').read_text())['1']
+        np.testing.assert_allclose(saved['bbox'],[6.4,4.8,25.6,19.2],atol=.001)
+        self.assertEqual(saved['approved_path'],'leveled')
+        self.request('/api/correct',{'config':'labels.json','frame':1,'bbox':None})
+        saved=json.loads((out/'corrections.json').read_text())['1']
+        self.assertIsNone(saved['bbox']);self.assertIsNone(saved['source_polygon_px'])
+
 
 if __name__ == '__main__':
     unittest.main()
