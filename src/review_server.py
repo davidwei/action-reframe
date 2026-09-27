@@ -87,6 +87,19 @@ def batch_active():
     return batch.active() or (not batch.paused() and any(j['status']=='queued' for j in batch.jobs()))
 
 
+def legacy_project():
+    if JOB is None or JOB.poll() is not None:return None
+    args=getattr(JOB,'args',[])
+    if not args:
+        try:args=Path(f'/proc/{JOB.pid}/cmdline').read_bytes().decode().split('\0')
+        except OSError:args=[]
+    for value in args:
+        if isinstance(value,str) and value.endswith('.json'):
+            try:return str(local_path(value).relative_to(ROOT))
+            except ValueError:pass
+    return None
+
+
 def local_path(value):
     p=(ROOT/value).resolve()
     if not p.is_relative_to(ROOT):
@@ -106,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
             config_name=None if q.get('new')==['1'] else select_project(q.get('config',[''])[0])
             if parsed.path=='/api/batch':
                 from batch_workflow import Batch
-                result=Batch(ROOT).library();result['legacy_running']=JOB is not None and JOB.poll() is None
+                result=Batch(ROOT).library(active_project=legacy_project());result['legacy_running']=JOB is not None and JOB.poll() is None
                 return self.json_response(result)
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
@@ -152,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html'}[parsed.path]) if parsed.path in ('/','/compare','/library') else WEB_ROOT/'frame_analysis.js' if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
+            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html'}[parsed.path]) if parsed.path in ('/','/compare','/library') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
             if parsed.path not in ('/','/compare','/library') and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
             if not path.is_file():return self.json_response({'error':'Not found'},404)
@@ -200,6 +213,10 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path.startswith('/api/batch/'):
                     from batch_workflow import Batch
                     batch=Batch(ROOT);action=self.path.rsplit('/',1)[-1]
+                    if action=='create':return self.json_response(batch.create_project(data['video']))
+                    if action=='discard':
+                        result=batch.discard(data['project']);result['finishing']=result['finishing'] or legacy_project()==data['project'];return self.json_response(result)
+                    if action=='restore':return self.json_response(batch.restore(data['project']))
                     if action=='prepare':return self.json_response(batch.prepare(data['project'],data.get('description',''),data.get('ready',False)))
                     if action=='queue':return self.json_response({'jobs':batch.enqueue(data.get('projects',[]))})
                     if action=='start':
@@ -285,6 +302,8 @@ class Handler(BaseHTTPRequestHandler):
                         if not -90<=r<=90:raise ValueError('Roll must be between -90 and 90 degrees')
                         v['roll']=r
                     values[str(i)]=v;write_json(p,values)
+                    if not c.get('reference_box') and v.get('bbox') and not c.get('batch_input_revision'):
+                        c['reference_box']=v['bbox'];c['reference_time']=i/meta['fps'];write_json(config_path,c)
                     return self.json_response({'saved':i})
                 if self.path=='/api/run':
                     stage=data.get('stage','all')

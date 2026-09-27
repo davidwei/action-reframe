@@ -7,14 +7,19 @@ that folder; recursive subfolder import is not yet implemented.
 
 ## Prepare, queue, process, review
 
-1. **Add a video project.** Choose a video and select its subject in the focus
-   editor. Give target instructions and create the project. New projects default
+1. **Add a video project.** Select a video for a quick preview, then Add project.
+   MOV files use native browser playback where supported; a decoded frame scrubber
+   remains available when the browser cannot play the codec. The project starts
+   New with no assumed subject. Open the focus editor to draw its first box, or
+   use Review descriptions to jump to the description section of Video focus. New projects default
    to anchor tracking. You can save additional polygon labels before analysis.
    Existing projects are listed separately, including multiple targets per video.
 2. **Prepare inputs.** Open labels/settings to set analysis FPS, tracking mode and
-   confidence thresholds. In the library, inspect the actual reference crop,
-   write an identity description or ask Qwen to draft one, then edit it. Drafting
-   is optional and never automatically approves a description.
+   confidence thresholds. Use Review descriptions to open the description editor in Video focus. With
+   labeled crops and no saved text, Qwen prepopulates a draft using up to five
+   ground-truth crops; without crops the editor starts empty. Saved text is
+   preserved, and a regenerate control can draft again from the crops. Edit the
+   text and save a draft or explicitly approve it; drafting never approves it.
 3. **Approve and mark ready.** Approval records the description and current
    configuration/label/source revision. Changing these inputs makes readiness
    stale. Unapproved projects cannot be queued. The approved description is used
@@ -90,6 +95,36 @@ These validate workflow correctness, not model tracking quality on real footage.
 
 The first implementation intentionally uses serial processing. Multi-GPU dispatch,
 per-job resource limits, mid-video pause/cancel, automatic checkpoint migration,
-multiple-reference description approval, batch export/trim controls, and a combined
+per-reference description approvals, batch export/trim controls, and a combined
 cross-video interval-review timeline remain future work. The current job table
 links to each video's existing flags and comparison view.
+
+
+## Project states and actions
+
+| State | Meaning | Actions |
+|---|---|---|
+| New | Video added; no user labels or text yet | Label subject; Review descriptions; Discard project |
+| Draft | Some user input exists; readiness requirements are incomplete | Label subject; Review descriptions; Discard project |
+| Ready | At least one cropped box and an approved description for current inputs | Label subject; Review descriptions; Queue processing; Discard project |
+| Processing | Queued, starting or running | Label subject; Review descriptions; Open video focus; Discard project |
+| Done | Successful processing for current inputs (including unchanged legacy output) | Label subject; Review descriptions; Open video focus; Discard project |
+
+These names are canonical across states. **Label subject** opens Video focus at
+`#subject-labels`; **Review descriptions** opens that same workspace at
+`#identity-description`. **Open video focus** opens the current run, showing
+progress during processing and results afterward. There is no separate generic
+“edit inputs,” “view progress” or “review result” project action. Queue-specific
+pause, cancel and retry controls remain in the queue; download/comparison controls
+remain in Video focus.
+
+Queued/Running remain job substatuses. Failed or interrupted runs do not count as
+Done: their project remains Ready if inputs are still approved, with error/retry
+controls in the queue. Previous successful runs remain accessible. Editing inputs
+returns to Draft unless an older immutable run is still Processing; its snapshot
+continues unchanged.
+
+Discard is reversible archival, not file deletion. Queued jobs are cancelled;
+running jobs finish before the project disappears from Existing projects. Source
+videos, labels, descriptions and outputs are retained. Discarded projects can be
+restored in the library. Restoring does not restart cancelled jobs automatically.

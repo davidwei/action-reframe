@@ -119,6 +119,51 @@ class BatchTests(unittest.TestCase):
         finally:
             server.shutdown();server.server_close();thread.join()
 
+    def test_five_states_and_discard_restore(self):
+        project=self.batch.create_project('clip.avi')['project']
+        def current():return next(p for p in self.batch.library()['projects'] if p['project']==project)
+        self.assertEqual(current()['status'],'New');self.assertIn('Discard project',current()['actions'])
+        self.batch.prepare(project,'green rectangle',False)
+        self.assertEqual(current()['status'],'Draft')
+        with self.assertRaises(ValueError):self.batch.prepare(project,'green rectangle',True)
+        config=read(self.root/project);config['reference_box']=[10,10,30,30];write(self.root/project,config)
+        self.batch.prepare(project,'green rectangle',True)
+        self.assertEqual(current()['status'],'Ready')
+        job=self.batch.enqueue([project])[0];self.assertEqual(current()['status'],'Processing')
+        self.starting(job);self.batch.execute(job,[sys.executable,'-c','pass'])
+        self.assertEqual(current()['status'],'Done')
+        self.batch.discard(project)
+        self.assertFalse(any(p['project']==project for p in self.batch.library()['projects']))
+        self.assertTrue((self.root/project).exists());self.assertTrue((self.root/'clip.avi').exists())
+        with self.assertRaises(ValueError):self.batch.enqueue([project])
+        self.batch.restore(project);self.assertEqual(current()['status'],'Done')
+
+    def test_discard_cancels_queued_and_defers_running_archive(self):
+        first=self.queue();self.batch.discard('project.json')
+        self.assertEqual(self.batch.jobs()[0]['status'],'cancelled')
+        self.batch.restore('project.json');second=self.batch.enqueue(['project.json'])[0]
+        self.starting(second)
+        result=self.batch.discard('project.json');self.assertTrue(result['finishing'])
+        project=self.batch.library()['projects'][0]
+        self.assertEqual(project['status'],'Processing');self.assertTrue(project['discard_pending'])
+        self.batch.execute(second,[sys.executable,'-c','pass'])
+        self.assertEqual(self.batch.library()['projects'],[])
+        self.assertEqual(self.batch.library()['archived'][0]['project'],'project.json')
+
+    def test_description_draft_uses_multiple_human_crops(self):
+        from batch_workflow import draft_description
+        write(self.root/'outputs/source/corrections.json',{'1':{'bbox':[12,12,32,32],'source_polygon_px':[[12,12],[32,12],[32,32],[12,32]]}})
+        calls=[]
+        def api(url,payload=None):
+            if payload is None:return {'data':[{'id':'fixture'}]}
+            calls.append(payload)
+            return {'choices':[{'message':{'content':'A green target'}}]}
+        with patch('reframe.api',side_effect=api):
+            self.assertEqual(draft_description(self.batch,'project.json'),'A green target')
+        content=calls[0]['messages'][0]['content']
+        self.assertEqual(sum(c['type']=='image_url' for c in content),2)
+        self.assertIn('same target',content[-1]['text'])
+
     def test_invalid_inputs_and_batch_atomic_validation(self):
         self.queue()
         write(self.root/'bad.json',dict(self.config,reference_box=[0,0,100,100]))

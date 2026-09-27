@@ -6,7 +6,7 @@
 </style>
 <p><a href="/library">← Folder library and batch queue</a></p><h1>Video focus</h1><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
 <div id="notice">Loading project…</div>
-<section><h2>Source and target</h2>
+<section id="subject-labels"><h2>Source and target</h2>
 <div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="0" style="width:90px"></label><button id="seek">Show frame</button></div>
 <div class="two"><div><p>Original source</p><canvas id="source" width="1920" height="1080"></canvas></div><div><p id="processedCaption">Leveled and zoomed preview</p><canvas id="processed" width="1280" height="720"></canvas></div></div>
 <input id="scrub" type="range" min="0" max="1901" value="0" aria-label="Frame">
@@ -19,6 +19,11 @@
 <div class="row"><button id="newProject" hidden>Create new project from selection</button><button id="saveBox">Save target box</button><button id="absent">Mark target absent</button></div>
 <div class="row"><label>Level correction (degrees) <input id="roll" type="number" min="-90" max="90" step="0.1" style="width:85px"></label><button id="saveRoll">Save level keyframe</button><small>Positive means the shoreline slopes down to the right in the source.</small></div>
 </section>
+<section id="identity-description"><h2>Review descriptions</h2>
+<p>Review the target's distinguishing appearance across your ground-truth crops. With crops and no saved description, Qwen drafts a summary here; without crops, start with an empty draft.</p>
+<p id="descriptionStatus" role="status"></p><textarea id="descriptionText" aria-label="Target identity description" style="height:160px"></textarea>
+<div class="row"><button id="draftDescription">Draft from labeled crops</button><button id="saveDescription">Save draft</button><button id="approveDescription">Approve description</button></div>
+</section>
 <section><h2>Output</h2><div class="row"><label>Tracking mode <select id="trackingMode"><option value="single">Single path</option><option value="dual">Dual path</option><option value="anchor">Anchor expansion + discovery</option></select></label><label>High-confidence anchor threshold (%) <input id="anchorConfidence" type="number" min="0" max="100" step="1" value="85" style="width:85px"></label><label>Discovery FPS <input id="discoveryFps" type="number" min="0.01" max="60" step="any" value="2" style="width:70px"></label><button id="saveAnchorSettings">Save tracking settings</button></div><p>Anchor mode starts from human labels and expands in both directions. A freshly localized box must meet the anchor threshold to seed further propagation; a validated search crop alone does not qualify. Discovery scans unresolved regions after propagation stalls.</p><p id="anchorProgress"></p><p>Strong zoom is allowed. Original edges feather into a blurred extension. Poor or uncertain footage is retained for your review.</p>
 <div class="row"><label>Analysis FPS <input id="analysisFps" type="number" min="0.01" step="any" value="10" style="width:90px"></label><button id="saveFps">Save analysis FPS</button><span id="analysisRateInfo"></span></div>
 <div class="row"><label>Confidence threshold (%) <input id="confidenceThreshold" type="number" min="0" max="100" step="1" value="50" style="width:90px"></label><button id="saveThreshold">Save confidence threshold</button></div>
@@ -27,6 +32,7 @@
 <div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
 <video id="preview" controls playsinline></video><pre id="log"></pre></section>
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
+<script src="/files/description_review.js?v=1"></script>
 <script src="/files/frame_analysis.js?v=dotted-estimates-4"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
@@ -77,7 +83,7 @@ for(const [id,space] of [['source','raw'],['processed','processed']]){
  canvas.onpointermove=move;canvas.onpointerup=e=>{move(e);drag=null};canvas.onpointercancel=()=>{drag=null};
 }
 $('frameAnalysis').addEventListener('analysis-approved',safe(async()=>{await refresh();await showFrame();notice('Candidate approved as a human label (100%). Reanalyze or render to apply.')}));
-async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));project=state.project||'';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
+async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));project=state.project||'';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
  if(!$('confidenceThreshold').dataset.initialized){$('confidenceThreshold').value=100*(state.config.tracking_selection?.confidence_threshold??.5);$('confidenceThreshold').dataset.initialized='true'}
  $('confidenceThreshold').disabled=$('saveThreshold').disabled=state.running||!project||!!state.config.batch_input_revision;
@@ -86,7 +92,7 @@ async function refresh(){state=await request('/api/state?config='+encodeURICompo
  const progress=state.analysis_progress;$('anchorProgress').textContent=progress?.stage?.startsWith('anchor_')?`${progress.stage}: ${progress.completed}/${progress.total} sample positions examined · ${progress.anchors} anchors · ${progress.reliably_covered} reliable · ${progress.independent_scanned} full-frame scans · ${progress.queued} queued`:'';
  $('analysisFps').max=state.meta?.fps||60;$('analysisFps').disabled=$('saveFps').disabled=state.running||!project||!!state.config.batch_input_revision;
  $('analysisRateInfo').textContent=`Source: ${state.meta?.fps?.toFixed(2)||'?'} FPS · configured analysis: ${state.config.analysis_fps??(1/(state.config.sample_interval||.5))} FPS`+(state.running&&state.analysis_progress?` · ${state.analysis_progress.completed}/${state.analysis_progress.total} samples analyzed`:'');
- showAnalysis();draw();
+ showAnalysis();draw();DescriptionReview.update(state).catch(e=>notice(e.message));
  for(const id of ['run','render'])$(id).disabled=state.running||!project||!!state.config.batch_input_revision;for(const id of ['saveBox','absent','saveRoll'])$(id).disabled=!project;if(state.config.leveling_source==='gyro')$('saveRoll').disabled=true;notice(state.config.batch_input_revision?'Saved batch run — labels are review edits. Copy corrections to source in the library, then approve and queue a new run.':state.running?'Processing video…':state.exit_code>0?'Processing failed. See the log below.':project?'Ready — select a frame or review the output.':'Choose a video and draw a subject rectangle to create your first project.');
  if(state.preview){const url='/files/'+state.preview;$('download').href=url;$('download').download='focused.mp4';$('download').hidden=false;if($('preview').getAttribute('src')!==url)$('preview').src=url}
  const list=$('flags');list.replaceChildren();const tracks=state.tracks||[];const count=tracks.filter(t=>t.flags.length).length;$('summary').textContent=tracks.length?`${count} of ${tracks.length} frames flagged. Click a moment to inspect or relabel it.`:'Review flags will appear after rendering.';

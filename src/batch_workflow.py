@@ -68,6 +68,7 @@ class Batch:
                 CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, project TEXT NOT NULL,
                     revision TEXT NOT NULL, status TEXT NOT NULL, created REAL NOT NULL,
                     updated REAL NOT NULL, config TEXT NOT NULL, error TEXT, attempts INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS discarded (project TEXT PRIMARY KEY, discarded_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
                 INSERT OR IGNORE INTO settings VALUES ('paused','1');
             ''')
@@ -95,6 +96,35 @@ class Batch:
         revision = hashlib.sha256(json.dumps([config, labels, source], sort_keys=True).encode()).hexdigest()
         return config, labels, revision
 
+    def create_project(self, video):
+        source=self.path(video)
+        if not source.is_file() or source.suffix.lower() not in VIDEO_SUFFIXES:raise ValueError('Choose a supported video')
+        config=read(SOURCE.parent/'configs/defaults.json')
+        import cv2
+        cap=cv2.VideoCapture(str(source));fps=cap.get(5);cap.release()
+        if fps<=0:raise ValueError('Cannot read video')
+        config['analysis_fps']=min(config['analysis_fps'],fps)
+        name='project_'+uuid.uuid4().hex[:8]+'.json'
+        config.update(video=str(source.relative_to(self.root)),output_dir='outputs/'+name[:-5],
+                      reference_time=0,reference_box=None,target='',tracking_mode='anchor')
+        write(self.root/name,config)
+        return {'project':name}
+
+    def discarded(self):
+        with self.db() as db:return {r[0] for r in db.execute('SELECT project FROM discarded')}
+
+    def discard(self, project):
+        self.inputs(project)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('INSERT OR REPLACE INTO discarded VALUES (?,?)',(project,time.time()))
+            db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE project=? AND status='queued'",(time.time(),project))
+        return {'discarded':project,'finishing':any(j['project']==project and j['status'] in ('starting','running') for j in self.jobs())}
+
+    def restore(self, project):
+        with self.db() as db:db.execute('DELETE FROM discarded WHERE project=?',(project,))
+        return {'restored':project}
+
     def preparation(self, project):
         with self.db() as db:
             row = db.execute('SELECT payload FROM preparations WHERE project=?', (project,)).fetchone()
@@ -113,33 +143,57 @@ class Batch:
         if not (0<=box[0]<box[2]<=width and 0<=box[1]<box[3]<=height): raise ValueError('Reference box is outside the video')
         timestamp = float(config.get('reference_time',0))
         if not math.isfinite(timestamp) or not 0<=timestamp<frames/fps: raise ValueError('Reference time is outside the video')
-        if not str(config['target']).strip(): raise ValueError('Target instructions are required')
+
         from reframe import set_analysis_fps
         set_analysis_fps(dict(config),source_fps=fps)
         if config.get('tracking_mode','single') not in ('single','dual','anchor'):raise ValueError('Unsupported tracking mode')
 
     def prepare(self, project, description, ready=False):
+        if project in self.discarded():raise ValueError('Restore the discarded project before editing it')
         config, _, revision = self.inputs(project)
         description = str(description).strip()
         if ready:
             self.validate(config)
             if not description: raise ValueError('Review and approve an identity description first')
+            if not config.get('target','').strip():
+                config['target']=description;write(self.path(project),config)
+                _,_,revision=self.inputs(project)
         payload = dict(description=description, ready=bool(ready), revision=revision,
                        approved_at=time.time() if ready else None)
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO preparations VALUES (?,?)',(project,json.dumps(payload)))
         return payload
 
-    def library(self):
-        projects=[]
+    def library(self, active_project=None):
+        projects=[];jobs=self.jobs();discarded=self.discarded();archived=[]
         for path in sorted(self.root.glob('*.json')):
             try:
                 c, labels, rev = self.inputs(path.name)
                 prep = self.preparation(path.name)
-                projects.append(dict(project=path.name,video=c['video'],target=c['target'],
+                ready=bool(prep.get('ready') and prep.get('revision')==rev and prep.get('description','').strip() and c.get('reference_box'))
+                revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
+                related=[j for j in jobs if j['project']==path.name]
+                pending=next((j for j in reversed(related) if j['status'] in ('queued','starting','running')),None)
+                if path.name==active_project:pending={'id':None,'config':path.name,'status':'running'}
+                if path.name in discarded and not pending:
+                    archived.append({'project':path.name,'video':c['video']});continue
+                completed=next((j for j in reversed(related) if j['status']=='succeeded' and j['revision']==revision),None)
+                comparison=self.path(c['output_dir'])/'comparison.mp4'
+                inputs_mtime=max(path.stat().st_mtime,(self.path(c['output_dir'])/'corrections.json').stat().st_mtime if (self.path(c['output_dir'])/'corrections.json').exists() else 0)
+                legacy_done=not related and comparison.exists() and inputs_mtime<=comparison.stat().st_mtime and (not prep or (prep.get('approved_at') or float('inf'))<=comparison.stat().st_mtime)
+                has_input=bool(c.get('reference_box') or labels or c.get('target','').strip() or prep.get('description','').strip())
+                status='Processing' if pending else 'Done' if completed or legacy_done else 'Ready' if ready else 'Draft' if has_input else 'New'
+                actions=['Label subject','Review descriptions']
+                if status=='Ready':actions.append('Queue processing')
+                if status in ('Processing','Done'):actions.append('Open video focus')
+                actions.append('Discard project')
+                projects.append(dict(project=path.name,status=status,actions=actions,discard_pending=path.name in discarded,
+                    active_job=pending['id'] if pending else None,active_config=pending['config'] if pending else None,completed_config=completed['config'] if completed else path.name if legacy_done else None,
+                    latest_job=pending['status'] if pending else related[-1]['status'] if related else None,
+                    has_box=bool(c.get('reference_box')),video=c['video'],target=c['target'],
                     reference_time=c.get('reference_time',0),reference_box=c['reference_box'],
                     labels=len(labels),description=prep.get('description',''),
-                    ready=bool(prep.get('ready') and prep.get('revision')==rev),
+                    ready=ready,
                     stale=bool(prep.get('ready') and prep.get('revision')!=rev),
                     analysis_fps=c.get('analysis_fps'),tracking_mode=c.get('tracking_mode','single')))
             except (ValueError,OSError,TypeError,KeyError):
@@ -154,7 +208,7 @@ class Batch:
             job['comparison_available']=(out/'comparison.mp4').exists()
             job['output_dir']=str(out.relative_to(self.root))
             job['pending_corrections']=(out/'review_corrections.json').exists()
-        return dict(projects=projects,videos=videos,jobs=jobs,paused=self.paused())
+        return dict(projects=projects,archived=archived,videos=videos,jobs=[j for j in jobs if j['project'] not in discarded or j['status'] in ('starting','running')],paused=self.paused())
 
     def jobs(self):
         with self.db() as db:
@@ -168,6 +222,7 @@ class Batch:
         # Validate the entire selection before adding any jobs.
         prepared=[]
         for project in dict.fromkeys(projects):
+            if project in self.discarded():raise ValueError('Restore discarded projects before queuing')
             c,labels,rev=self.inputs(project);prep=self.preparation(project)
             if not prep.get('ready') or prep.get('revision')!=rev: raise ValueError(f'{project}: approve current inputs before queuing')
             self.validate(c);prepared.append((project,c,labels,rev,prep))
@@ -217,6 +272,7 @@ class Batch:
             db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone()
             if not row:raise ValueError('Unknown job')
+            if row['project'] in self.discarded():raise ValueError('Restore the project before retrying')
             if action=='retry' and row['status'] in ('failed','interrupted'):
                 manifest=read(self.path(row['config']).parent/'inputs.json')
                 run=read(self.path(row['config']))
@@ -298,16 +354,32 @@ def draft_description(batch, project):
     import cv2
     from reframe import api, load_config
     config=load_config(batch.path(project));batch.validate(config)
-    cap=cv2.VideoCapture(config['video']);cap.set(cv2.CAP_PROP_POS_MSEC,config['reference_time']*1000)
-    ok,image=cap.read();cap.release()
-    if not ok:raise ValueError('Cannot read reference frame')
-    x1,y1,x2,y2=map(round,config['reference_box']);crop=image[y1:y2,x1:x2]
-    ok,encoded=cv2.imencode('.jpg',crop)
-    if not ok:raise ValueError('Cannot encode reference crop')
+    _,labels,_=batch.inputs(project)
+    cap=cv2.VideoCapture(config['video']);fps=cap.get(5)
+    reference=round(config['reference_time']*fps)
+    selections={reference:{'bbox':config['reference_box']}}
+    selections.update({int(i):label for i,label in labels.items()})
+    candidates=[(i,r) for i,r in selections.items() if r.get('bbox')]
+    candidates.sort(key=lambda pair:(pair[0]!=reference,pair[0]))
+    content=[]
+    from label_geometry import human_crop
+    for index,record in candidates[:5]:
+        cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,image=cap.read()
+        if not ok:continue
+        h,w=image.shape[:2]
+        normalized=dict(record,bbox=[v/(h if j%2 else w)*1000 for j,v in enumerate(record['bbox'])])
+        crop=human_crop(image,normalized)
+        if not crop.size:continue
+        scale=min(1,960/max(crop.shape[:2]))
+        if scale<1:crop=cv2.resize(crop,(max(1,round(crop.shape[1]*scale)),max(1,round(crop.shape[0]*scale))))
+        ok,encoded=cv2.imencode('.jpg',crop)
+        if ok:content.append({'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()}})
+    cap.release()
+    if not content:raise ValueError('Add a readable ground-truth crop before drafting with Qwen')
     model=api(config['api_url']+'/models')['data'][0]['id']
-    response=api(config['api_url']+'/chat/completions',{'model':model,'temperature':0,'max_tokens':450,
-        'messages':[{'role':'user','content':[{'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()}},
-        {'type':'text','text':'Describe the selected subject for later identity matching: type, colors, shape, equipment, markings, visible parts and limitations. Blur is acceptable; do not invent unreadable details. Do not use image location or background as identity. User intent: '+config['target']+'\nReturn plain text for human review.'}]}]})
+    content.append({'type':'text','text':"These are human-labeled crops of the same target at different times. Summarize the subject's identity across these references: type, colors, shape, equipment, markings, visible parts and limitations. Separate stable traits from viewpoint-dependent appearance. Blur is acceptable; do not invent unreadable details or assume every crop contains all parts. Do not use image location or background as identity. User intent: "+config['target']+'\nReturn one plain-text draft for human review and editing.'})
+    response=api(config['api_url']+'/chat/completions',{'model':model,'temperature':0,'max_tokens':600,
+        'messages':[{'role':'user','content':content}]})
     return response['choices'][0]['message']['content']
 
 
