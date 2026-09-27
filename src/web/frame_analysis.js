@@ -4,6 +4,29 @@
   const percent = value => Number.isFinite(value) ? `${Math.round(value * 100)}%` : 'not available';
   const vector = value => Array.isArray(value) ? `[${value.map(v => number(v, 1)).join(', ')}]` : 'not available';
   const own = (object, key) => object != null && Object.prototype.hasOwnProperty.call(object, key);
+  function trackingMethod(row, fallback = null) {
+    if(!row)return 'not recorded';
+    if(row.manual)return 'human label';
+    const source=row.analysis_source||fallback?.analysis_source;
+    if(source==='flow_crop_validation')return 'Optical flow + crop validation (no Qwen localization)';
+    if(source==='local_detection')return 'Qwen localization inside a search region';
+    if(source==='full_frame_detection')return 'Independent Qwen full-frame detection';
+    if(row.qwen_view_bbox!==undefined||row.temporal_context)return 'Independent Qwen detection';
+    return source||'not recorded';
+  }
+  function pathMethodLines(row,label,selected){
+    const v=row?.box_verification;
+    const score=v?.version>=2 ? (v.identity_score??(v.comparison?.target_present===false?0:v.comparison?.match_score)) : null;
+    return [
+      `${label} box method: ${trackingMethod(row,selected)}`,
+      `${label} text-comparison confidence: ${percent(score)}${v?.version>=2?' (identity reliability, not box-boundary accuracy)':'; current identity score unavailable for this result'}`,
+      ...(row?.analysis_source==='flow_crop_validation'?[`${label} optical motion quality: ${percent(row.motion_quality)} | uncertainty: ${number(row.motion_uncertainty_px)} px; separate from identity confidence`]:[])
+    ];
+  }
+  function renderedBox(state,frame){
+    const box=state.tracks?.[frame]?.bbox;
+    return Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]?box:null;
+  }
   function verificationLines(row,label) {
     if(!row)return [];
     const v=row.box_verification;
@@ -100,12 +123,14 @@
         '',
         'RAW PATH — cyan',
         `Raw + angle: box ${vector(dual.raw_angle.bbox)} | confidence ${percent(dual.raw_angle.confidence)} | ${dual.raw_angle.visibility} | ${dual.raw_angle.direction}`,
+        ...pathMethodLines(dual.raw_angle,'Raw path',dual.selected),
         `Raw path evidence: ${dual.raw_angle.note||dual.raw_angle.error||'none'}`,
         ...directionLines(dual.raw_angle,'Raw path'),
         ...verificationLines(dual.raw_angle,'Raw path'),
         '',
         'LEVELED PATH — orange',
         `Leveled image → source: box ${vector(dual.leveled.bbox)} | confidence ${percent(dual.leveled.confidence)} | ${dual.leveled.visibility} | ${dual.leveled.direction}`,
+        ...pathMethodLines(dual.leveled,'Leveled path',dual.selected),
         `Leveled path evidence: ${dual.leveled.note||dual.leveled.error||'none'}`,
         ...directionLines(dual.leveled,'Leveled path'),
         ...verificationLines(dual.leveled,'Leveled path'),
@@ -114,8 +139,10 @@
       `Source dimensions: ${meta.width || '?'} × ${meta.height || '?'} px`,
       `Source playback rate: ${number(meta.fps,3)} FPS | Analysis sampling rate for this run: ${number(meta.analysis_fps,3)} FPS`,
       `Tracking status: ${status}`,
-      `Observation source: ${nearest?.manual ? 'manual label' : nearest?.backward_recovered ? 'backward recovery pass' : nearest?.recovered ? 'first-pass small-target recovery' : nearest ? 'first pass' : 'not available'}`,
+      `Observation source: ${nearest?.manual ? 'manual label' : nearest?.backward_recovered ? 'backward recovery pass' : nearest?.recovered ? 'first-pass small-target recovery' : nearest ? trackingMethod(nearest) : 'not available'}`,
       '',
+      `Green overlay: ${box?'saved render track':'no saved render box at this frame'}. ${box&&track?.selection_is_direct===false?'Interpolated/held between analyzed samples; not a fresh optical-flow or Qwen detection.':''}`,
+      `Nearest analyzed box method (frame ${nearest?.frame??'?'}): ${trackingMethod(nearest)}`,
       `Object box used for render [left, top, right, bottom]: ${box ? vector(box) + ' px' : 'none'}`,
       `Object center: ${box ? vector([(box[0]+box[2])/2, (box[1]+box[3])/2]) + ' px' : 'not available'}`,
       `Object size: ${box ? `${number(box[2]-box[0],1)} × ${number(box[3]-box[1],1)} px` : 'not available'}`,
@@ -300,5 +327,5 @@
       button.onclick=()=>{if(enabled&&target!==null)seek(target);};
     }
   }
-  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes, navigationTargets, updateNavigation};
+  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes, navigationTargets, updateNavigation, renderedBox, trackingMethod};
 })();

@@ -54,6 +54,8 @@ class TrackingSearch:
         with ThreadPoolExecutor(max_workers=2) as pool:
             pending={p:pool.submit(detect,p) for p in ('raw_angle','leveled')}
             candidates={p:f.result() for p,f in pending.items()}
+        for candidate in candidates.values():
+            candidate.update(analysis_source='local_detection' if region is not None else 'full_frame_detection',localized=bool(candidate.get('bbox')),search_region_px=region)
         errors=[(r.get('error') if r.get('error_kind')!='invalid_response' else None) or r.get('box_verification',{}).get('error') for r in candidates.values()]
         if any(errors):return dict(frame=index,error='; '.join(e for e in errors if e))
         selected=TrackSelector(self.c.get('tracking_selection')).choose(candidates['raw_angle'],candidates['leveled'],

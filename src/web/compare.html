@@ -5,7 +5,7 @@
 :root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1800px;margin:24px auto;padding:0 20px}h1{font-size:26px;margin-bottom:8px}p{color:#aebdca}a{color:#85d4f8}button,select{font:inherit;padding:9px 14px;color:inherit;background:#25485d;border:1px solid #476476;border-radius:6px;cursor:pointer}.labels{display:grid;grid-template-columns:1fr 1fr;text-align:center;background:#1a2733;padding:12px;font-weight:600;gap:2px}#stage{background:#050709;border:1px solid #3c4f60;border-radius:10px;overflow:hidden}video{display:block;width:100%;background:black}.controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0}#seek{width:100%;accent-color:#78c2e8}#readout{font-variant-numeric:tabular-nums}#status{color:#b1c5d4}#flags{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}#flags button{background:#443d2b;font-size:13px}.hint{font-size:13px}#stage:fullscreen{display:flex;flex-direction:column;justify-content:center}#stage:fullscreen video{max-height:calc(100vh - 50px)}button:disabled{opacity:.4}
 </style>
 <h1>Original / processed</h1><p>Both views share one timeline. Left: original framing. Right: leveled and reframed output.</p>
-<p id="resultIdentity" role="status">Loading result identity…</p><p id="playbackLegend" class="hint" hidden>Original-view candidates: <span style="color:#00e5ff">cyan polygon = raw + angle</span>; <span style="color:#ff9f32">orange rectangle = leveled → source</span>. Includes uncertain candidates. Boxes interpolate between adjacent available analysis samples; gaps are not bridged.</p>
+<p id="resultIdentity" role="status">Loading result identity…</p><p id="playbackLegend" class="hint" hidden>Original-view candidates: <span style="color:#00e5ff">cyan polygon = raw + angle</span>; <span style="color:#ff9f32">orange rectangle = leveled → source</span>; <span style="color:#5dff9d">green dashed rectangle = saved final render track</span>. Includes uncertain candidates. Boxes interpolate between adjacent available analysis samples; gaps are not bridged.</p>
 <div id="stage"><div class="labels"><span>Original</span><span>Processed</span></div><div style="position:relative"><video id="video" playsinline preload="metadata"></video><svg id="playbackBoxes" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg><svg id="inspectedBox" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg></div></div>
 <div class="controls"><button id="play" disabled>Play both</button><button id="back" disabled>−1 frame</button><button id="forward" disabled>+1 frame</button><button id="minus" disabled>−5 seconds</button><button id="plus" disabled>+5 seconds</button><label>Speed <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button id="mute">Mute</button><button id="fullscreen">Fullscreen</button><span id="readout">Loading…</span></div>
 <input id="seek" type="range" min="0" max="1" step="1" value="0" disabled aria-label="Shared video frame">
@@ -15,14 +15,14 @@
 <p id="status">Loading comparison…</p><p class="hint">Space: play/pause · Left/Right: step one frame · Shift+Left/Right: skip five seconds. Audio plays once. Both panels are display copies; the source file is unchanged.</p>
 <div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
 <p id="levelSummary"></p><div id="levelFlags"></div><div id="selectionFlags"></div><div id="flags"></div>
-<script src="/files/frame_analysis.js?v=anchor-mode-1"></script>
+<script src="/files/frame_analysis.js?v=green-track-methods-1"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
 let trackingSample=null,inspectedBox=null;
 function drawPlaybackBoxes(){
  const svg=$('playbackBoxes');svg.replaceChildren();
- $('playbackLegend').hidden=!(analysisState.tracking_comparison?.length);
+ $('playbackLegend').hidden=!(analysisState.tracking_comparison?.length||analysisState.tracks?.length);
  const meta=analysisState.meta;if(!meta)return;
  const scale=Math.min(960/meta.width,540/meta.height),dx=(960-meta.width*scale)/2,dy=(540-meta.height*scale)/2;
  for(const box of FrameAnalysis.playbackBoxes(analysisState,currentFrame)){
@@ -32,6 +32,12 @@ function drawPlaybackBoxes(){
   else {const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);for(const [key,value] of Object.entries({x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)}))shape.setAttribute(key,value);}
   shape.setAttribute('fill','none');shape.setAttribute('stroke',box.path==='raw_angle'?'#00e5ff':'#ff9f32');shape.setAttribute('stroke-width','3');shape.dataset.path=box.path;shape.dataset.interpolated=box.interpolated;
   svg.append(shape);
+ }
+ const finalBox=FrameAnalysis.renderedBox(analysisState,currentFrame);
+ if(finalBox){
+  const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  for(const [key,value] of Object.entries({x:dx+finalBox[0]*scale,y:dy+finalBox[1]*scale,width:(finalBox[2]-finalBox[0])*scale,height:(finalBox[3]-finalBox[1])*scale,fill:'none',stroke:'#5dff9d','stroke-width':3,'stroke-dasharray':'7 4'}))rect.setAttribute(key,value);
+  rect.dataset.path='rendered';svg.append(rect);
  }
 }
 function drawInspectedBox(){

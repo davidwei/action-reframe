@@ -86,3 +86,20 @@ relaxation bounds, local-to-source coordinates, conflicting proposals, authorita
 absence, discovery after stalled expansion, bounded/resumable work, initial
 reference anchors and configurable thresholds. Use short isolated video intervals
 before full-video experiments.
+
+## Comparison overlays and score labels
+
+The comparison video's original panel draws the saved rendered track as a green
+dashed rectangle, alongside cyan/raw and orange/leveled candidates. Green uses
+source-pixel coordinates from tracks.json and disappears when the frame has no
+rendered box; unsaved or pending corrections do not alter that overlay. Dashes
+keep overlapping candidate outlines visible. Interpolated/held playback boxes are
+explicitly labeled rather than presented as new optical-flow detections.
+
+Each Raw/Leveled analysis section names its box method (optical flow with crop
+validation, crop-local Qwen localization, full-frame Qwen detection, or human
+label) and shows text-comparison identity confidence separately from optical
+motion quality and detector self-confidence. Older anchor outputs can infer the
+method from the paired selection record. New localizations store the method on
+each candidate. Missing scores remain unavailable, not fabricated from detector
+confidence.
