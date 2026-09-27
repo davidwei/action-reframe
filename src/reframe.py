@@ -20,7 +20,7 @@ from scipy.ndimage import gaussian_filter1d, maximum_filter1d, median_filter
 from backward_tracking import backward_pass, confident
 from temporal_context import build_context, context_key
 
-PROMPT_VERSION = 3
+PROMPT_VERSION = 4
 
 
 def set_analysis_fps(c, value=None, source_fps=None):
@@ -63,6 +63,12 @@ def load_config(path):
     c['output_dir'] = str((Path(path).resolve().parent / c['output_dir']).resolve())
     c['ffmpeg'] = imageio_ffmpeg.get_ffmpeg_exe()
     set_analysis_fps(c)
+    if c.get('tracking_mode') not in ('single','dual'):
+        raise ValueError('tracking_mode must be single or dual')
+    if c.get('tracking_mode')=='dual':
+        c['color_refinement']=False
+        if c.get('tracking_render_path') not in ('raw_angle','leveled','selected'):
+            raise ValueError('tracking_render_path must be raw_angle, leveled or selected')
     Path(c['output_dir']).mkdir(parents=True, exist_ok=True)
     return c
 
@@ -91,7 +97,7 @@ def prepare(c, max_time=None):
     write_json(out / 'source_metadata.json', probe)
     source = Path(c['video']).stat()
     signature = hashlib.sha256(json.dumps([c['video'], source.st_size, source.st_mtime_ns,
-        c['reference_time'], c['reference_box'], c['target'], c['sample_interval'], PROMPT_VERSION]).encode()).hexdigest()[:16]
+        c['reference_time'], c['reference_box'], c.get('reference_frames',[]), c['target'], c['sample_interval'], PROMPT_VERSION]).encode()).hexdigest()[:16]
     cache = out / 'cache' / signature
     cache.mkdir(parents=True, exist_ok=True)
     cap.set(cv2.CAP_PROP_POS_FRAMES, round(c['reference_time'] * fps))
@@ -125,6 +131,11 @@ def prepare(c, max_time=None):
 
 
 def contextual_completion(c,meta,index,direction,history,model,images,prompt,max_tokens):
+    meta=dict(meta)
+    references=c.get('reference_frames',[])
+    if any(not isinstance(i,int) or isinstance(i,bool) or not 0<=i<meta['frames'] for i in references):
+        raise ValueError('reference_frames must contain valid zero-based source frame indices')
+    meta['user_reference_frames']=references
     # Tracking history retains identity/motion but cannot anchor independent leveling.
     history=[{k:v for k,v in row.items() if k not in ('shoreline','level_confidence','level_note','manual_roll')} for row in history]
     settings=c.get('temporal_context',{})
@@ -212,12 +223,18 @@ def analyze(c, single=None):
     out = Path(c['output_dir'])
     meta = prepare(c,max_time=single)
     served=api(c['api_url'] + '/models')['data'][0];model=served['id'];c['_model_max_len']=served.get('max_model_len',32768)
+    if c.get('tracking_mode')=='dual':
+        from dual_tracking import run_dual
+        return run_dual(c,meta,model,(cached_frame,contextual_completion,write_json),single)
+    from manual_tracking import manual_observations
+    manual=manual_observations(c,meta)
+    samples=sorted(set(meta['samples']) | set(manual))
     last=None if single is None else min(meta['samples'],key=lambda i:abs(i/meta['fps']-single))
-    indices=meta['samples'] if last is None else [i for i in meta['samples'] if i<=last]
+    indices=samples if last is None else [i for i in samples if i<=last]
     results = []
     # Temporal dependence requires ordered inference; independent first-pass batching is no longer valid.
     for i in indices:
-        r=observe(c,meta,i,model,results)
+        r=dict(manual[i]) if i in manual else observe(c,meta,i,model,results)
         results.append(r)
         print(f"VL {len(results)}/{len(indices)} t={r['time']:.2f} box={r['bbox']} confidence={r['confidence']} history={r.get('temporal_context',{}).get('history_count',0)} {r.get('note','')}",flush=True)
         write_json(out/'analysis_progress.json',{'completed':len(results),'total':len(indices),'frame':i,
@@ -229,7 +246,7 @@ def analyze(c, single=None):
         if c.get('color_refinement',False):
             with ThreadPoolExecutor(max_workers=c['workers']) as pool:
                 pending={pool.submit(recover_small,c,meta,r,model,[s for s in results if s['frame']<r['frame']]):r['frame'] for r in results
-                         if r.get('bbox') is None or r.get('confidence',0)<.65}
+                         if not r.get('manual') and (r.get('bbox') is None or r.get('confidence',0)<.65)}
                 recovered={}
                 for f in as_completed(pending):
                     r=f.result();recovered[r['frame']]=r
@@ -584,6 +601,7 @@ def measurements(c, meta, observations):
         if not ok:
             raise RuntimeError(f'Decode ended at {i}/{n}')
         near=observations[nearest[i]]
+        flags[i].extend(near.get('selection_flags',[]))
         if near.get('recovered'):
             flags[i].append('recovered_small_target_verify_identity')
         if near.get('recovery_rejected'):
@@ -695,7 +713,10 @@ def render(c):
     c=dict(c)
     # Render with the observations' cadence, even if the next run's setting changed.
     set_analysis_fps(c,meta.get('analysis_fps',1/meta.get('sample_interval',.5)))
-    observations=json.loads((out/'observations.json').read_text())
+    observation_path=out/(f"tracking_{c['tracking_render_path']}.json" if c.get('tracking_mode')=='dual' else 'observations.json')
+    observations=json.loads(observation_path.read_text())
+    if c.get('tracking_mode')=='dual':
+        write_json(out/'observations.json',observations)
     boxes,supported,roll,flags=measurements(c,meta,observations)
     level_rows=None
     if c.get('leveling_source')=='gyro':
@@ -713,6 +734,19 @@ def render(c):
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
     tracks=[]
+    selection_rows=None
+    if c.get('tracking_mode')=='dual' and c.get('tracking_render_path')=='selected':
+        from tracking_selection import frame_provenance
+        provenance={r['frame']:dict(r) for r in observations}
+        corrections_path=out/'corrections.json'
+        corrections=json.loads(corrections_path.read_text()) if corrections_path.exists() else {}
+        for key,correction in corrections.items():
+            if 'bbox' not in correction:continue
+            i=int(key);box=correction['bbox']
+            provenance[i]={'frame':i,'time':i/fps,'bbox':None if box is None else (np.array(box)/[w,h,w,h]*1000).tolist(),
+                           'confidence':0 if box is None else 1,'visibility':'absent' if box is None else 'visible',
+                           'manual':True,'selected_path':'manual' if box else 'neither','selection_reason':'Manual correction'}
+        selection_rows=frame_provenance(list(provenance.values()),n,supported)
     preview=out/'focused.mp4'
     temp=out/'focused.encoding.mp4'
     command=[c['ffmpeg'],'-y','-hide_banner','-loglevel','error','-f','rawvideo','-pix_fmt','bgr24',
@@ -735,6 +769,7 @@ def render(c):
             tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
                 'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),
                 'zoom':float(h/extent[i]),'flags':flags[i],
+                **(selection_rows[i] if selection_rows else {}),
                 **({k:v for k,v in level_rows[i].items() if k not in ('frame','time')} if level_rows else {})})
             if i in meta['samples']:
                 cv2.imwrite(str(thumbs/f'{i:07d}.jpg'),cv2.resize(frame,(960,540)))
@@ -797,6 +832,8 @@ def main():
     if args.stage in ('analyze', 'all'):
         analyze(c, args.single)
     if args.stage == 'backward':
+        if c.get('tracking_mode')=='dual':
+            raise ValueError('Dual tracking runs independent backward passes via --stage analyze; resume analyze to reuse cached forward requests')
         out=Path(c['output_dir']);first=out/'observations_first_pass.json'
         if not first.exists():
             previous=json.loads((out/'observations.json').read_text())

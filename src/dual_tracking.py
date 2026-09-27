@@ -1,0 +1,250 @@
+"""Independent raw+angle and leveled-image tracking, stored in source coordinates."""
+import hashlib
+import json
+import math
+from pathlib import Path
+import shutil
+from concurrent.futures import ThreadPoolExecutor
+from tracking_selection import TrackSelector
+
+import cv2
+import numpy as np
+from backward_tracking import bidirectional_pass
+from leveling import extract_gyro
+
+VERSION = 3
+PATHS = ('raw_angle', 'leveled')
+
+
+def transform_points(points, matrix):
+    return np.c_[np.asarray(points, dtype=float), np.ones(len(points))] @ matrix.T
+
+
+def box_points(box):
+    x1, y1, x2, y2 = box
+    return np.array([[x1,y1], [x2,y1], [x2,y2], [x1,y2]], dtype=float)
+
+
+def expanded_rotation(width, height, angle):
+    matrix = cv2.getRotationMatrix2D((width/2, height/2), angle, 1)
+    corners = transform_points(box_points([0,0,width,height]), matrix)
+    lower, upper = corners.min(axis=0), corners.max(axis=0)
+    matrix[:,2] -= lower
+    return matrix, tuple(np.ceil(upper-lower).astype(int))
+
+
+def source_box(box, matrix, view_size, source_size):
+    """Inverse-transform all four corners; retain polygon before clipping its AABB."""
+    if box is None:
+        return None, None
+    points = box_points(np.asarray(box)*np.tile(view_size,2)/1000)
+    polygon = transform_points(points, cv2.invertAffineTransform(matrix))
+    lo = np.maximum(polygon.min(axis=0), 0)
+    hi = np.minimum(polygon.max(axis=0), source_size)
+    if np.any(hi <= lo):
+        return None, polygon.tolist()
+    return (np.r_[lo,hi]/np.tile(source_size,2)*1000).tolist(), polygon.tolist()
+
+
+def box_iou(a, b):
+    if a is None or b is None:return None
+    a,b=np.asarray(a),np.asarray(b)
+    intersection=np.prod(np.maximum(0,np.minimum(a[2:],b[2:])-np.maximum(a[:2],b[:2])))
+    union=np.prod(a[2:]-a[:2])+np.prod(b[2:]-b[:2])-intersection
+    return float(intersection/union) if union>0 else None
+
+
+def observe_path(c, meta, gyro, index, model, history, path, direction, helpers):
+    frame_loader, completion, save = helpers
+    angle=gyro['frames'][index]['roll']
+    cache=Path(meta['cache'])
+    signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,c['target'],
+        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),history],sort_keys=True).encode()).hexdigest()[:24]
+    result_path=cache/f'{signature}.json'
+    if result_path.exists():
+        result=json.loads(result_path.read_text())
+        if not result.get('error') and not result.get('box_verification',{}).get('error'):return result
+    image=frame_loader(c,meta,index)
+    h,w=image.shape[:2]
+    matrix,size=(expanded_rotation(w,h,angle) if path=='leveled' else
+                 (np.array([[1.,0,0],[0,1.,0]]),(w,h)))
+    view=cv2.warpAffine(image,matrix,size,borderMode=cv2.BORDER_CONSTANT)
+    current_path=cache/f'{index:07d}_{path}_view.jpg'
+    cv2.imwrite(str(current_path),view)
+    previous=history[-1] if history else None
+    hint=view.copy();hint_polygon=None
+    if previous and previous.get('bbox') is not None:
+        pixels=np.asarray(previous['bbox'])*np.array([w,h,w,h])/1000
+        hint_polygon=transform_points(box_points(pixels),matrix)
+        cv2.polylines(hint,[np.round(hint_polygon).astype(np.int32)],True,(0,200,255),2)
+    hint_path=cache/f'{signature}_hint.jpg';cv2.imwrite(str(hint_path),hint)
+    prompt=f'''Track the user-selected object in this CURRENT frame during {direction} traversal.
+Image 1: original target reference crop. Image 2: current {'leveled' if path=='leveled' else 'raw'} full frame, clean.
+Image 3: same current image with the previous visited sampled frame's box projected into CURRENT image coordinates (yellow outline, if available).
+The outline is a prior position hypothesis, NOT a detection or ground truth; camera/subject movement can invalidate it.
+Target: {c['target']}
+Current source frame {index}, time {index/meta['fps']:.3f}s. Source size {w}x{h}; IMAGE 2 size {size[0]}x{size[1]}.
+Current gyro-derived roll is {angle:.6f} degrees. Positive roll requires counterclockwise correction.
+{'IMAGE 2 has already been rotated counterclockwise by that angle, with expanded black borders to avoid cutting content. Do not rotate again. Black padding is not scene content.' if path=='leveled' else 'IMAGE 2 has NOT been rotated. Use the angle to understand camera tilt; return coordinates in the RAW image.'}
+Previous visited sample: {None if previous is None else previous['frame']}; projected hint polygon normalized 0..1000 in IMAGE 2: {None if hint_polygon is None else (hint_polygon/np.array(size)*1000).tolist()}.
+All additional HISTORY images and recorded boxes use ORIGINAL RAW frames and normalized source coordinates, even in the leveled path. Never mix history coordinates with IMAGE 2 coordinates.
+Use all visible target parts and equipment; exclude reflections and the camera platform. Do not switch identity. If absent or uncertain, return null and honest confidence.
+Coordinates: IMAGE 2 top-left is (0,0), bottom-right is (1000,1000). X increases rightward and Y downward.
+Normalize X by the FULL IMAGE 2 width and Y by its FULL height, including any black padding. Return [xmin,ymin,xmax,ymax]. Do not unrotate your answer.
+After proposing the coordinates, inspect the region they enclose. Describe ACTUAL contents there, including target parts, cut-off parts and unrelated background; do not repeat the intended target description.
+If that region does not contain the target, correct the box before answering or return null. box_note must describe your FINAL box.
+Return ONLY JSON: {{"bbox":[left,top,right,bottom] or null,"confidence":0.0,"visibility":"visible|partial|absent|uncertain","scene_cut":false,"note":"identity and uncertainty evidence","box_note":"actual contents inside final box and any truncation; unavailable if bbox is null"}}.
+Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history coordinates.'''
+    try:
+        answer,audit=completion(c,meta,index,direction,history,model,
+            [cache/'reference.jpg',current_path,hint_path],prompt,650)
+        raw=answer['choices'][0]['message']['content']
+        data=json.loads(raw[raw.index('{'):raw.rindex('}')+1]);box=data.get('bbox')
+        if box is not None and (not isinstance(box,list) or len(box)!=4 or
+            not all(isinstance(v,(int,float)) and math.isfinite(v) and 0<=v<=1000 for v in box) or
+            box[0]>=box[2] or box[1]>=box[3]):raise ValueError('Invalid Qwen rectangle')
+        score=float(data.get('confidence',0))
+        if not math.isfinite(score) or not 0<=score<=1:raise ValueError('Invalid confidence')
+        if data.get('visibility') not in ('visible','partial','absent','uncertain'):raise ValueError('Invalid visibility')
+        original,polygon=source_box(box,matrix,size,(w,h))
+        data.update(bbox=original,confidence=score if original is not None else 0,
+                    qwen_view_bbox=box,source_polygon_px=polygon,raw=raw,temporal_context=audit)
+        data['model_confidence']=score
+        if box is not None and c.get('verify_boxes',True):
+            from box_verification import verify_box, confidence_from_verification
+            from reframe import api
+            verification=verify_box(c,cv2.imread(str(current_path)),box,data.get('box_note'),model,
+                                    cache/'reference.jpg',cache/'box_verification',api)
+            data['box_verification']=verification
+            data['confidence']=0 if verification.get('error') or original is None else confidence_from_verification(
+                score,verification['description'],verification['comparison'])
+            data['confidence_source']='crop_verified_heuristic'
+    except Exception as error:
+        data={'bbox':None,'confidence':0,'visibility':'uncertain','error':str(error)}
+    data.update(frame=index,time=index/meta['fps'],path=path,direction=direction,
+                gyro_roll=angle,rotation_applied=angle if path=='leveled' else 0,
+                source_to_view=matrix.tolist(),view_size=list(map(int,size)),
+                previous_hint_frame=None if previous is None else previous['frame'],
+                previous_hint_polygon_px=None if hint_polygon is None else hint_polygon.tolist(),
+                model=model,coordinate_space='normalized_original_source',shoreline=None,level_confidence=0)
+    save(result_path,data)
+    return data
+
+
+def adjudicate_pair(c,meta,index,model,candidates,history,helpers,labels=PATHS,direction='forward'):
+    loader,completion,save=helpers
+    folder=Path(meta['cache'])/('adjudication_'+'_'.join(labels)+'_'+direction);folder.mkdir(parents=True,exist_ok=True)
+    key=hashlib.sha256(json.dumps([2,labels,direction,model,c['target'],c.get('reference_frames',[]),
+        c.get('temporal_context',{}),candidates,history],sort_keys=True).encode()).hexdigest()[:24]
+    result_path=folder/f'{key}.json'
+    if result_path.exists():
+        previous=json.loads(result_path.read_text())
+        if not previous.get('error'):return previous
+    image=loader(c,meta,index);h,w=image.shape[:2];annotated=image.copy()
+    for name,color in [(labels[0],(255,255,0)),(labels[1],(0,165,255))]:
+        b=candidates[name].get('bbox')
+        if b is None:continue
+        x1,y1,x2,y2=np.round(np.array(b)*[w,h,w,h]/1000).astype(int)
+        cv2.rectangle(annotated,(x1,y1),(x2,y2),color,2)
+        cv2.putText(annotated,name,(x1,max(20,y1-5)),cv2.FONT_HERSHEY_SIMPLEX,.6,color,2)
+    clean=folder/f'{index:07d}_raw.jpg';marked=folder/f'{key}_candidates.jpg'
+    cv2.imwrite(str(clean),image);cv2.imwrite(str(marked),annotated)
+    prompt=f'''Adjudicate two independent tracking candidates for the SAME user-selected target.
+Image 1 is the target reference. Image 2 is the CURRENT RAW frame. Image 3 marks candidates:
+{labels[0]} = cyan, {labels[1]} = orange. All candidate boxes use normalized ORIGINAL RAW coordinates.
+Target: {c['target']}. Current frame: {index}.
+Candidates: {json.dumps({k:{'bbox':r.get('bbox'),'note':r.get('note')} for k,r in candidates.items()})}
+Use visible identity evidence and supplied selected-track motion history. Do not choose merely because a candidate has a box.
+If neither can be verified, choose neither. A camera movement can explain a jump, but confirm it from image evidence.
+Return ONLY JSON: {{"choice":"{labels[0]}|{labels[1]}|neither","confidence":0.0,"reason":"identity and motion evidence"}}.'''
+    try:
+        answer,audit=completion(c,dict(meta,cache=str(folder)),index,direction,history,model,
+            [Path(meta['cache'])/'reference.jpg',clean,marked],prompt,350)
+        raw=answer['choices'][0]['message']['content']
+        result=json.loads(raw[raw.index('{'):raw.rindex('}')+1])
+        score=result.get('confidence')
+        if result.get('choice') not in (*labels,'neither') or not isinstance(score,(int,float)) or not math.isfinite(score) or not 0<=score<=1:
+            raise ValueError('Invalid adjudication response')
+        result.update(raw=raw,temporal_context=audit)
+    except Exception as error:result={'choice':'neither','confidence':0,'error':str(error),'reason':'Adjudication failed'}
+    save(result_path,result);return result
+
+
+def run_dual(c, meta, model, api_helpers, single=None):
+    """Pair requests concurrently, preserve branch histories, select a third track."""
+    out=Path(c['output_dir']);save=api_helpers[2]
+    render_path=c.get('tracking_render_path','selected')
+    if render_path not in (*PATHS,'selected'):raise ValueError('Invalid tracking_render_path')
+    gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
+    from manual_tracking import manual_observations
+    manual=manual_observations(c,meta)
+    indices=sorted(set(meta['samples']) | set(manual))
+    if single is not None:
+        last=min(indices,key=lambda i:abs(i/meta['fps']-single));indices=[i for i in indices if i<=last]
+    metas={};results={path:[] for path in PATHS};selected=[];comparison=[]
+    selector=TrackSelector(c.get('tracking_selection'))
+    for path in PATHS:
+        namespace=Path(meta['cache'])/f'dual_v{VERSION}_{path}'
+        namespace.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(Path(meta['cache'])/'reference.jpg',namespace/'reference.jpg')
+        metas[path]=dict(meta,cache=str(namespace))
+    def select_pair(a,b,selector,history):
+        row=selector.choose(a,b,lambda candidates:adjudicate_pair(c,meta,a['frame'],model,candidates,history,api_helpers))
+        paired={'frame':a['frame'],'time':a['time'],'raw_angle':a,'leveled':b,
+                'box_iou':row['box_iou'],'selected':row}
+        return row,paired
+    failures=0
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for index in indices:
+            pending={} if index in manual else {path:pool.submit(observe_path,c,metas[path],gyro,index,model,
+                                      list(results[path]),path,'forward',api_helpers) for path in PATHS}
+            pair={path:dict(manual[index],path=path,gyro_roll=gyro['frames'][index]['roll']) if index in manual else pending[path].result() for path in PATHS}
+            for path in PATHS:
+                results[path].append(pair[path]);save(out/f'tracking_{path}_forward.json',results[path])
+            row,paired=select_pair(pair['raw_angle'],pair['leveled'],selector,selected)
+            selected.append(row);comparison.append(paired)
+            save(out/'tracking_selected_forward.json',selected)
+            save(out/'tracking_comparison.json',comparison)
+            save(out/'analysis_progress.json',{'stage':'paired_forward','completed':len(selected),'total':len(indices),
+                'frame':index,'time':index/meta['fps'],'analysis_fps':c['analysis_fps'],
+                'selected_path':row['selected_path'],'candidate_errors':{p:r['error'] for p,r in pair.items() if r.get('error')}})
+            print(f"Dual paired {len(selected)}/{len(indices)} t={row['time']:.2f} selected={row['selected_path']} reason={row['selection_reason']}",flush=True)
+            failures=failures+1 if all(r.get('error') for r in pair.values()) else 0
+            if failures>=3:raise RuntimeError('Both tracking paths failed for three consecutive samples; resume after checking service/errors')
+        save(out/'observations_first_pass.json',selected if render_path=='selected' else results[render_path])
+        if c.get('backward_recovery',True) and single is None:
+            def recover(path):
+                def attempt(current,seed,history):
+                    return observe_path(c,metas[path],gyro,current['frame'],model,history,path,'backward',api_helpers)
+                def resolve(forward,backward,history):
+                    return adjudicate_pair(c,metas[path],forward['frame'],model,
+                        {'forward':forward,'backward':backward},history,api_helpers,
+                        labels=('forward','backward'),direction='backward')
+                def progress(report,row):
+                    save(out/f'tracking_{path}_backward_progress.json',
+                         {'frame':row['frame'],'time':row['time'],'attempted_samples':report['attempted_samples'],
+                          'direction_choice':row['direction_choice'],'reason':row['direction_reason']})
+                    print(f"Backward {path} t={row['time']:.2f} choice={row['direction_choice']} {row['direction_reason']}",flush=True)
+                settings=c.get('tracking_selection',{})
+                rows,report=bidirectional_pass(results[path],attempt,resolve,
+                    threshold=settings.get('confidence_threshold',.65),agreement_iou=settings.get('agreement_iou',.35),progress=progress)
+                save(out/f'tracking_{path}_directions.json',[
+                    {'frame':r['frame'],'time':r['time'],'chosen_direction':r.get('direction_choice'),
+                     'reason':r.get('direction_reason'),'comparison':r.get('direction_comparison')} for r in rows])
+                save(out/f'tracking_{path}_backward_report.json',report)
+                return rows
+            save(out/'analysis_progress.json',{'stage':'backward_recovery','completed':len(indices),'total':len(indices)})
+            pending={path:pool.submit(recover,path) for path in PATHS}
+            results={path:future.result() for path,future in pending.items()}
+    for path in PATHS:save(out/f'tracking_{path}.json',results[path])
+    # Recoveries may change availability; recompute selection chronologically.
+    selector=TrackSelector(c.get('tracking_selection'));final=[];comparison=[]
+    save(out/'analysis_progress.json',{'stage':'final_selection','completed':0,'total':len(indices)})
+    for a,b in zip(results['raw_angle'],results['leveled']):
+        row,paired=select_pair(a,b,selector,final);final.append(row);comparison.append(paired)
+        save(out/'analysis_progress.json',{'stage':'final_selection','completed':len(final),'total':len(indices)})
+    save(out/'tracking_selected.json',final);save(out/'tracking_comparison.json',comparison)
+    output=final if render_path=='selected' else results[render_path]
+    save(out/'observations.json',output)
+    save(out/'analysis_progress.json',{'stage':'complete','completed':len(indices),'total':len(indices)})
+    return output

@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-CONTEXT_VERSION = 1
+CONTEXT_VERSION = 2
 
 
 def frame_record(r, meta):
@@ -49,64 +49,75 @@ def summarize(records):
             'last_record':records[-1]}
 
 
+def select_history(records, settings):
+    """Last in traversal order, not largest timestamp (also works backward)."""
+    recent_count=int(settings.get('recent_images',5))
+    moderate_count=int(settings.get('moderate_images',5))
+    high_count=int(settings.get('high_images',5))
+    low=float(settings.get('moderate_confidence',.65))
+    high=float(settings.get('high_confidence',.85))
+    if not 3<=recent_count<=5 or not 0<=moderate_count<=5 or not 0<=high_count<=5 or not 0<=low<high<=1:
+        raise ValueError('History needs 3–5 recent frames, confidence quotas of 0–5, and 0 <= moderate < high <= 1')
+    def reliable(r):
+        score=r.get('confidence')
+        return (r.get('bbox') is not None and r.get('visibility') in ('visible','partial')
+                and not r.get('error') and isinstance(score,(int,float)) and math.isfinite(score))
+    recent=records[-recent_count:]
+    chosen={r['frame'] for r in recent}
+    moderate_added=[];high_added=[]
+    def count_above(threshold):
+        return sum(r['frame'] in chosen and reliable(r) and threshold<=r['confidence']<=1 for r in records)
+    count=count_above(low)
+    for r in reversed(records[:-recent_count]):
+        if count>=moderate_count:break
+        if reliable(r) and low<=r['confidence']<=1:
+            chosen.add(r['frame']);moderate_added.append(r['frame']);count+=1
+    count=count_above(high)
+    for r in reversed(records[:-recent_count]):
+        if count>=high_count:break
+        if r['frame'] not in chosen and reliable(r) and high<=r['confidence']<=1:
+            chosen.add(r['frame']);high_added.append(r['frame']);count+=1
+    groups={'recent':[r['frame'] for r in recent],
+            'moderate_or_high_added':moderate_added,'high_added':high_added}
+    return [r for r in records if r['frame'] in chosen],groups
+
+
+
 def build_context(history,meta,current_frame,direction,settings,frame_loader,compression=0):
     records=directional_records(history,meta,current_frame,direction)
-    key=context_key(history,meta,current_frame,direction,settings)
+    references=list(dict.fromkeys(meta.get('user_reference_frames',[])))
+    key=context_key(history,meta,current_frame,direction,dict(settings,user_reference_frames=references))
     folder=Path(meta['cache'])/'context'/key;folder.mkdir(parents=True,exist_ok=True)
-    # The full record list is retained, even if the request needs bounded summaries.
     (folder/'history.json').write_text(json.dumps(records,indent=2,allow_nan=False))
-    compact=[dict(r,note=r['note'][:240],level_note=(r.get('level_note') or '')[:180]) for r in records]
-    limit=max(1500,int(settings.get('history_char_budget',64000))/(2**compression))
-    split=0
-    while split<len(compact)-1 and len(json.dumps(compact[split:],separators=(',',':')))>limit:
-        split+=max(1,(len(compact)-split)//8)
-    old=compact[:split]
-    groups=[]
-    if old:
-        size=max(1,math.ceil(len(old)/8))
-        groups=[summarize(old[i:i+size]) for i in range(0,len(old),size)]
-    table={'older_history_summaries':groups,'individual_frame_records':compact[split:]}
+    selected,groups=select_history(records,settings)
+    # Keep membership fixed when a request is large; reduce image resolution instead.
+    compact=[dict(r,note=r['note'][:240],level_note=(r.get('level_note') or '')[:180]) for r in selected]
     text=('TEMPORAL HISTORY — '+direction.upper()+' traversal. '
-          'These are prior hypotheses, NOT ground truth. They include failures and low-confidence estimates. '
-          'Use previous object locations, visibility, confidence, shoreline endpoints and signed roll to assess changes. '
-          'Verify against the CURRENT image; do not repeat a bad estimate or assume the target remains visible. '
-          'A positive roll means the source shoreline descends toward the right; negative means it rises. '
-          'All recorded boxes/shorelines are normalized 0–1000 in their ORIGINAL FULL frames. '
-          'Frame records are ordered in traversal direction, with the most recently visited/nearest frame last. '
-          'History images below are explicitly timestamped and must not be mistaken for the current frame.\n'+
-          json.dumps(table,separators=(',',':'),allow_nan=False))
-    recent_count=min(len(records),max(1,int(settings.get('recent_images',3))-compression))
-    recent=records[-recent_count:] if recent_count else []
-    older=records[:-recent_count] if recent_count else records
-    capacity=max(0,int(settings.get('history_visual_frames',128))//(2**compression))
-    if len(older)>capacity:
-        selected=[older[i] for i in np.linspace(0,len(older)-1,capacity,dtype=int)] if capacity else []
-    else:selected=older
-    images=[]
-    for offset in range(0,len(selected),16):
-        group=selected[offset:offset+16]
-        path=folder/f'c{compression}_history_{offset//16:03d}.jpg'
+          'These are prior hypotheses, NOT ground truth. Verify identity and motion against the CURRENT image. '
+          'Start with recent frames, then top up moderate-or-high and high confidence quotas from nearest older frames; only selected records are sent; all history remains on disk. '
+          'All historical boxes and images use ORIGINAL RAW FULL frames with boxes normalized 0–1000. '
+          'Records are ordered in traversal direction, most recently visited last. '
+          'User-selected reference frames can be from any time and are identity references, NOT preceding motion evidence. '
+          'Moderate and high confidence are model reports, not guarantees. Image group membership can overlap; images are deduplicated.\n'+
+          json.dumps({'image_groups':groups,'user_reference_frames':references,'individual_frame_records':compact},separators=(',',':'),allow_nan=False))
+    order=list(dict.fromkeys(references+[r['frame'] for r in selected]))
+    images=[];width=max(224,768//(2**compression))
+    for index in order:
+        labels=(['USER-SELECTED IDENTITY REFERENCE'] if index in references else [])
+        labels += [name for name,indices in groups.items() if index in indices]
+        label=f"{' / '.join(labels)} | RAW frame {index} | {index/meta['fps']:.3f}s"
+        path=folder/f'c{compression}_selected_{index:07d}.jpg'
         if not path.exists():
-            canvas=np.zeros((4*154,4*224,3),np.uint8)
-            for k,r in enumerate(group):
-                im=frame_loader(r['frame']);thumb=cv2.resize(im,(224,126))
-                x,y=(k%4)*224,(k//4)*154
-                canvas[y+28:y+154,x:x+224]=thumb
-                cv2.putText(canvas,f"f{r['frame']} {r['time']:.3f}s",(x+4,y+20),cv2.FONT_HERSHEY_SIMPLEX,.45,(255,255,255),1)
-            cv2.imwrite(str(path),canvas,[cv2.IMWRITE_JPEG_QUALITY,88])
-        images.append({'path':str(path),'label':'Older history contact sheet, ordered left-to-right then top-to-bottom',
-                       'frames':[r['frame'] for r in group]})
-    for r in recent:
-        path=folder/f"recent_{r['frame']:07d}.jpg"
-        if not path.exists():
-            im=frame_loader(r['frame']);h,w=im.shape[:2];im=cv2.resize(im,(768,round(h*768/w)))
-            im=cv2.copyMakeBorder(im,30,0,0,0,cv2.BORDER_CONSTANT)
-            cv2.putText(im,f"HISTORY frame {r['frame']} | {r['time']:.3f}s",(8,22),cv2.FONT_HERSHEY_SIMPLEX,.6,(255,255,255),1)
+            im=frame_loader(index);h,w=im.shape[:2]
+            im=cv2.resize(im,(width,max(1,round(h*width/w))))
             cv2.imwrite(str(path),im,[cv2.IMWRITE_JPEG_QUALITY,90])
-        images.append({'path':str(path),'label':f"Recent HISTORY frame {r['frame']} at {r['time']:.3f}s",'frames':[r['frame']]})
+        images.append({'path':str(path),'label':label,'frames':[index]})
+    selected_ids=set(order)
     audit={'version':CONTEXT_VERSION,'direction':direction,'history_key':key,'history_count':len(records),
-           'individual_record_count':len(compact)-split,'summarized_record_count':split,
-           'visual_frame_count':len(selected)+len(recent),'unsent_visual_frame_count':len(older)-len(selected),
-           'recent_image_frames':[r['frame'] for r in recent], 'compression':compression,
+           'individual_record_count':len(compact),'summarized_record_count':0,
+           'omitted_record_count':len(records)-len(compact),
+           'visual_frame_count':len(order),'unsent_visual_frame_count':sum(r['frame'] not in selected_ids for r in records),
+           'recent_image_frames':groups['recent'],'image_groups':groups,'user_reference_frames':references,
+           'selected_image_frames':order,'compression':compression,'image_width':width,
            'history_file':str(folder/'history.json'),'images':images}
     return text,images,audit,folder

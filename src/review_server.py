@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
                 out=local_path(config['output_dir'])
                 state={'project':config_name,'config':config,'running':JOB is not None and JOB.poll() is None,
                        'exit_code':None if JOB is None else JOB.poll()}
-                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress'):
+                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 log=out/'job.log'
                 state['log']=log.read_text()[-3000:] if log.exists() else ''

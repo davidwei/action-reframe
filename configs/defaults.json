@@ -1,9 +1,24 @@
 {
   "api_url": "http://127.0.0.1:8000/v1",
   "analysis_fps": 10,
+  "tracking_mode": "single",
+  "tracking_render_path": "selected",
+  "verify_boxes": true,
+  "tracking_selection": {
+    "confidence_threshold": 0.65,
+    "agreement_iou": 0.35,
+    "switch_advantage": 0.15,
+    "switch_samples": 3,
+    "max_center_speed": 1000,
+    "motion_slack": 50,
+    "continuity_window_seconds": 2
+  },
   "temporal_context": {
-    "recent_images": 3,
-    "history_visual_frames": 128,
+    "recent_images": 5,
+    "moderate_images": 5,
+    "high_images": 5,
+    "moderate_confidence": 0.65,
+    "high_confidence": 0.85,
     "history_char_budget": 64000,
     "context_limit": 32768
   },
