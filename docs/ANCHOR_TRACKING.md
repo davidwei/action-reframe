@@ -147,4 +147,7 @@ and optical-flow feature initialization.
 Saving does not launch processing. Reanalyze to propagate the new anchor, or render
 with saved corrections to apply labels without Qwen analysis. Labels can be
 replaced by another selection/approval or cleared by marking the target absent.
-Editing is disabled while a managed processing job is running.
+Human labels may be saved while a managed processing job is running. The job may
+already have loaded its correction snapshot; reanalyze or render afterward to
+guarantee the new labels are applied. Starting another job or changing processing
+settings remains disabled during processing.

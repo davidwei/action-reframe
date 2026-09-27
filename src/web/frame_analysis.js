@@ -213,16 +213,16 @@
     const displayed=playbackBoxes(state,frame);
     for(const button of element.querySelectorAll('[data-approve]')){
       const path=button.dataset.approve,candidate=displayed.find(box=>box.path===path);
-      button.disabled=!!state.running||options.sourceMatches===false||!candidate?.polygon;
+      button.disabled=options.sourceMatches===false||!candidate?.polygon;
       button.title=candidate?.polygon?'Approve the displayed box regardless of confidence':'No box displayed for this path at this frame';
       button.onclick=async()=>{
         const message=element.querySelector('.analysis-approval-status');button.disabled=true;message.textContent='Saving…';
         try{
           const response=await fetch('/api/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:state.project||new URLSearchParams(location.search).get('config'),frame,approve_path:path,polygon:candidate.polygon,approval_estimate:{interpolated:candidate.interpolated,sample_frame:candidate.sampleFrame}})});
           const value=await response.json();if(!response.ok)throw Error(value.error||response.status);
-          message.textContent='Approved as human label (100%). Reanalyze or render to apply.';
+          message.textContent='Approved as human label (100%). '+(state.running?'Saved during processing; reanalyze or render afterward to apply.':'Reanalyze or render to apply.');
           element.dispatchEvent(new CustomEvent('analysis-approved',{bubbles:true,detail:{frame,path}}));
-        }catch(error){message.textContent=error.message;}finally{button.disabled=!!state.running||!candidate?.polygon;}
+        }catch(error){message.textContent=error.message;}finally{button.disabled=options.sourceMatches===false||!candidate?.polygon;}
       };
     }
 

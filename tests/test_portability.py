@@ -108,7 +108,11 @@ class PortabilityTests(unittest.TestCase):
         np.testing.assert_allclose(saved['processed_polygon_px'],points,atol=.001)
         candidate={'confidence':0,'bbox':[100,100,400,400],'source_polygon_px':[[7,5],[25,6],[24,18],[6,17]]}
         (out/'tracking_comparison.json').write_text(json.dumps([{'frame':1,'raw_angle':candidate,'leveled':candidate}]))
-        self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'raw_angle'})
+        with patch.object(review_server,'JOB') as running_job:
+            running_job.poll.return_value=None
+            self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'raw_angle'})
+            with self.assertRaises(urllib.error.HTTPError):
+                self.request('/api/settings',{'config':'labels.json','confidence_threshold':.6})
         saved=json.loads((out/'corrections.json').read_text())['1']
         self.assertEqual(saved['approved_path'],'raw_angle')
         self.assertEqual(saved['source_polygon_px'],candidate['source_polygon_px'])

@@ -166,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
             config_name=select_project(data.get('config'))
             config_path=local_path(config_name) if config_name else None
             with LOCK:
-                if JOB is not None and JOB.poll() is None:
+                if self.path!='/api/correct' and JOB is not None and JOB.poll() is None:
                     raise ValueError('Wait for the current job to finish before changing this project')
                 if self.path=='/api/create':
                     video=local_path(data['video'])

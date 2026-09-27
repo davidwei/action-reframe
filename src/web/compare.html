@@ -15,7 +15,7 @@
 <p id="status">Loading comparison…</p><p class="hint">Space: play/pause · Left/Right: step one frame · Shift+Left/Right: skip five seconds. Audio plays once. Both panels are display copies; the source file is unchanged.</p>
 <div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
 <p id="levelSummary"></p><div id="levelFlags"></div><div id="selectionFlags"></div><div id="flags"></div>
-<script src="/files/frame_analysis.js?v=approve-visible-box-2"></script>
+<script src="/files/frame_analysis.js?v=approve-during-run-3"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
