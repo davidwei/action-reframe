@@ -103,3 +103,16 @@ motion quality and detector self-confidence. Older anchor outputs can infer the
 method from the paired selection record. New localizations store the method on
 each candidate. Missing scores remain unavailable, not fabricated from detector
 confidence.
+
+### Exact-frame analysis display
+
+The confidence badge names the displayed frame's evidence source: human label,
+independent raw/leveled analysis, or tracking with raw/leveled crop validation.
+Interpolated/held playback tracks are labeled separately and do not inherit a
+neighboring sample's confidence. Their per-frame identity score is unavailable.
+The text field includes independent detection, crop verification, direction
+comparisons and visual-level evidence only when recorded at this exact frame.
+Unsampled frames retain their own saved render box, interpolation provenance,
+render parameters and telemetry. Historical outputs do not persist every internal
+optical-flow update; the UI does not invent those measurements or describe
+interpolation as optical flow. No reanalysis is required for this display change.

@@ -62,140 +62,91 @@
   }
 
   function describe(state, frame, sourceMatches = true) {
-    const meta = state.meta || {};
-    const threshold=state.config?.tracking_selection?.confidence_threshold??.5;
-    const fps = meta.fps;
-    if (!sourceMatches) return {status: 'No analysis for this source', tone: 'neutral', confidence: null,
-      text: 'Select the project’s source video, or create and analyze a project for this video.', data: null};
-    const track = state.tracks?.[frame] || null;
-    const observations = state.observations || [];
-    let previous = null, next = null;
-    for (const observation of observations) {
-      if (observation.frame <= frame && (!previous || observation.frame > previous.frame)) previous = observation;
-      if (observation.frame >= frame && (!next || observation.frame < next.frame)) next = observation;
-    }
-    const nearest = !previous ? next : !next ? previous :
-      frame - previous.frame <= next.frame - frame ? previous : next;
-    const exact = nearest?.frame === frame;
-    const correction = state.corrections?.[frame] || null;
-    const confidence = correction && own(correction,'bbox') ? (correction.bbox ? 1 : 0) : nearest?.manual ? nearest.confidence : !nearest?.manual && Number.isFinite(nearest?.confidence) ? nearest.confidence : null;
-    const flags = track?.flags || [];
-    const level = track?.level_source ? track : state.level_comparison?.[frame];
-    const box = track?.bbox;
-    const dualRows=state.tracking_comparison||[];
-    const dual=dualRows.reduce((best,row)=>!best||Math.abs(row.frame-frame)<Math.abs(best.frame-frame)?row:best,null);
-    let status = 'No frame analysis', tone = 'neutral';
-    if (track) {
-      if (!box) { status = 'Lost / not confidently located'; tone = 'lost'; }
-      else if (flags.some(f => /target|identity|appearance|visibility|reidentification|vl_error/.test(f)) ||
-               (confidence !== null && confidence < threshold)) {
-        status = 'Target located — needs review'; tone = 'uncertain';
-      } else { status = 'Target tracked'; tone = 'tracked'; }
-    } else if (nearest) {
-      status = exact ? (nearest.bbox && confidence >= threshold ? 'Detected — not rendered' : 'Lost / uncertain observation') :
-        'Between observations — no per-frame track yet';
-      tone = exact ? (nearest.bbox && confidence >= threshold ? 'tracked' : 'lost') : 'neutral';
-    }
-    if(own(correction,'bbox')){status=correction.bbox?'Human-confirmed target — saved':'Human-confirmed absence — saved';tone=correction.bbox?'tracked':'lost';}
-    const rawBox = nearest?.bbox && meta.width && meta.height ? nearest.bbox.map((v, i) => v / 1000 * (i % 2 ? meta.height : meta.width)) : null;
-    const cropWidth = Number.isFinite(track?.crop_height) && state.config?.output_height ?
-      track.crop_height * state.config.output_width / state.config.output_height : null;
-    const lines = [
-      `Frame: ${frame} (zero-based) | Time: ${number(fps ? frame / fps : null, 3)} s`,
-      `Result: ${state.config?.output_dir || 'not available'}`,
-      ...(nearest?.origin_anchor!=null?[`Anchor origin: frame ${nearest.origin_anchor} | parent frame: ${nearest.parent_frame??'none'} | direction: ${nearest.direction||'anchor'}`,`Localization: ${nearest.localized?'localized box':'propagated estimate'} | evidence: ${nearest.analysis_source||'manual'}`,`Motion quality: ${percent(nearest.motion_quality)} | uncertainty: ${number(nearest.motion_uncertainty_px)} px`,`Search region (source pixels): ${vector(nearest.search_region_px)}`]:[]),
-      `Leveling source: ${level?.level_source==='gyro'?'DJI fused attitude (gyro-derived); final render uses telemetry':'legacy visual estimate; this result does not use gyro leveling'}`,
-      `Leveling angle used for render: ${number(track?.roll)}°`,
-      ...(level ? [
-        `Gyro-derived roll: ${number(level.gyro_roll)}° | Qwen independent visual roll: ${number(level.qwen_roll)}°`,
-        `Qwen minus gyro: ${number(level.level_difference)}° | warning threshold: ${number(level.level_divergence_threshold)}°`
-      ] : []),
+    const meta=state.meta||{},fps=meta.fps,threshold=state.config?.tracking_selection?.confidence_threshold??.5;
+    if(!sourceMatches)return {status:'No analysis for this source',tone:'neutral',confidence:null,confidenceSource:'no analysis for this source',text:'Select the project’s source video.',data:null};
+    const track=state.tracks?.[frame]||null;
+    const dual=state.tracking_comparison?.find(r=>r.frame===frame)||null;
+    const observation=state.observations?.find(r=>r.frame===frame)||dual?.selected||null;
+    const correction=state.corrections?.[frame]||null;
+    const human=own(correction,'bbox')||observation?.manual;
+    const humanBox=own(correction,'bbox')?correction.bbox:observation?.bbox;
+    const flow=observation?.analysis_source==='flow_crop_validation';
+    const path=observation?.selected_path||observation?.path||track?.selected_path;
+    const pathName=path==='raw_angle'?'raw':path==='leveled'?'leveled':path==='manual'?'human':'raw/leveled';
+    let confidenceSource;
+    if(human)confidenceSource=humanBox?'human label':'human label — target absent';
+    else if(flow)confidenceSource=`tracking with ${pathName} analysis (optical flow + crop validation)`;
+    else if(observation)confidenceSource=`independent ${pathName} analysis${observation.analysis_source==='local_detection'?' (local search)':''}${!observation.bbox?' — no accepted box':''}`;
+    else if(track?.bbox)confidenceSource=`interpolated/held tracking from ${pathName} analysis — no analysis at this frame`;
+    else confidenceSource='no analysis at this frame';
+    const confidence=human?(humanBox?1:0):(Number.isFinite(observation?.confidence)?observation.confidence:null);
+    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?(observation.bbox&&confidence>=threshold?'Target located':'Lost / uncertain observation'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
+    const tone=human?(humanBox?'tracked':'lost'):confidence!==null?(confidence>=threshold?'tracked':'uncertain'):'neutral';
+    const storedLevel=track?.level_source?track:state.level_comparison?.[frame];
+    const directVisual=storedLevel?.qwen_level_frame===frame;
+    // Do not put a neighboring frame's visual-level estimate into this frame's badge.
+    const level=storedLevel?{...storedLevel,...(!directVisual?{qwen_roll:null,level_difference:null,level_divergent:false}:{})}:null;
+    const box=track?.bbox;
+    const lines=[
+      `Frame: ${frame} (zero-based) | Time: ${number(fps?frame/fps:null,3)} s`,
+      `Result: ${state.config?.output_dir||'not available'}`,
+      `Tracking confidence: ${percent(confidence)} — ${confidenceSource}`,
+      ...(!observation&&!human?['No independent detection or crop-validation score is stored for this frame. Neighboring sampled-frame analyses are not shown.']:[]),
       '',
-      ...(dual ? [
-        `TRACKING PATH COMPARISON — sampled frame ${dual.frame}, offset ${number(fps?(dual.frame-frame)/fps:null,3)} s (not a fresh detection at every playback frame)`,
-        `Selected path at sample: ${dual.selected?.selected_path||'not selected in this run'}${dual.selected?.path_switched?' — PATH SWITCH':''}`,
-        `Selection reason: ${dual.selected?.selection_reason||'not available'}`,
+      `Object box used for render [left, top, right, bottom]: ${box?vector(box)+' px':'none'}`,
+      ...(box?[
+        `Rendered box provenance: ${track.selection_is_direct===false?'interpolated/held estimate, not a fresh detection':'saved frame track'}`,
+        `Contributing sample frames: ${track.selection_source_samples?.join(', ')||'not recorded'} | contributing paths: ${track.selection_source_paths?.join(', ')||'not recorded'}`,
+        `Object center: ${vector([(box[0]+box[2])/2,(box[1]+box[3])/2])} px`,
+        `Object size: ${number(box[2]-box[0],1)} × ${number(box[3]-box[1],1)} px`
+      ]:[]),
+      ...(observation?[
+        '',`Analysis performed at this frame: ${trackingMethod(observation,dual?.selected)}`,
+        `Analyzed box in normalized 0–1000 source coordinates: ${vector(observation.bbox)}`,
+        `Visibility: ${observation.visibility||'not recorded'}`,
+        ...(observation.origin_anchor!=null?[
+          `Origin anchor: frame ${observation.origin_anchor} | parent: ${observation.parent_frame??'none'} | direction: ${observation.direction||'anchor'}`,
+          `Localization: ${observation.localized?'localized box':'propagated estimate'}`
+        ]:[]),
+        ...(observation.motion_quality!=null?[
+          `Optical motion quality: ${percent(observation.motion_quality)} | uncertainty: ${number(observation.motion_uncertainty_px)} px`,
+          `Search region (source pixels): ${vector(observation.search_region_px)}`
+        ]:[]),
+        ...(observation.error?[`Analysis error: ${observation.error}`]:[])
+      ]:[]),
+      ...(dual?[
+        '',`TRACKING PATH COMPARISON — this frame (${frame})`,
+        `Selected path: ${dual.selected?.selected_path||'not selected'} | ${dual.selected?.selection_reason||'not recorded'}`,
         `Selection flags: ${dual.selected?.selection_flags?.join(', ')||'none'}`,
-        `Adjudication: ${dual.selected?.adjudication?JSON.stringify(dual.selected.adjudication,(key,value)=>['raw','temporal_context'].includes(key)?undefined:value):'not needed'}`,
-        `Rendered frame tracking source: ${track?.selected_path||'not recorded'} | interpolation sample frames: ${track?.selection_source_samples?.join(', ')||'not recorded'} | contributing paths: ${track?.selection_source_paths?.join(', ')||'not recorded'}`,
-        `Both paths use normalized 0–1000 ORIGINAL source coordinates. Box overlap (IoU): ${number(dual.box_iou,3)}`,
-        `Gyro angle supplied to both paths: ${number(dual.raw_angle.gyro_roll)}° | render path: ${state.config?.tracking_render_path||'raw_angle'}`,
-        '',
-        'RAW PATH — cyan',
-        `Raw + angle: box ${vector(dual.raw_angle.bbox)} | confidence ${percent(dual.raw_angle.confidence)} | ${dual.raw_angle.visibility} | ${dual.raw_angle.direction}`,
+        `Box overlap (IoU): ${number(dual.box_iou,3)}. Both paths use normalized 0–1000 ORIGINAL source coordinates.`,
+        '', 'RAW PATH — cyan',
+        `Raw + angle: box ${vector(dual.raw_angle?.bbox)} | confidence ${percent(dual.raw_angle?.confidence)}`,
         ...pathMethodLines(dual.raw_angle,'Raw path',dual.selected),
-        `Raw path evidence: ${dual.raw_angle.note||dual.raw_angle.error||'none'}`,
-        ...directionLines(dual.raw_angle,'Raw path'),
-        ...verificationLines(dual.raw_angle,'Raw path'),
-        '',
-        'LEVELED PATH — orange',
-        `Leveled image → source: box ${vector(dual.leveled.bbox)} | confidence ${percent(dual.leveled.confidence)} | ${dual.leveled.visibility} | ${dual.leveled.direction}`,
+        `Raw path evidence: ${dual.raw_angle?.note||dual.raw_angle?.error||'none'}`,
+        ...directionLines(dual.raw_angle,'Raw path'),...verificationLines(dual.raw_angle,'Raw path'),
+        '', 'LEVELED PATH — orange',
+        `Leveled image → source: box ${vector(dual.leveled?.bbox)} | confidence ${percent(dual.leveled?.confidence)}`,
         ...pathMethodLines(dual.leveled,'Leveled path',dual.selected),
-        `Leveled path evidence: ${dual.leveled.note||dual.leveled.error||'none'}`,
-        ...directionLines(dual.leveled,'Leveled path'),
-        ...verificationLines(dual.leveled,'Leveled path'),
-        ''
-      ] : []),
-      `Source dimensions: ${meta.width || '?'} × ${meta.height || '?'} px`,
-      `Source playback rate: ${number(meta.fps,3)} FPS | Analysis sampling rate for this run: ${number(meta.analysis_fps,3)} FPS`,
-      `Tracking status: ${status}`,
-      `Observation source: ${nearest?.manual ? 'manual label' : nearest?.backward_recovered ? 'backward recovery pass' : nearest?.recovered ? 'first-pass small-target recovery' : nearest ? trackingMethod(nearest) : 'not available'}`,
+        `Leveled path evidence: ${dual.leveled?.note||dual.leveled?.error||'none'}`,
+        ...directionLines(dual.leveled,'Leveled path'),...verificationLines(dual.leveled,'Leveled path')
+      ]:observation&&!human?verificationLines(observation,'Tracking'):[]),
       '',
-      `Green overlay: ${box?'saved render track':'no saved render box at this frame'}. ${box&&track?.selection_is_direct===false?'Interpolated/held between analyzed samples; not a fresh optical-flow or Qwen detection.':''}`,
-      `Nearest analyzed box method (frame ${nearest?.frame??'?'}): ${trackingMethod(nearest)}`,
-      `Object box used for render [left, top, right, bottom]: ${box ? vector(box) + ' px' : 'none'}`,
-      `Object center: ${box ? vector([(box[0]+box[2])/2, (box[1]+box[3])/2]) + ' px' : 'not available'}`,
-      `Object size: ${box ? `${number(box[2]-box[0],1)} × ${number(box[3]-box[1],1)} px` : 'not available'}`,
-      '',
-      ...(level ? [
-        `Comparison: ${level.level_divergent?'DIVERGENCE — review':level.qwen_roll==null?'visual estimate unavailable':'within threshold'}`,
-        `Qwen level sample: frame ${level.qwen_level_frame??'?'} (offset ${number(fps&&level.qwen_level_frame!=null?(level.qwen_level_frame-frame)/fps:null,3)} s); ${level.qwen_level_frame===frame?'direct':'nearest sampled frame, not an independent per-frame measurement'}`,
-        `Visual cue: ${level.qwen_level_cue} | orientation confidence: ${percent(level.qwen_level_confidence)} | model-reported confidence: ${percent(level.qwen_level_model_confidence)}`,
-        `Visual evidence: ${level.qwen_level_note||'none'}${level.qwen_level_error?' | '+level.qwen_level_error:''}`,
-        `Telemetry calibration: ${level.gyro_calibration}`
-      ] : []),
-      'Angle convention: positive = source shoreline slopes down to the right; correction rotates counterclockwise.',
-      `Crop center in source: ${vector(track?.center)} px`,
-      `Crop size in source coordinates: ${number(cropWidth,1)} × ${number(track?.crop_height,1)} px`,
-      `Zoom relative to source height: ${number(track?.zoom)}×`,
-      `Review flags: ${flags.length ? flags.join(', ') : track ? 'none recorded (not a guarantee of accuracy)' : 'not available'}`,
-      '',
-      nearest ? `Qwen observation: frame ${nearest.frame}, ${number(nearest.time ?? (fps ? nearest.frame / fps : null),3)} s (${exact ? 'direct observation of this frame' : `nearest sampled frame; offset ${number(fps ? (nearest.frame-frame)/fps : null,3)} s`})` : 'Qwen observation: not available',
-      `Object confidence at that observation: ${percent(confidence)} (${nearest?.confidence_source==='blind_crop_text_match'?'blind crop text-match reliability':nearest?.confidence_source==='crop_verified_heuristic'?'crop-verified heuristic':'model-reported'}; not calibrated)`,
-      `Visibility at that observation: ${nearest?.visibility || 'not available'}`,
-      `Qwen box in source pixels: ${vector(rawBox)}`,
-      `Qwen box in normalized 0–1000 coordinates: ${vector(nearest?.bbox)}`,
-      `Legacy tracking-pass level confidence (not independent leveling): ${percent(nearest?.level_confidence)}`,
-      `Legacy tracking-pass shoreline endpoints (not final gyro leveling): ${vector(nearest?.shoreline)}`,
-      `Model note: ${nearest?.note || 'none'}`,
-      `Legacy tracking-pass level explanation: ${nearest?.level_note || 'none recorded'}`,
-      ...(nearest?.temporal_context ? [
-        `Temporal context: ${nearest.temporal_context.direction}; ${nearest.temporal_context.history_count} prior sampled frames`,
-        `History sent individually: ${nearest.temporal_context.individual_record_count}; summarized: ${nearest.temporal_context.summarized_record_count}`,
-        `History images represented: ${nearest.temporal_context.visual_frame_count}; images omitted for context limits: ${nearest.temporal_context.unsent_visual_frame_count}`,
-        `Qwen input tokens: ${nearest.temporal_context.input_tokens} / ${nearest.temporal_context.context_limit}`
-      ] : []),
-      ...(nearest?.backward_attempt ? [
-        `Backward attempt: ${nearest.backward_attempt.accepted ? 'accepted' : 'not accepted'}`,
-        `Backward seed: frame ${nearest.backward_attempt.seed_frame}; interval-end seed: frame ${nearest.backward_attempt.interval_seed_frame}`,
-        `Backward confidence: ${percent(nearest.backward_attempt.evidence?.confidence)}`,
-        `Backward evidence: ${nearest.backward_attempt.evidence?.note || 'none'}`
-      ] : []),
-      ...(nearest?.first_pass_tracking ? [`First-pass confidence before recovery: ${percent(nearest.first_pass_tracking.confidence)}`] : []),
-      ...(nearest?.recovery_note ? [`Re-identification note: ${nearest.recovery_note}`] : []),
-      ...(nearest?.recovery_rejected ? [`Re-identification rejected: ${nearest.recovery_rejected}`] : []),
-      ...(nearest?.error || nearest?.recovery_error ? [`Analysis error: ${nearest.error || nearest.recovery_error}`] : []),
-      '',
-      correction ? 'Saved manual correction at this frame (separate from rendered values; rerender to apply new edits):' : 'Manual correction at this frame: none',
-      ...(own(correction, 'bbox') ? [`  Object: ${correction.bbox === null ? 'marked absent' : vector(correction.bbox)+' px'}`] : []),
-      ...(own(correction, 'roll') ? [`  Level angle: ${number(correction.roll)}°${level?.level_source==='gyro'?' (not applied: gyro is final)':''}`] : []),
-      '',
-      'Human target boxes carry 100% confidence as an explicit user label, not a model probability. Other confidence values belong to the nearest tracking observation.'
+      `Leveling angle used for render: ${number(track?.roll)}°`,
+      ...(level?[`Gyro-derived roll at this frame: ${number(level.gyro_roll)}°`]:[]),
+      ...(directVisual?[
+        `Qwen visual roll at this frame: ${number(level.qwen_roll)}° | Qwen minus gyro: ${number(level.level_difference)}°`,
+        `Visual cue: ${level.qwen_level_cue||'not recorded'} | confidence: ${percent(level.qwen_level_confidence)}`,
+        `Visual evidence: ${level.qwen_level_note||'none'}`
+      ]:[]),
+      ...(track?[`Render crop center: ${vector(track.center)} | crop height: ${number(track.crop_height)} px | zoom: ${number(track.zoom)}×`,`Render flags: ${track.flags?.join(', ')||'none'}`]:[]),
+      ...(correction?['','Saved manual correction at this frame (rerender to apply):',
+        ...(own(correction,'bbox')?[`  Object: ${correction.bbox===null?'marked absent':vector(correction.bbox)+' px'}`]:[]),
+        ...(own(correction,'roll')?[`  Level angle: ${number(correction.roll)}°`]:[])] : [])
     ];
-    return {status, tone, confidence, level, text: lines.join('\n'), data: {
-      frame, time_seconds: fps ? frame/fps : null, rendered_track: track,
-      level_comparison:level||null, tracking_comparison:dual, nearest_observation: nearest, observation_is_exact_frame: exact,
-      preceding_observation: previous, following_observation: next, saved_manual_correction: correction
+    return {status,tone,confidence,confidenceSource,level,text:lines.join('\n'),data:{
+      frame,time_seconds:fps?frame/fps:null,rendered_track:track,tracking_comparison:dual,
+      frame_observation:observation,nearest_observation:observation,observation_is_exact_frame:!!observation,
+      saved_manual_correction:correction,level_comparison:level
     }};
   }
 
@@ -207,7 +158,7 @@
     if(line.startsWith('Raw + angle: box')) {box=pixels(d.tracking_comparison?.raw_angle.bbox);frame=d.tracking_comparison?.frame;label='Raw + angle';color='#00e5ff';}
     else if(line.startsWith('Leveled image → source: box')) {box=pixels(d.tracking_comparison?.leveled.bbox);frame=d.tracking_comparison?.frame;label='Leveled → original';color='#ff9f32';}
     else if(line.startsWith('Object box used for render')) {box=d.rendered_track?.bbox;label='Box used for render';}
-    else if(line.startsWith('Qwen box in ')) {box=pixels(d.nearest_observation?.bbox);frame=d.nearest_observation?.frame;label='Qwen observation';}
+    else if(line.startsWith('Analyzed box in ')) {box=pixels(d.nearest_observation?.bbox);frame=d.nearest_observation?.frame;label='Analyzed observation';}
     else if(line.startsWith('  Object:')) {box=d.saved_manual_correction?.bbox;label='Saved manual correction';}
     else {
       for(const [key,name] of [['raw_angle','Raw path'],['leveled','Leveled path']])for(const direction of ['forward','backward']){
@@ -255,14 +206,14 @@
     if (!element) return;
     if (!element.dataset.mounted) {
       element.classList.add('frame-analysis'); element.dataset.mounted = 'true';
-      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Nearest Qwen object confidence"></meter></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
+      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
     }
     const result = describe(state, frame, options.sourceMatches !== false);
     const badge = element.querySelector('.analysis-badge'); badge.textContent = result.status; badge.dataset.tone = result.tone;
     const levelBadge=element.querySelector('.analysis-level');
     levelBadge.hidden=!result.level;
     if(result.level){const l=result.level;levelBadge.textContent=`Gyro ${number(l.gyro_roll)}° · Qwen ${number(l.qwen_roll)}° · Δ ${number(l.level_difference)}°${l.level_divergent?' — DIVERGENCE':''}`;levelBadge.dataset.tone=l.level_divergent?'lost':l.qwen_roll==null?'uncertain':'neutral';}
-    element.querySelector('.analysis-score').textContent = `Tracking confidence: ${percent(result.confidence)}${state.corrections?.[frame] && own(state.corrections[frame],'bbox') || result.data?.nearest_observation?.manual ? ' (human label)' : ''}`;
+    element.querySelector('.analysis-score').textContent = `Tracking confidence: ${percent(result.confidence)} — ${result.confidenceSource}`;
     const meter = element.querySelector('meter'); meter.hidden = result.confidence === null; meter.value = result.confidence ?? 0;meter.low=state.config?.tracking_selection?.confidence_threshold??.5;meter.high=Math.max(meter.low,.85);
     const text=element.querySelector('.analysis-text');
     if(element._analysisFrame!==frame){element._boxToken=null;element.querySelector('.analysis-box-preview').hidden=true;}
