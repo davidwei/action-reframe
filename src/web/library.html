@@ -55,6 +55,7 @@ function renderJobs(){
   if(j.stage!=='render'&&p.coverage)TrackingProgressView.render(progress,p);
   const actions=document.createElement('td');actions.append(link('Open video focus','/?config='+encodeURIComponent(j.config)));
   actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));
+  if(['starting','running'].includes(j.status))actions.append(button('Stop processing',async()=>{await api('/stop',{id:j.id});await load();notice('Stopped. Cached frames and checkpoints are preserved for Retry saved inputs.')}));
   if(j.status==='queued')actions.append(button('Cancel',async()=>{await api('/cancel',{id:j.id});await load()}));
   if(['failed','interrupted'].includes(j.status))actions.append(button('Retry saved inputs',async()=>{await api('/retry',{id:j.id});await load();notice('Requeued. Start/resume if paused.')}));
   if(['succeeded','failed','interrupted'].includes(j.status))actions.append(button('Copy corrections to source',async()=>{const r=await api('/adopt',{id:j.id});await load();notice(`Copied ${r.labels} labels to ${r.project}. Review and approve it before queuing a new run.`)}));

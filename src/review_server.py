@@ -249,6 +249,7 @@ class Handler(BaseHTTPRequestHandler):
                     if action=='start':
                         if JOB is not None and JOB.poll() is None:raise ValueError('An existing single-video job is running. Prepare/queue videos now; start the batch when it finishes.')
                         batch.start();return self.json_response({'started':True})
+                    if action=='stop':return self.json_response(batch.stop(data['id']))
                     if action=='pause':batch.pause();return self.json_response({'paused':True})
                     if action in ('retry','cancel'):batch.action(data['id'],action);return self.json_response({'saved':True})
                     if action=='adopt':return self.json_response(batch.adopt(data['id']))

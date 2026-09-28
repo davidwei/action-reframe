@@ -243,4 +243,46 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(len(self.batch.jobs()),1)
         with self.assertRaises(ValueError):self.batch.inputs('../outside.json')
 
-if __name__=='__main__':unittest.main()
+
+    def test_stop_before_runner_starts_preserves_cache_and_allows_retry(self):
+        job=self.queue();self.starting(job)
+        config=read(self.root/self.batch.jobs()[0]['config']);cache=Path(config['output_dir'])/'keep.jpg'
+        cache.write_bytes(b'cached frame')
+        self.batch.stop(job)
+        self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
+        self.assertEqual(cache.read_bytes(),b'cached frame')
+        self.batch.execute(job,[sys.executable,'-c','raise SystemExit(99)'])
+        self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
+        self.batch.action(job,'retry');self.assertEqual(self.batch.jobs()[0]['status'],'queued')
+
+    def test_stop_running_process_preserves_work_and_does_not_kill_other_process(self):
+        import time
+        job=self.queue();self.starting(job)
+        config=read(self.root/self.batch.jobs()[0]['config']);out=Path(config['output_dir'])
+        script=Path(__file__).resolve().parents[1]/'src/batch_workflow.py'
+        code="""import sys,time
+from pathlib import Path
+sys.path.insert(0,str(Path(sys.argv[1]).parent))
+from batch_workflow import file_lock
+root=Path(sys.argv[sys.argv.index('--workspace')+1]);job=sys.argv[-1]
+with file_lock(root/'.batch/locks'/(job+'.lock')) as acquired:
+ assert acquired
+ (root/'runner-ready').write_text('ready')
+ time.sleep(60)
+"""
+        process=subprocess.Popen([sys.executable,'-c',code,str(script),'--workspace',str(self.root),'--execute',job])
+        other=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])
+        try:
+            for _ in range(100):
+                if (self.root/'runner-ready').exists():break
+                time.sleep(.02)
+            self.assertTrue((self.root/'runner-ready').exists())
+            with self.batch.db() as db:db.execute("UPDATE jobs SET status='running' WHERE id=?",(job,))
+            (out/'cache-marker').write_text('keep')
+            self.batch.stop(job);process.wait(timeout=5)
+            self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
+            self.assertIsNone(other.poll());self.assertEqual((out/'cache-marker').read_text(),'keep')
+        finally:
+            for p in (process,other):
+                if p.poll() is None:p.kill()
+                p.wait()

@@ -391,6 +391,29 @@ class Batch:
                 db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=?",(time.time(),job_id))
             else:raise ValueError('Only queued jobs can be cancelled; failed/interrupted jobs can be retried')
 
+    def stop(self,job_id):
+        from job_control import runner_handles,terminate
+        # Serialize against runner startup. Once interrupted, an unstarted runner exits.
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job=db.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if not job or job['status'] not in ('starting','running'):
+                raise ValueError('Only starting or running jobs can be stopped')
+            handles=runner_handles(self.root,job_id,Path(__file__).resolve())
+            try:
+                if handles:terminate(handles)
+                for attempt in range(40):
+                    with file_lock(self.folder/'locks'/(job_id+'.lock')) as acquired:
+                        if acquired:
+                            db.execute("UPDATE jobs SET status='interrupted',error=?,updated=? WHERE id=?",
+                                ('Stopped by user; Retry saved inputs resumes compatible cached work.',time.time(),job_id))
+                            break
+                    time.sleep(.05)
+                else:raise RuntimeError('Runner has not stopped yet; try Stop processing again')
+            finally:
+                for _,fd in handles:os.close(fd)
+        return {'stopped':job_id,'status':'interrupted'}
+
     def recover(self):
         # Only the workspace worker calls this while holding its singleton lock.
         for job in self.jobs():

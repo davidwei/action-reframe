@@ -349,3 +349,15 @@ on them. Review entries retain failure history even if another attempt recovers 
 frame; human corrections remain authoritative. Transport and unexpected system
 errors still stop the job. Already-running workers need a new runner to load this
 behavior; their failures are not silently reclassified in memory.
+
+### Stop active processing
+
+Running and starting batch jobs expose **Stop processing** in the Folder job
+list. The Linux server identifies the exact runner by workspace and job ID,
+uses pidfds to avoid recycled-PID mistakes, and terminates its child processes
+without signaling the queue worker or unrelated jobs. It verifies release of
+the job lock before marking the job **Interrupted**. Cached frames, input
+snapshots, and checkpoints remain available to **Retry saved inputs**. The queue
+may proceed to its next job; use Pause queue as well to prevent that. A stopped
+job does not restart automatically. Queued jobs still use Cancel. This stop
+implementation requires Linux `/proc` and pidfd support.
