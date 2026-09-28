@@ -50,7 +50,7 @@ function renderProjects(){
  $('archived').replaceChildren();for(const p of state.archived||[]){const row=document.createElement('div');row.className='row';row.append(text('span',p.project+' · '+p.video),updated(p.updated_at),button('Restore project',async()=>{await api('/restore',{project:p.project});await load()}));$('archived').append(row)}
 }
 function renderJobs(){
- $('queueState').textContent=(state.paused?'Paused':'Queue enabled')+(state.legacy_running?' · existing single-video job still running':'');$('start').disabled=state.legacy_running;
+ $('queueState').textContent=(state.paused?'Paused':'Queue enabled')+(state.legacy_running?' · existing single-video job still running':'');$('start').disabled=state.legacy_running;$('start').hidden=!state.paused&&state.jobs.some(j=>['starting','running'].includes(j.status));
  $('jobs').replaceChildren();
  const rank=j=>['starting','running'].includes(j.status)?0:j.status==='queued'?1:2;
  for(const j of [...state.jobs].sort((a,b)=>rank(a)-rank(b)||(rank(a)===1?(b.priority||0)-(a.priority||0)||a.created-b.created:b.created-a.created))){
