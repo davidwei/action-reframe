@@ -1,6 +1,6 @@
 # Lookout — project plan
 
-Status: proposed; this document does not imply telemetry is implemented.
+Status: first release implemented; see [operating guide](LOOKOUT.md) for shipped capabilities, validation, and remaining measurement limits. Automatic retention is deferred by user decision.
 Date: 2026-09-28.
 
 **Observe the work. Find the friction. Suggest the next improvement.**

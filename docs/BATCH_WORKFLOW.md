@@ -361,3 +361,21 @@ snapshots, and checkpoints remain available to **Retry saved inputs**. The queue
 may proceed to its next job; use Pause queue as well to prevent that. A stopped
 job does not restart automatically. Queued jobs still use Cancel. This stop
 implementation requires Linux `/proc` and pidfd support.
+
+Folder project and job rows show code identity at processing start. Analysis and
+render versions are separate: a rerender records its new renderer and preserves
+the source analysis version. Executable-source fingerprints include uncommitted
+changes; documentation-only commits do not falsely invalidate them. Older runs
+without provenance say **Version not recorded**. Compatible cached results can
+originate from earlier code, so a current runner does not imply every observation
+was recomputed. For outdated or unknown work, **Re-run analysis** queues approved
+inputs in a new run and **Re-render (no re-analysis)** uses the priority render
+queue. Active jobs remain protected, and unapproved projects link to input review.
+
+Video focus navigation is ordered: Previous reviewed, Previous tracked, Previous
+sampled, Previous frame, Next frame, Next sampled, Next tracked, Next reviewed.
+Tracked navigation requires an accepted box at that exact observation (or a human
+label), not interpolated rendering coordinates; absence labels override estimates.
+
+Navigation uses Previous and Next fieldsets with short button labels; accessible
+labels retain the full direction and frame type.

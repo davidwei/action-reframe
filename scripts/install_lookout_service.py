@@ -14,8 +14,8 @@ After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory={quoted(source)}
-ExecStart={quoted(a.python.resolve())} -m lookout.daemon --workspace {quoted(a.workspace.resolve())}
+WorkingDirectory={str(source).replace('%','%%')}
+ExecStart={quoted(a.python.absolute())} -m lookout.daemon --workspace {quoted(a.workspace.resolve())}
 Restart=on-failure
 RestartSec=5
 Nice=10
@@ -28,5 +28,6 @@ if not a.install:print(unit)
 else:
     path=Path.home()/'.config/systemd/user/action-reframe-lookout.service';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(unit)
     subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-    subprocess.run(['systemctl','--user','enable','--now',path.name],check=True)
+    subprocess.run(['systemctl','--user','enable',path.name],check=True)
+    subprocess.run(['systemctl','--user','restart',path.name],check=True)
     print(path)

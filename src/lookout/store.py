@@ -1,5 +1,6 @@
 """Separate telemetry database; no automatic deletion policy."""
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 import time
@@ -16,6 +17,7 @@ def settings(root):
     return dict(DEFAULTS,**(json.loads(p.read_text()) if p.exists() else {}))
 
 
+@contextmanager
 def connect(root):
     db=sqlite3.connect(folder(root)/'telemetry.sqlite3',timeout=.25)
     db.row_factory=sqlite3.Row
@@ -26,7 +28,9 @@ def connect(root):
     CREATE TABLE IF NOT EXISTS decisions(key TEXT PRIMARY KEY,state TEXT,until_day TEXT,updated REAL);
     CREATE TABLE IF NOT EXISTS job_snapshots(id TEXT PRIMARY KEY,status TEXT);
     ''')
-    return db
+    try:
+        with db:yield db
+    finally:db.close()
 
 
 def insert(root,events):
