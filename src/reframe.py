@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local, resumable VL-assisted video reframing. See README.md for limitations."""
+from zoom_path import confident_frames, interpolate_zoom
 from export_metadata import ffmpeg_metadata_args, write_sidecar
 from tracking_selection import confidence_threshold
 
@@ -19,7 +20,7 @@ import cv2
 import av
 import imageio_ffmpeg
 import numpy as np
-from scipy.ndimage import gaussian_filter1d, maximum_filter1d, median_filter
+from scipy.ndimage import gaussian_filter1d, median_filter
 from backward_tracking import backward_pass, confident
 from temporal_context import build_context, context_key
 
@@ -656,7 +657,7 @@ def measurements(c, meta, observations):
     return raw,supported,roll,flags
 
 
-def camera_path(c,meta,boxes,supported,roll):
+def camera_path(c,meta,boxes,supported,roll,zoom_anchors=None):
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
     centers=(boxes[:,:2]+boxes[:,2:])/2
@@ -666,22 +667,20 @@ def camera_path(c,meta,boxes,supported,roll):
         pts=corners(boxes[i])@r.T
         bw,bh=np.ptp(pts,axis=0)
         desired[i]=max(bh/c['subject_height_fraction'],bw*oh/ow/(1-2*c['margin_fraction']),24)
-    # Missing target: causal hold, then widen toward full source view, not toward a future guessed position.
+    # Framing position keeps its existing hold-and-return behavior during gaps.
     last=None
     for i in range(n):
         if supported[i]:
             last=i
         elif last is None:
-            centers[i]=[w/2,h/2];desired[i]=h
+            centers[i]=[w/2,h/2]
         else:
             dt=(i-last)/fps
             blend=np.clip((dt-c['hold_seconds'])/c['widen_seconds'],0,1)
             centers[i]=centers[last]*(1-blend)+np.array([w/2,h/2])*blend
-            desired[i]=desired[last]*(1-blend)+h*blend
     sigma=max(1,c['smoothing_seconds']*fps)
     centers=gaussian_filter1d(centers,sigma,axis=0)
-    extent=np.exp(gaussian_filter1d(np.log(desired),sigma*1.4))
-    # Hard containment after center smoothing; permit source-exterior borders rather than cutting the target.
+    # Fit confident anchors after center smoothing; allow source-exterior borders.
     minimum=np.zeros(n)
     for i in range(n):
         if not supported[i]:
@@ -689,9 +688,9 @@ def camera_path(c,meta,boxes,supported,roll):
         r=cv2.getRotationMatrix2D((0,0),float(roll[i]),1)[:,:2]
         p=(corners(boxes[i])-centers[i])@r.T
         minimum[i]=max(2*np.abs(p[:,1]).max(),2*np.abs(p[:,0]).max()*oh/ow)/(1-2*c['margin_fraction'])
-    safe=maximum_filter1d(minimum,size=max(3,int(fps*.5)//2*2+1),mode='nearest')
-    extent=np.maximum(extent,gaussian_filter1d(safe,sigma*.5))
-    extent=np.maximum(extent,minimum)
+    if zoom_anchors is None:
+        zoom_anchors=np.flatnonzero(supported)
+    extent=interpolate_zoom(np.maximum(desired,minimum),h,zoom_anchors,endpoint_zoom=1.)
     return centers,extent
 
 
@@ -739,7 +738,10 @@ def render(c):
             elif (row['qwen_level_confidence'] or 0)<.65:flags[i].append('visual_level_uncertain')
             if row['qwen_direction_mismatch']:flags[i].append('visual_level_direction_inconsistent')
         # Manual roll keys cannot silently override an explicitly selected gyro final source.
-    centers,extent=camera_path(c,meta,boxes,supported,roll)
+    corrections_path=out/'corrections.json'
+    corrections=json.loads(corrections_path.read_text()) if corrections_path.exists() else {}
+    zoom_anchors=confident_frames(observations,corrections,meta['frames'],confidence_threshold(c))
+    centers,extent=camera_path(c,meta,boxes,supported,roll,zoom_anchors)
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
     tracks=[]

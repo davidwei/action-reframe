@@ -201,3 +201,24 @@ attitude remains separate from processed orientation. A metadata sidecar links t
 original tags, archived data-track packets, extracted gyro values and per-frame
 reframing transforms. See [export metadata](EXPORT_METADATA.md) for preserved
 fields, archive format and limitations.
+
+### Linear zoom anchors
+
+Rendering now forces 1× magnification at the first and last frame. Interior zoom
+anchors are actual accepted observations at the configured tracking confidence
+threshold, including human corrections. Nearby/interpolated support alone does not
+create a zoom anchor. A manual absence removes an anchor at that frame.
+
+Each interior anchor's crop size accounts for the rotated box, requested subject
+size, margins and smoothed framing center. Between anchors the **zoom multiplier**
+is interpolated linearly (2× to 4× has a 3× midpoint), not the crop height. The old
+hold-then-widen rule and Gaussian smoothing no longer modify zoom. Framing position
+still uses the existing hold/return behavior and smoothing; leveling is unchanged.
+
+Endpoint 1× takes precedence over box-fit requests there. Containment is enforced
+when choosing interior anchor sizes, not by clamping the interpolated curve later.
+Uncertain intermediate boxes therefore do not disturb that curve. Linear segments
+are continuous in zoom but may change speed at anchors; dense fluctuating confident
+boxes can still produce fluctuations. Apply to existing analysis via **Render with
+saved corrections**; no new Qwen analysis is needed. Already-running processes and
+previously rendered videos retain the old behavior until rerendered.
