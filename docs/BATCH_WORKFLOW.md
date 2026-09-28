@@ -330,3 +330,9 @@ frames remain unverified, and propagated boxes cannot become anchors without
 independent localization. The number of positions with recorded confidence is
 shown separately. Older runs show unavailable confidence counts; active workers
 must finish before new jobs collect these additional statistics.
+
+Video focus settings lock only while that specific project's job is starting or
+running. Other source projects (including queued projects) remain editable;
+already queued jobs retain their saved input snapshots. Saved batch-run snapshots
+remain read-only. Direct analysis/render launches still respect the shared queue's
+execution lock; editing an idle project's settings does not start another job.

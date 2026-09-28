@@ -100,6 +100,19 @@ def legacy_project():
     return None
 
 
+def project_running(config_name):
+    """Lock only the source project or snapshot belonging to an active job."""
+    if not config_name:return False
+    target=local_path(config_name)
+    legacy=legacy_project()
+    if legacy and local_path(legacy)==target:return True
+    if not (ROOT/'.batch'/'queue.sqlite3').exists():return False
+    from batch_workflow import Batch
+    return any(j['status'] in ('starting','running') and
+               any(j.get(key) and local_path(j[key])==target for key in ('project','config'))
+               for j in Batch(ROOT).jobs())
+
+
 def local_path(value):
     p=(ROOT/value).resolve()
     if not p.is_relative_to(ROOT):
@@ -127,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
                 config=json.loads(local_path(config_name).read_text()) if config_name else dict(project_defaults(),video='',target='',reference_time=0,output_dir='outputs/unconfigured')
                 out=local_path(config['output_dir'])
                 if config.get('video'):config['video']=str(local_path(config['video']).relative_to(ROOT))
-                state={'project':config_name,'config':config,'running':(JOB is not None and JOB.poll() is None) or batch_active(),
+                state={'project':config_name,'config':config,'running':project_running(config_name),
+                       'execution_busy':(JOB is not None and JOB.poll() is None) or batch_active(),
                        'exit_code':None if JOB is None else JOB.poll()}
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
@@ -239,8 +253,10 @@ class Handler(BaseHTTPRequestHandler):
                     if action in ('retry','cancel'):batch.action(data['id'],action);return self.json_response({'saved':True})
                     if action=='adopt':return self.json_response(batch.adopt(data['id']))
                     raise ValueError('Unknown batch action')
-                if self.path not in ('/api/correct','/api/create') and ((JOB is not None and JOB.poll() is None) or batch_active()):
-                    raise ValueError('Wait for the current job to finish before changing this project')
+                if self.path=='/api/settings' and project_running(config_name):
+                    raise ValueError('Wait for this project’s running job to finish before changing its settings')
+                if self.path=='/api/run' and ((JOB is not None and JOB.poll() is None) or batch_active()):
+                    raise ValueError('Another job is active. Use the folder queue or wait before starting a direct run')
                 if self.path=='/api/create':
                     video=local_path(data['video'])
                     if not video.is_file():raise ValueError('Video does not exist')

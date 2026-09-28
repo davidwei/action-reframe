@@ -110,6 +110,7 @@ class PortabilityTests(unittest.TestCase):
         (out/'tracking_comparison.json').write_text(json.dumps([{'frame':1,'raw_angle':candidate,'leveled':candidate}]))
         with patch.object(review_server,'JOB') as running_job:
             running_job.poll.return_value=None
+            running_job.args=['reframe.py','labels.json']
             self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'raw_angle'})
             with self.assertRaises(urllib.error.HTTPError):
                 self.request('/api/settings',{'config':'labels.json','confidence_threshold':.6})
