@@ -31,6 +31,7 @@ class RerenderTests(unittest.TestCase):
 
     def test_real_queued_rerender_without_model_or_approval_and_preserves_inputs(self):
         original=(self.out/'observations.json').read_bytes()
+        write(self.out/'code_version.json',{'analysis':{'commit':'old','fingerprint':'old'}})
         self.assertTrue(self.batch.library()['projects'][0]['can_rerender'])
         jobs=self.batch.enqueue_rerender(['project.json']);job=jobs[0]
         with self.assertRaises(ValueError):self.batch.enqueue_rerender(['project.json'])
@@ -50,6 +51,8 @@ class RerenderTests(unittest.TestCase):
         self.assertFalse((self.out/'focused.mp4').exists())
         library=self.batch.library();self.assertEqual(library['projects'][0]['status'],'Done')
         self.assertEqual(library['jobs'][0]['stage'],'render')
+        self.assertEqual(library['jobs'][0]['analysis_code_version']['status'],'older')
+        self.assertEqual(library['jobs'][0]['render_code_version']['status'],'current')
         # Review corrections on the finished output are included in the next snapshot.
         labels={'2':{'bbox':[11,11,31,31]}}
         write(output/'review_corrections.json',labels)

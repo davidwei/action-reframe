@@ -22,12 +22,13 @@ async function api(path,body){const response=await fetch('/api/batch'+path,body?
 function safe(fn){return async()=>{try{await fn()}catch(error){notice(error.message)}}}
 function button(label,fn){const b=text('button',label);b.onclick=safe(async()=>{b.disabled=true;try{await fn()}finally{b.disabled=false}});return b}
 function link(label,path){const a=text('a',label);a.href=path;return a}
+function codeBadge(info,prefix='Run'){const e=text('small',`${prefix}: ${info?.label||'Version not recorded'}${info?.commit?' · '+info.commit.slice(0,8):''}`);e.title='Code identity at processing start. Cached results may originate from earlier compatible runs; rerendering does not reanalyze.';return e}
 function renderProjects(){
  $('projects').replaceChildren();
  for(const p of state.projects){
   const card=document.createElement('article'),row=document.createElement('div');row.className='row';
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selected.has(p.project);checkbox.disabled=!p.ready||p.status==='Processing'||p.discard_pending||drafts.has(p.project);checkbox.setAttribute('aria-label','Queue '+p.project);checkbox.onchange=()=>checkbox.checked?selected.add(p.project):selected.delete(p.project);
-  row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at));
+  row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at),document.createElement('br'),codeBadge(p.code_version),document.createElement('br'),codeBadge(p.analysis_code_version,'Analysis'),document.createElement('br'),codeBadge(p.render_code_version,'Render'));
   card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} analysis FPS · ${p.labels} additional labels`));
   card.append(text('p','Actions: '+p.actions.join(' · ')));
   if(p.stale)card.append(text('p','Inputs changed — review and approve again.'));
@@ -36,7 +37,9 @@ function renderProjects(){
   if(p.has_box)card.append(img);
   const actions=document.createElement('div');actions.className='row';
   actions.append(link('Label subject','/?config='+encodeURIComponent(p.project)+'#subject-labels'),link('Review descriptions','/?config='+encodeURIComponent(p.project)+'#identity-description'));
-  if(p.can_rerender)actions.append(button('Queue Rerendering (no re-analysis)',async()=>{await api('/queue-rerender',{projects:[p.project]});await load();notice('Rerender queued using saved analysis and corrections. Start/resume the queue when ready.')}));
+  if(p.can_reanalyze)actions.append(button('Re-run analysis',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Analysis queued with approved inputs. Start/resume the queue to process.')}));
+  if(p.analysis_code_version?.status!=='current'&&!p.ready&&p.status!=='Processing'&&p.can_rerender)actions.append(text('small','Review and approve inputs to re-run analysis.'));
+  if(p.can_rerender)actions.append(button(p.render_code_version?.status!=='current'?'Re-render (no re-analysis)':'Queue Rerendering (no re-analysis)',async()=>{await api('/queue-rerender',{projects:[p.project]});await load();notice('Rerender queued using saved analysis and corrections. Start/resume the queue when ready.')}));
   if(p.status==='Ready')actions.append(button('Queue processing',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Queued. Start/resume the queue when ready.')}));
   if(['Processing','Done'].includes(p.status))actions.append(link('Open video focus','/?config='+encodeURIComponent(p.active_config||p.completed_config||p.project)));
   if(p.status==='Done'&&p.completed_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.completed_config)));
@@ -52,6 +55,7 @@ function renderJobs(){
  const rank=j=>['starting','running'].includes(j.status)?0:j.status==='queued'?1:2;
  for(const j of [...state.jobs].sort((a,b)=>rank(a)-rank(b)||(rank(a)===1?(b.priority||0)-(a.priority||0)||a.created-b.created:b.created-a.created))){
   const row=document.createElement('tr'),identity=document.createElement('td');identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · '+(j.stage==='render'?'Rerender only · priority':'Analyze + render')+' · attempt '+j.attempts));
+  identity.append(document.createElement('br'),codeBadge(j.code_version));if(j.stage==='render')identity.append(document.createElement('br'),codeBadge(j.analysis_code_version,'Reused analysis'));
   const status=document.createElement('td');status.append(text('span',j.status));if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
   const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
   if(j.stage!=='render'&&p.coverage)TrackingProgressView.render(progress,p);

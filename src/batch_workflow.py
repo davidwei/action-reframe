@@ -191,6 +191,8 @@ class Batch:
         return max(times)
 
     def library(self, active_project=None):
+        from code_version import current,comparison as compare_code
+        latest_code=current()
         projects=[];jobs=self.jobs();discarded=self.discarded();archived=[]
         for path in sorted(self.root.glob('*.json')):
             try:
@@ -234,6 +236,10 @@ class Batch:
         jobs=self.jobs()
         for job in jobs:
             c=read(self.path(job['config']));out=self.path(c['output_dir'])
+            saved_code=read(out/'code_version.json',{})
+            job['code_version']=compare_code(saved_code.get('runner'),latest_code)
+            job['analysis_code_version']=compare_code(saved_code.get('analysis'),latest_code)
+            job['render_code_version']=compare_code(saved_code.get('render'),latest_code)
             job['stage']=c.get('batch_stage','all')
             job['progress']=({'stage':'render','completed':None,'total':None} if job['stage']=='render' else read(out/'analysis_progress.json',{}))
             from tracking_progress import progress_for_ui
@@ -243,6 +249,12 @@ class Batch:
             job['comparison_available']=(out/'comparison.mp4').exists()
             job['output_dir']=str(out.relative_to(self.root))
             job['pending_corrections']=(out/'review_corrections.json').exists()
+        for project in projects:
+            related=[j for j in jobs if j['project']==project['project'] and j['status'] not in ('queued','cancelled')]
+            project['code_version']=related[-1]['code_version'] if related else dict(status='unknown',label='Version not recorded')
+            project['analysis_code_version']=related[-1]['analysis_code_version'] if related else dict(status='unknown',label='Version not recorded')
+            project['render_code_version']=related[-1]['render_code_version'] if related else dict(status='unknown',label='Version not recorded')
+            project['can_reanalyze']=project['ready'] and project['status']!='Processing' and not project['discard_pending'] and bool(related or project['can_rerender']) and project['analysis_code_version']['status']!='current'
         return dict(projects=projects,archived=archived,videos=videos,jobs=[j for j in jobs if j['project'] not in discarded or j['status'] in ('starting','running')],paused=self.paused())
 
     def jobs(self):
@@ -338,6 +350,7 @@ class Batch:
                 config_path=self.folder/'runs'/job_id/'project.json'
                 out.mkdir(parents=True);cache=out/'cache';cache.mkdir()
                 shutil.copy2(reference,cache/'reference.jpg')
+                write(out/'code_version.json',dict(analysis=read(source_out/'code_version.json',{}).get('analysis')))
                 write(out/'meta.json',dict(meta,cache=str(cache)))
                 for name in {observations,'observations.json','tracking_raw_angle.json','tracking_leveled.json',
                              'tracking_selected.json','tracking_comparison.json','level_observations.json'}:
@@ -460,6 +473,11 @@ class Batch:
             os.environ['LOOKOUT_WORKSPACE']=str(self.root)
             config=self.path(row['config']);c=read(config);out=self.path(c['output_dir'])
             try:
+                from code_version import current
+                version=current();saved_code=read(out/'code_version.json',{})
+                saved_code.update(runner=version,started_at=time.time())
+                if c.get('batch_stage','all')!='render':saved_code['analysis']=version
+                write(out/'code_version.json',saved_code)
                 manifest=read(config.parent/'inputs.json')
                 stat=self.path(c['video']).stat()
                 if manifest['source_stat']!={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns}:
@@ -479,6 +497,9 @@ class Batch:
                             runpy.run_path(str(SOURCE/'reframe.py'),run_name='__main__')
                         code=0
                 if code:raise RuntimeError(f'Processor exited with code {code}; see job log')
+                saved_code=read(out/'code_version.json',{})
+                saved_code['render']=version
+                write(out/'code_version.json',saved_code)
                 status,error='succeeded',None
             except BaseException as exc:
                 status,error='failed',f'{type(exc).__name__}: {exc}'
