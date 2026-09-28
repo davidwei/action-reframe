@@ -129,6 +129,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             parsed=urlparse(self.path);q=parse_qs(parsed.query)
+            if parsed.path.startswith('/api/lookout/'):
+                from lookout.http import get
+                if get(self,ROOT,parsed.path,q):return
             config_name=None if q.get('new')==['1'] else select_project(q.get('config',[''])[0])
             if parsed.path=='/api/batch':
                 from batch_workflow import Batch
@@ -184,8 +187,8 @@ class Handler(BaseHTTPRequestHandler):
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html'}[parsed.path]) if parsed.path in ('/','/compare','/library') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
-            if parsed.path not in ('/','/compare','/library') and not parsed.path.startswith('/files/'):
+            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html','/lookout':'lookout.html'}[parsed.path]) if parsed.path in ('/','/compare','/library','/lookout') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js','/files/lookout.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
+            if parsed.path not in ('/','/compare','/library','/lookout') and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
             if not path.is_file():return self.json_response({'error':'Not found'},404)
             size=path.stat().st_size;start=0;end=size-1;status=200
@@ -226,6 +229,11 @@ class Handler(BaseHTTPRequestHandler):
             length=int(self.headers.get('Content-Length','0'))
             if length>1024*1024:raise ValueError('Request too large')
             data=json.loads(self.rfile.read(length))
+            if self.path.startswith('/api/lookout/'):
+                from lookout.http import post
+                from lookout.events import configure
+                configure(ROOT)
+                return self.json_response(post(ROOT,self.path.rsplit('/',1)[-1],data))
             config_name=select_project(data.get('config'))
             config_path=local_path(config_name) if config_name else None
             if self.path in ('/api/batch/draft','/api/batch/description-status','/api/batch/check-description','/api/batch/retry-description'):

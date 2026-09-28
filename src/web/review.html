@@ -4,7 +4,8 @@
 <style>
 :root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1250px;margin:32px auto;padding:0 24px}h1{font-size:30px}h2{font-size:21px}p,small{color:#adbcca}section{padding:20px;background:#1a2430;border-radius:12px;margin:18px 0}button,input,select,textarea{font:inherit;padding:9px;border-radius:6px;border:1px solid #526274;background:#15202d;color:inherit}button{cursor:pointer;background:#28576b}button:hover{background:#34728b}button:disabled{opacity:.4;cursor:wait}textarea{width:95%;height:65px}canvas{width:100%;height:auto;touch-action:none;background:#070a0e}video{width:100%;max-height:650px;background:black}input[type=range]{width:95%}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.flags{max-height:220px;overflow:auto}.flag{display:block;width:100%;text-align:left;margin:5px 0;background:#443723}a{color:#85d4f8}pre{white-space:pre-wrap;font-size:12px;max-height:150px;overflow:auto}#notice{position:sticky;top:0;background:#304759;padding:10px;border-radius:5px;z-index:10}label{display:inline-flex;gap:8px;align-items:center}@media(max-width:700px){.two{grid-template-columns:1fr}}
 </style>
-<p><a href="/library">← Folder library and batch queue</a></p><h1>Video focus</h1><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
+<p><a href="/library">← Folder library and batch queue</a></p><p><a href="/lookout">Lookout · daily improvements and collection controls</a></p>
+<h1>Video focus</h1><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
 <div id="notice">Loading project…</div>
 <section id="subject-labels"><h2>Source and target</h2>
 <div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="0" style="width:90px"></label><button id="seek">Show frame</button></div>
@@ -33,6 +34,7 @@
 <div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
 <video id="preview" controls playsinline></video><pre id="log"></pre></section>
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
+<script src="/files/lookout.js?v=1"></script>
 <script src="/files/tracking_progress.js?v=1"></script>
 <script src="/files/description_review.js?v=4"></script>
 <script src="/files/frame_analysis.js?v=dotted-estimates-4"></script>

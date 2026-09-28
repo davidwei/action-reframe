@@ -186,6 +186,10 @@ For vertical_geometry return endpoints of the inferred HORIZONTAL reference, not
     save(path,data);return data
 
 
+from lookout.events import timed as lookout_timed
+
+
+@lookout_timed("leveling")
 def run_leveling(c, api, single=None):
     out=Path(c['output_dir']);meta=json.loads((out/'meta.json').read_text())
     gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)

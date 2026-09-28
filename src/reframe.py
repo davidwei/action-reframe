@@ -47,6 +47,20 @@ def write_json(path, value):
 
 
 def api(url, payload=None):
+    from lookout.events import emit
+    import time
+    started=time.monotonic();outcome='error';result=None
+    try:
+        result=_api_request(url,payload);outcome='success';return result
+    finally:
+        if url.endswith('/chat/completions'):
+            usage=(result or {}).get('usage',{});choice=((result or {}).get('choices') or [{}])[0]
+            emit('model',operation='completion',duration_ms=(time.monotonic()-started)*1000,outcome=outcome,
+                 input_tokens=usage.get('prompt_tokens',0),output_tokens=usage.get('completion_tokens',0),
+                 finish_reason=choice.get('finish_reason') or 'unknown')
+
+
+def _api_request(url, payload=None):
     req = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(),
                                  headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=240) as r:
@@ -77,6 +91,10 @@ def load_config(path):
     return c
 
 
+from lookout.events import timed as lookout_timed, count as lookout_count
+
+
+@lookout_timed("preparation")
 def prepare(c, max_time=None):
     out = Path(c['output_dir'])
     cap = cv2.VideoCapture(c['video'])
@@ -123,7 +141,9 @@ def prepare(c, max_time=None):
         if last_sample is not None and i>last_sample:continue
         path = cache / f'{i:07d}.jpg'
         if path.exists():
+            lookout_count('cache.hit')
             continue
+        lookout_count('decode.seek');lookout_count('cache.miss')
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ok, f = cap.read()
         if not ok:
@@ -137,6 +157,7 @@ def prepare(c, max_time=None):
     return meta
 
 
+@lookout_timed("tracking.request")
 def contextual_completion(c,meta,index,direction,history,model,images,prompt,max_tokens):
     meta=dict(meta)
     references=c.get('reference_frames',[])
@@ -226,6 +247,7 @@ Current time: {i / meta['fps']:.3f} seconds.'''
             time.sleep(2 ** attempt)
 
 
+@lookout_timed("analysis")
 def analyze(c, single=None):
     out = Path(c['output_dir'])
     meta = prepare(c,max_time=single)
@@ -715,6 +737,7 @@ def composite(frame,matrix,size,feather,box=None):
     return np.clip(sharp*alpha[:,:,None]+blur*(1-alpha[:,:,None]),0,255).astype('uint8')
 
 
+@lookout_timed("render")
 def render(c):
     out=Path(c['output_dir'])
     meta=json.loads((out/'meta.json').read_text())

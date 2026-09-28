@@ -25,6 +25,10 @@ def confidence_from_verification(model_confidence, description, comparison):
     return value if comparison['target_present'] else 0.
 
 
+from lookout.events import timed as lookout_timed
+
+
+@lookout_timed("verification")
 def verify_box(c,view,box,box_note,model,reference,folder,api):
     """Crop in the exact image space Qwen measured (before any inverse rotation)."""
     height,width=view.shape[:2]

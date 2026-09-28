@@ -10,6 +10,7 @@ from box_verification import VERSION as VERIFICATION_VERSION
 from dual_tracking import observe_path,adjudicate_pair,box_points,expanded_rotation,transform_points
 from tracking_selection import TrackSelector,confidence_threshold
 from box_verification import verify_box,confidence_from_verification
+from lookout.events import timed as lookout_timed,count as lookout_count
 from analysis_failures import path_failures,output_failure
 from visual_tracking import VisualTracker,relaxed_box,too_large
 
@@ -40,6 +41,7 @@ class TrackingSearch:
         else:(folder/'reference.jpg').write_bytes(reference.read_bytes())
         return folder
 
+    @lookout_timed("detection")
     def localize(self,index,rows,direction='forward',region=None):
         history=self.history(rows,index,direction);folder=self.namespace(index,'detect',history,region)
         result_file=folder/'selected.json'
@@ -78,6 +80,7 @@ class TrackingSearch:
                 selected['analysis_failures'].append(dict(path='adjudication',error=judgment['error']))
         self.save(result_file,selected);return selected
 
+    @lookout_timed("propagation")
     def propagate(self,source,index,step,rows):
         direction='forward' if step>0 else 'backward';history=self.history(rows,index,direction)
         frame=self.frame(source['frame']);h,w=frame.shape[:2]
@@ -90,6 +93,7 @@ class TrackingSearch:
                 if self.progress:self.progress.record('optical',i,'errored')
                 raise
             if self.progress:self.progress.record('optical',i,'accepted' if motion['reliable'] else 'rejected')
+            lookout_count('optical.update',outcome='success' if motion['reliable'] else 'lost')
             if not motion['reliable']:break
         image=self.frame(index)
         if motion is None:raise ValueError('Propagation needs a different frame')

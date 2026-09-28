@@ -455,6 +455,9 @@ class Batch:
                 row=db.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone()
                 if not row or row['status']!='starting':return
                 db.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated=? WHERE id=?",(time.time(),job_id))
+            from lookout.events import configure
+            configure(self.root,job_id,Path(row['project']).stem)
+            os.environ['LOOKOUT_WORKSPACE']=str(self.root)
             config=self.path(row['config']);c=read(config);out=self.path(c['output_dir'])
             try:
                 manifest=read(config.parent/'inputs.json')

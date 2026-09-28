@@ -69,7 +69,8 @@ def completion(api,url,payload,audit,stage,validator=None):
                  'request_file':str(payload_path),'response_file':str(response_path)}
         started=time.monotonic()
         try:
-            response=fetch_response(api,url,request,response_path,details)
+            from lookout.events import span
+            with span(stage):response=fetch_response(api,url,request,response_path,details)
             try:choice=response['choices'][0];raw=choice['message']['content']
             except (KeyError,IndexError,TypeError) as error:
                 details.update(kind='invalid_response')
