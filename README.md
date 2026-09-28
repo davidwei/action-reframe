@@ -8,6 +8,8 @@ Offline subject tracking, camera leveling, smooth reframing, and review for acti
 
 The current prototype supports frame analysis, backward recovery, rendering, synchronized comparison, and corrections. The proposed three-part workflow—design plans, validate offline trials, then process approved videos—is described in [the design](docs/PROJECT_DESIGN.md) and [implementation plan](docs/PROJECT_PLAN.md).
 
+See [performance, reliability and operations improvements](docs/PERFORMANCE_RELIABILITY_OPERATIONS.md) for the current baseline, GPU acceleration plan, service deployment gaps, and verifiable delivery steps.
+
 ## Folder batches
 
 Open `/library` on the review server to prepare video projects, review/approve

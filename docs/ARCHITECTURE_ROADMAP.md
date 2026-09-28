@@ -188,3 +188,11 @@ This does not complete B1–B7: a multi-reference tray, unified quality contract
 live-label scheduling, selective repair, richer resource scheduling, mid-video
 controls and a cross-video interval-review UI remain outstanding. Queue pause is
 after the current video; retry resumes saved inputs using existing pipeline caches.
+
+
+## Performance and operating reliability
+
+The [performance, reliability and operations plan](PERFORMANCE_RELIABILITY_OPERATIONS.md)
+tracks GPU rendering, measurement, process supervision, recovery, observability and
+queue resource scheduling within the existing components. It separates implemented
+behavior from proposed work and gives acceptance checks for each delivery step.
