@@ -271,8 +271,13 @@
   function navigationTargets(state, frame) {
     const reviewed=Object.keys(state.corrections||{}).map(Number);
     const sampled=state.meta?.samples ?? (state.tracking_comparison?.length ? state.tracking_comparison : state.observations||[]).filter(r=>!r.manual && !r.raw_angle?.manual).map(r=>r.frame);
+    const threshold=state.config?.tracking_selection?.confidence_threshold??.5;
+    const rows=new Map((state.observations||[]).map(r=>[r.frame,r]));
+    for(const pair of state.tracking_comparison||[])if(pair.selected)rows.set(pair.frame,{...pair.selected,frame:pair.frame});
+    for(const [i,c] of Object.entries(state.corrections||{}))if(Object.prototype.hasOwnProperty.call(c,'bbox'))rows.set(Number(i),{frame:Number(i),bbox:c.bbox,confidence:c.bbox?1:0,visibility:c.bbox?'visible':'absent'});
+    const tracked=[...rows.values()].filter(r=>r.bbox&&r.confidence>=threshold&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>r.frame);
     const result={};
-    for(const [kind,values] of Object.entries({reviewed,sampled})){
+    for(const [kind,values] of Object.entries({reviewed,sampled,tracked})){
       const frames=[...new Set(values)].filter(i=>Number.isInteger(i)&&i>=0&&(!state.meta?.frames||i<state.meta.frames)).sort((a,b)=>a-b);
       result['previous'+kind]=frames.filter(i=>i<frame).at(-1)??null;
       result['next'+kind]=frames.find(i=>i>frame)??null;
@@ -282,12 +287,12 @@
   function updateNavigation(element,state,frame,seek,enabled=true){
     if(!element.dataset.mounted){
       element.dataset.mounted='true';
-      for(const kind of ['reviewed','sampled'])for(const direction of ['previous','next']){
+      for(const kind of ['reviewed','sampled','tracked'])for(const direction of ['previous','next']){
         const button=document.createElement('button');button.type='button';button.dataset.target=direction+kind;
         button.textContent=`${direction==='previous'?'Previous':'Next'} ${kind} frame`;
         element.append(button);
       }
-      element.title='Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule.';
+      element.title='Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule. Tracked: accepted target box at this exact frame (including human labels), not interpolated framing.';
     }
     const targets=navigationTargets(state,frame);
     for(const button of element.querySelectorAll('button')){
