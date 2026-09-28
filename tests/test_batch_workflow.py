@@ -192,6 +192,45 @@ class BatchTests(unittest.TestCase):
         stale=review(self.batch,'project.json')
         self.assertNotEqual(stale['evidence_key'],initial['evidence_key']);self.assertNotIn('description',stale)
 
+    def test_absent_frames_are_blind_negative_checks_not_identity_evidence(self):
+        import base64
+        from description_review import review
+        from crop_description import PROMPT
+        from description_comparison import PROMPT as COMPARISON_PROMPT
+        write(self.root/'outputs/source/corrections.json',{'1':{'bbox':None},'2':{'roll':0}})
+        negative_score=.2;seen_sizes=[]
+        def api(url,payload=None):
+            if payload is None:return {'data':[{'id':'fixture'}]}
+            content=payload['messages'][0]['content'];prompt=content[-1]['text']
+            if prompt==PROMPT:
+                image=cv2.imdecode(np.frombuffer(base64.b64decode(content[0]['image_url']['url'].split(',')[1]),np.uint8),cv2.IMREAD_COLOR)
+                seen_sizes.append(image.shape[:2])
+                result=json.dumps({'box_description':'NEGATIVE_SCENE' if image.shape[:2]==(48,64) else 'POSITIVE_BOAT'})
+            elif prompt.startswith('Compare Description A'):
+                negative='NEGATIVE_SCENE' in prompt
+                self.assertEqual(prompt,COMPARISON_PROMPT.format(a=json.dumps('BOAT_IDENTITY'),b=json.dumps('NEGATIVE_SCENE' if negative else 'POSITIVE_BOAT')))
+                result=json.dumps(dict(match_score=negative_score if negative else .8,target_present=True,
+                                      target_complete=True,differences=[],reason='Visual text evidence'))
+            else:
+                self.assertNotIn('NEGATIVE_SCENE',prompt)
+                result='BOAT_IDENTITY'
+            return {'choices':[{'message':{'content':result}}]}
+        with patch('reframe.api',side_effect=api):
+            result=review(self.batch,'project.json','draft')
+            self.assertEqual(len(result['references']),2) # Level-only correction is not an absence.
+            self.assertTrue(result['all_passed'])
+            negative=result['references'][1]
+            self.assertFalse(negative['expected_present']);self.assertEqual(negative['image_scope'],'full_frame')
+            self.assertEqual(negative['confidence'],.2);self.assertTrue(negative['passed'])
+            self.assertEqual(seen_sizes,[(20,20),(48,64)])
+            negative_score=.9
+            result=review(self.batch,'project.json','check','BOAT_IDENTITY')
+            self.assertFalse(result['all_passed'])
+            self.assertEqual(result['references'][1]['confidence'],.9) # Never force score to zero from human label.
+            self.assertFalse(result['references'][1]['passed'])
+            self.assertEqual(len(seen_sizes),2) # Observations reused on recheck.
+        self.assertFalse(review(self.batch,'project.json')['references'][1]['passed'])
+
     def test_invalid_inputs_and_batch_atomic_validation(self):
         self.queue()
         write(self.root/'bad.json',dict(self.config,reference_box=[0,0,100,100]))

@@ -8,11 +8,13 @@ window.DescriptionReview=(()=>{
   const parent=$('descriptionCrops');parent.replaceChildren();
   for(const r of review?.references||[]){
    const card=document.createElement('article');card.style.cssText='width:260px;padding:10px;border:1px solid #666;border-radius:6px';
-   const image=document.createElement('img');image.src='/files/'+r.crop_path.split('/').map(encodeURIComponent).join('/');image.alt='Ground-truth crop at frame '+r.frame;image.style.cssText='width:100%;height:150px;object-fit:contain';card.append(image);
+   const image=document.createElement('img');image.src='/files/'+r.crop_path.split('/').map(encodeURIComponent).join('/');image.alt=(r.expected_present===false?'Frame marked absent: ':'Ground-truth crop at frame ')+r.frame;image.style.cssText='width:100%;height:150px;object-fit:contain';card.append(image);
    const add=(tag,text)=>{const e=document.createElement(tag);e.textContent=text;card.append(e);return e};
    add('h3',`Frame ${r.frame} · ${r.time.toFixed(3)}s`);
+   const absent=r.expected_present===false;
+   add('p',absent?'Marked absent · full frame · expected confidence ≤20%':'Marked present · selected crop · expected confidence ≥80%');
    const valid=current()&&Number.isFinite(r.confidence);
-   const score=add('p',valid?`Identity confidence: ${(r.confidence*100).toFixed(1)}% — ${r.passed?'Pass':'Below 80%: review / revise summary'}`:r.comparison?'Score outdated — check this description again.':'Not checked yet.');
+   const score=add('p',valid?`Identity confidence: ${(r.confidence*100).toFixed(1)}% — ${r.passed?(absent?'Pass: low match as expected':'Pass'):(absent?'Unexpected match above 20%: review':'Below 80%: review / revise summary')}`:r.comparison?'Score outdated — check this description again.':'Not checked yet.');
    if(valid)score.style.color=r.passed?'#65dfab':'#ffba70';
    add('p',r.box_description||'Crop description will be generated when you draft or check.');
    if(valid){add('p',r.comparison.reason);if(r.comparison.differences.length)add('p','Differences / missing evidence: '+r.comparison.differences.join('; '));add('p','Complete object supported: '+(r.comparison.target_complete?'Yes':'No / uncertain'))}
@@ -22,13 +24,14 @@ window.DescriptionReview=(()=>{
  function controls(){const readonly=!!state?.config?.batch_input_revision,hasBox=!!state?.config?.reference_box;
   $('descriptionText').disabled=busy||!project||readonly;
   for(const id of ['draftDescription','checkDescription','retryDescription','approveDescription'])$(id).disabled=busy||!project||!hasBox||readonly;
+  $('checkDescription').disabled=busy||!project||readonly||!review?.references?.length||!$('descriptionText').value.trim();
   $('retryDescription').disabled ||= !current()||!review?.references?.some(r=>r.passed===false);
   $('saveDescription').disabled=busy||!project||readonly;
  }
  async function generate(action='draft'){
-  if(busy||!state?.config?.reference_box)return;
+  if(busy||!project||(action!=='check-description'&&!state?.config?.reference_box))return;
   const active=++token;busy=true;controls();status(action==='draft'?'Qwen is describing all labeled crops, summarizing, and checking each crop…':action==='retry-description'?'Qwen is revising the summary using feedback, then rechecking each crop…':'Comparing each crop description with your edited description…');
-  try{const result=await request(action,{project,description:$('descriptionText').value.trim()});if(active!==token)return;review=result;if(action!=='check-description'){$('descriptionText').value=result.description;dirty=true}crops();status(result.all_passed?'All crops pass 80%. Review and approve when satisfied.':'Some crops score below 80%. Review their feedback and revise the summary or labels.');}
+  try{const result=await request(action,{project,description:$('descriptionText').value.trim()});if(active!==token)return;review=result;if(action!=='check-description'){$('descriptionText').value=result.description;dirty=true}crops();status(result.all_passed?'All positive and absent checks pass. Review and approve when satisfied.':'Some examples fail their expected confidence range. Review the scores, feedback and labels.');}
   catch(e){if(active===token)status(e.message+' You can edit the description manually.')}
   finally{if(active===token){busy=false;controls()}}
  }
@@ -57,7 +60,7 @@ window.DescriptionReview=(()=>{
  $('draftDescription').onclick=()=>generate();$('checkDescription').onclick=()=>generate('check-description');$('retryDescription').onclick=()=>generate('retry-description');
  for(const [id,ready] of [['saveDescription',false],['approveDescription',true]])$(id).onclick=async()=>{
   if(busy)return;const active=++token;busy=true;controls();
-  try{await request('prepare',{project,description:$('descriptionText').value,ready});if(active!==token)return;dirty=false;status((ready?'Description approved. Project is Ready in the library.':'Draft saved.')+(!current()?' Crop scores have not been checked for this description.':review?.all_passed?'':' Some crops remain below 80%.'))}
+  try{await request('prepare',{project,description:$('descriptionText').value,ready});if(active!==token)return;dirty=false;status((ready?'Description approved. Project is Ready in the library.':'Draft saved.')+(!current()?' Crop scores have not been checked for this description.':review?.all_passed?'':' Some examples fail their expected confidence range.'))}
   catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
  };
  window.addEventListener('hashchange',()=>maybeDraft());window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue=''}});

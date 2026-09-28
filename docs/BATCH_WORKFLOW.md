@@ -196,3 +196,23 @@ since a batch analysis snapshot are rejected; unavailable analysis is reported
 before a job is queued. Rendering remains CPU/encoding work and runs serially with
 analysis to avoid resource contention. Repeated rerender submissions can delay
 waiting analysis jobs; they do not preempt active work.
+
+### Absent-frame checks
+
+Description review also includes each explicitly **Mark target absent** frame as a
+negative example. With no selected box, its image is the full source frame (the
+shared descriptor still applies its normal image-size limit). Level-only edits and
+an unset initial reference are not treated as absence labels.
+
+Present crops must score at least 80%; absent frames should score at most 20%.
+Intermediate or high absent-frame scores are flagged for review. This is a diagnostic
+expectation, not a change to the tracking acceptance threshold. The actual computed
+score remains visible: the human absence label never forces the model result to zero.
+Both kinds of examples call the identical blind image descriptor and text comparator;
+neither model call receives the expected label. A full-frame negative is not the same
+visual test as every possible cropped region within that frame.
+
+Absent observations are excluded from the initial identity summary. A feedback retry
+includes their expected non-match and comparison details to identify overly broad
+identity claims, with explicit instructions not to adopt those scene contents as
+identity features. Original image descriptions are reused during rechecks/retries.
