@@ -131,6 +131,7 @@
         ...directionLines(dual.leveled,'Leveled path'),...verificationLines(dual.leveled,'Leveled path')
       ]:observation&&!human?verificationLines(observation,'Tracking'):[]),
       '',
+      ...(state.analysis_failures||[]).filter(r=>r.frame===frame).flatMap(r=>r.failures.map(f=>`Analysis failed (${f.path}): ${f.error}`)),
       `Leveling angle used for render: ${number(track?.roll)}°`,
       ...(level?[`Gyro-derived roll at this frame: ${number(level.gyro_roll)}°`]:[]),
       ...(directVisual?[

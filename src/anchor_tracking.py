@@ -63,6 +63,7 @@ def run_anchors(c,meta,model,helpers,api,single=None):
         return row
     def publish(state):
         state['fingerprint']=fingerprint;save(checkpoint,state)
+        save(out/'analysis_failures.json',[dict(frame=int(i),time=int(i)/meta['fps'],failures=items) for i,items in sorted(state.get('analysis_failures',{}).items(),key=lambda pair:int(pair[0]))])
         rows=[];pairs=[]
         for index in indices:
             row=state['results'].get(str(index),dict(frame=index,time=index/meta['fps'],bbox=None,confidence=0,visibility='uncertain',selection_reason='Not examined yet',selection_flags=['tracking_unexamined']))

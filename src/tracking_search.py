@@ -10,6 +10,7 @@ from box_verification import VERSION as VERIFICATION_VERSION
 from dual_tracking import observe_path,adjudicate_pair,box_points,expanded_rotation,transform_points
 from tracking_selection import TrackSelector,confidence_threshold
 from box_verification import verify_box,confidence_from_verification
+from analysis_failures import path_failures,output_failure
 from visual_tracking import VisualTracker,relaxed_box,too_large
 
 VERSION=1
@@ -25,7 +26,7 @@ class TrackingSearch:
     def frame(self,index):return self.loader(self.c,self.meta,index)
 
     def history(self,rows,index,direction):
-        return sorted([r for r in rows.values() if (r['frame']<index if direction=='forward' else r['frame']>index)],key=lambda r:r['frame'],reverse=direction=='backward')
+        return sorted([r for r in rows.values() if not r.get('error') and (not r.get('analysis_failures') or (r.get('bbox') is not None and r.get('confidence',0)>=confidence_threshold(self.c))) and (r['frame']<index if direction=='forward' else r['frame']>index)],key=lambda r:r['frame'],reverse=direction=='backward')
 
     def namespace(self,index,kind,history,region):
         key=hashlib.sha256(json.dumps([VERSION,DETECTION_VERSION,VERIFICATION_VERSION,self.model,index,kind,history,region,self.c],sort_keys=True).encode()).hexdigest()[:24]
@@ -45,6 +46,8 @@ class TrackingSearch:
         if result_file.exists():
             cached=json.loads(result_file.read_text())
             if not cached.get('error'):
+                if not cached.get('analysis_failures'):
+                    cached['analysis_failures']=path_failures(cached.get('candidates',{}))
                 if self.progress:
                     for path,candidate in cached.get('candidates',{}).items():
                         if candidate.get('box_verification'):self.progress.verification(index,candidate['box_verification'],path,cached=True)
@@ -61,13 +64,18 @@ class TrackingSearch:
             candidates={p:f.result() for p,f in pending.items()}
         for candidate in candidates.values():
             candidate.update(analysis_source='local_detection' if region is not None else 'full_frame_detection',localized=bool(candidate.get('bbox')),search_region_px=region)
-        errors=[(r.get('error') if r.get('error_kind')!='invalid_response' else None) or r.get('box_verification',{}).get('error') for r in candidates.values()]
-        if any(errors):return dict(frame=index,error='; '.join(e for e in errors if e))
+        failures=path_failures(candidates)
         selected=TrackSelector(self.c.get('tracking_selection')).choose(candidates['raw_angle'],candidates['leveled'],
             lambda pair:adjudicate_pair(self.c,dict(self.meta,cache=str(folder)),index,self.model,pair,history,self.helpers,direction=direction))
         selected.update(localized=bool(selected.get('bbox')),analysis_source='local_detection' if region is not None else 'full_frame_detection',
                         search_region_px=region,candidates=candidates,last_localized_frame=index,
                         last_localized_box=selected.get('bbox'),motion_uncertainty_px=0.)
+        selected['analysis_failures']=failures
+        if selected.get('adjudication',{}):
+            judgment=selected['adjudication']
+            if judgment.get('error'):
+                if not output_failure(judgment):raise RuntimeError(judgment['error'])
+                selected['analysis_failures'].append(dict(path='adjudication',error=judgment['error']))
         self.save(result_file,selected);return selected
 
     def propagate(self,source,index,step,rows):
@@ -91,7 +99,7 @@ class TrackingSearch:
         region=[int(np.floor(v)) if j<2 else int(np.ceil(v)) for j,v in enumerate(region)]
         localized=np.asarray(source.get('last_localized_box') or source['bbox'])*[w,h,w,h]/1000
         localize=not motion['reliable'] or too_large(region,localized,self.settings.get('max_dimension_ratio',1.5),self.settings.get('max_area_ratio',2.))
-        candidates={}
+        candidates={};failures=[]
         if not localize:
             folder=self.namespace(index,'validate',history,region)
             for path in ('raw_angle','leveled'):
@@ -102,7 +110,11 @@ class TrackingSearch:
                 cropbox=(np.r_[polygon.min(axis=0),polygon.max(axis=0)]/np.tile(size,2)*1000).tolist()
                 verification=verify_box(self.c,view,cropbox,None,self.model,folder/'reference.jpg',folder/path,self.api)
                 if self.progress:self.progress.verification(index,verification,path,localized=False)
-                if verification.get('error'):return dict(frame=index,error=verification['error'])
+                if verification.get('error'):
+                    if not output_failure(verification):raise RuntimeError(verification['error'])
+                    failures.append(dict(path=path,error=verification['error'],model_error=verification.get('model_error',{})))
+                    candidates[path]=dict(frame=index,time=index/self.meta['fps'],bbox=None,confidence=0,visibility='uncertain',box_verification=verification)
+                    continue
                 score=confidence_from_verification(None,verification['description'],verification['comparison'])
                 predicted=(np.asarray(motion['box'])/[w,h,w,h]*1000).tolist()
                 candidates[path]=dict(frame=index,time=index/self.meta['fps'],bbox=predicted,confidence=score,visibility='visible',
@@ -110,14 +122,15 @@ class TrackingSearch:
                     source_polygon_px=box_points(motion['box']).tolist(),analysis_source='flow_crop_validation',localized=False,
                     search_region_px=region,motion_quality=motion['motion_quality'],motion_uncertainty_px=uncertainty,
                     last_localized_box=source.get('last_localized_box') or source['bbox'],last_localized_frame=source.get('last_localized_frame',source['frame']))
-            valid=[r for r in candidates.values() if r['confidence']>=confidence_threshold(self.c) and r['box_verification']['comparison']['target_complete']]
+            valid=[r for r in candidates.values() if not r['box_verification'].get('error') and r['confidence']>=confidence_threshold(self.c) and r['box_verification']['comparison']['target_complete']]
             if valid:
                 chosen=max(valid,key=lambda r:r['confidence'])
                 if self.progress:self.progress.detection('optical',index,chosen)
                 return dict(chosen,selected_path=chosen['path'],selection_reason='Optical-flow prediction with verified relaxed crop; box not independently localized',
-                            selection_flags=['tracking_propagated_box'],candidates=candidates)
+                            selection_flags=['tracking_propagated_box'],candidates=candidates,analysis_failures=failures)
         if self.progress and motion['reliable']:
             self.progress.detection('optical',index,max(candidates.values(),key=lambda r:r['confidence']) if candidates else {})
         result=self.localize(index,rows,direction,region)
+        result['analysis_failures']=failures+result.get('analysis_failures',[])
         result.update(motion_quality=motion['motion_quality'],motion_reason=motion.get('reason'),propagation_validation=candidates)
         return result

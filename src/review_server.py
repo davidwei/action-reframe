@@ -143,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
                 state={'project':config_name,'config':config,'running':project_running(config_name),
                        'execution_busy':(JOB is not None and JOB.poll() is None) or batch_active(),
                        'exit_code':None if JOB is None else JOB.poll()}
-                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary'):
+                for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 from tracking_progress import progress_for_ui
                 state['analysis_progress']=progress_for_ui(out,config,state['analysis_progress'])

@@ -134,6 +134,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
         except Exception as error:
             data={'bbox':None,'confidence':0,'visibility':'uncertain','error':str(error),
                   'error_kind':'invalid_response' if isinstance(error,ValueError) else 'request_error','raw':raw}
+            if hasattr(error,'details'):data['model_error']=error.details
         attempts.append(dict(data,attempt=attempt))
         verification=data.get('box_verification')
         threshold=c.get('tracking_selection',{}).get('confidence_threshold',.5)

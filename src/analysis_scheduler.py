@@ -1,5 +1,6 @@
 """Resumable anchor expansion followed by discovery of unresolved sample intervals."""
 from collections import deque
+from analysis_failures import output_failure
 from tracking_evidence import reliable,resolve
 
 VERSION=1
@@ -12,6 +13,7 @@ class AnchorScheduler:
         self.high=self.settings.get('anchor_confidence',.85)
         self.limit=self.settings.get('max_propagation_attempts',4)
         self.state=checkpoint or dict(version=VERSION,results={},coverage={},queue=[],attempts={},events=[],anchors=[])
+        self.state.setdefault('analysis_failures',{})
         self.queue=deque(self.state['queue'])
         if checkpoint is None:
             for row in anchors:
@@ -41,6 +43,19 @@ class AnchorScheduler:
         self.state['anchors'].append(row['frame'])
         self._enqueue(row,-1);self._enqueue(row,1)
 
+    def _review_failures(self,row,frame):
+        failures=list(row.get('analysis_failures',[]))
+        if row.get('error'):
+            if not output_failure(row):
+                self._save('error');raise RuntimeError(row['error'])
+            failures.append(dict(path=row.get('path','unknown'),error=row['error'],model_error=row.get('model_error',{})))
+            row.update(frame=frame,bbox=None,confidence=0,visibility='uncertain')
+        if failures:
+            entries=self.state['analysis_failures'].setdefault(str(frame),[])
+            for failure in failures:
+                if failure not in entries:entries.append(failure)
+        return row
+
     def run(self):
         while True:
             if self.queue:
@@ -53,8 +68,7 @@ class AnchorScheduler:
                     self.queue.popleft();continue
                 self._save('propagating')
                 candidate=self.propagate(source,target,task['direction'],self.state['results'])
-                if candidate.get('error'):
-                    self._save('error');raise RuntimeError(candidate['error'])
+                candidate=self._review_failures(candidate,target)
                 candidate=dict(candidate,origin_anchor=source.get('origin_anchor',source['frame']),parent_frame=source['frame'])
                 self.queue.popleft();self.state['attempts'][task['key']]=task
                 chosen,conflict=resolve(existing,candidate,self.threshold,self.settings.get('agreement_iou',.35))
@@ -76,8 +90,7 @@ class AnchorScheduler:
             if not pending:break
             index=min(pending);self._save('discovering')
             row=self.discover(index,self.state['results'])
-            if row.get('error'):
-                self._save('error');raise RuntimeError(row['error'])
+            row=self._review_failures(row,index)
             row=dict(row,origin_anchor=index,parent_frame=None,anchor_kind='discovery')
             self.state['results'][str(index)]=row
             self.state['coverage'].setdefault(str(index),{}).update(independent_scanned=True,reliably_covered=reliable(row,self.threshold))

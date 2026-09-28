@@ -336,3 +336,16 @@ running. Other source projects (including queued projects) remain editable;
 already queued jobs retain their saved input snapshots. Saved batch-run snapshots
 remain read-only. Direct analysis/render launches still respect the shared queue's
 execution lock; editing an idle project's settings does not start another job.
+
+Frame-local model-output failures (truncated, malformed, or empty answers) are
+recorded in `analysis_failures.json` and the scheduler checkpoint. The Video focus
+Review queue lists their exact frame, path, and error even before rendering;
+clicking an entry opens that frame. Frame Analysis also displays the error.
+A successful alternate path remains usable. Failed outputs never count as absence
+or identity confidence and are excluded from subsequent forward/backward context.
+A failed propagation checkpoint ends that branch; discovery continues elsewhere.
+Failed discovery positions count as examined, so resume does not loop indefinitely
+on them. Review entries retain failure history even if another attempt recovers the
+frame; human corrections remain authoritative. Transport and unexpected system
+errors still stop the job. Already-running workers need a new runner to load this
+behavior; their failures are not silently reclassified in memory.

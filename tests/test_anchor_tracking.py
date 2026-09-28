@@ -91,3 +91,36 @@ class IntegrationTests(unittest.TestCase):
                 run_anchors(c,meta,'model',(None,None,save),None)
                 self.assertEqual(search.return_value.propagate.call_count,count)
                 self.assertEqual(json.loads(Path(folder,'analysis_progress.json').read_text())['stage'],'anchor_complete')
+
+class FailedFrameReviewTests(unittest.TestCase):
+    def test_output_failure_is_queued_and_discovery_continues_without_resume_loop(self):
+        snapshots=[];calls=[]
+        def discover(index,rows):
+            calls.append(index)
+            if index==1:return dict(frame=index,error='Model output was truncated during crop description')
+            return row(index,0)
+        s=AnchorScheduler(range(4),range(4),[],None,discover,lambda state:snapshots.append(copy.deepcopy(state)))
+        s.run()
+        self.assertEqual(calls,[0,1,2,3]);self.assertEqual(s.state['stage'],'complete')
+        self.assertIn('1',s.state['analysis_failures'])
+        self.assertTrue(s.state['coverage']['1']['independent_scanned'])
+        self.assertIsNone(s.state['results']['1']['bbox'])
+        AnchorScheduler(range(4),range(4),[],None,discover,lambda state:None,checkpoint=snapshots[-1]).run()
+        self.assertEqual(calls,[0,1,2,3])
+
+    def test_history_uses_successful_path_but_excludes_failed_frames(self):
+        from tracking_search import TrackingSearch
+        search=object.__new__(TrackingSearch);search.c={}
+        good=row(1);failed=dict(row(2,0),bbox=None,analysis_failures=[{'error':'bad JSON'}])
+        surviving=dict(row(3),analysis_failures=[{'path':'leveled','error':'bad JSON'}])
+        rows={str(r['frame']):r for r in [good,failed,surviving]}
+        self.assertEqual([r['frame'] for r in search.history(rows,4,'forward')],[1,3])
+        self.assertEqual([r['frame'] for r in search.history(rows,0,'backward')],[3,1])
+
+    def test_failed_path_does_not_destroy_good_path_and_transport_is_fatal(self):
+        from analysis_failures import path_failures
+        good=row(1);bad=dict(row(1),box_verification={'error':'truncated','model_error':{'kind':'truncated_output'}})
+        candidates={'raw_angle':good,'leveled':bad}
+        self.assertEqual(path_failures(candidates)[0]['path'],'leveled')
+        self.assertEqual(good['confidence'],.9);self.assertEqual(bad['confidence'],0)
+        with self.assertRaises(RuntimeError):path_failures({'raw_angle':dict(error='HTTP 503',model_error={'kind':'http_error'})})

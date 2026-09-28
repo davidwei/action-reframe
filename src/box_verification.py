@@ -68,5 +68,7 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
         result['comparison']=comparison
         result['confidence_source']='blind_crop_text_match'
         result['identity_score']=confidence_from_verification(None,description,comparison)
-    except Exception as error:result['error']=str(error)
+    except Exception as error:
+        result['error']=str(error)
+        if hasattr(error,'details'):result['model_error']=error.details
     save(result);return result
