@@ -89,14 +89,16 @@
     const flow=observation?.analysis_source==='flow_crop_validation';
     const path=observation?.selected_path||observation?.path||track?.selected_path;
     const pathName=path==='raw_angle'?'raw':path==='leveled'?'leveled':path==='manual'?'human':'raw/leveled';
+    const optical=opticalPrediction(state,frame);
     let confidenceSource;
     if(human)confidenceSource=humanBox?'human label':'human label — target absent';
     else if(flow)confidenceSource=`tracking with ${pathName} analysis (optical flow + crop validation)`;
     else if(observation)confidenceSource=`independent ${pathName} analysis${observation.analysis_source==='local_detection'?' (local search)':''}${!observation.bbox?' — no accepted box':''}`;
+    else if(optical)confidenceSource='optical motion prediction — before crop validation';
     else if(track?.bbox)confidenceSource=`interpolated/held tracking from ${pathName} analysis — no analysis at this frame`;
     else confidenceSource='no analysis at this frame';
     const confidence=human?(humanBox?1:0):(Number.isFinite(observation?.confidence)?observation.confidence:null);
-    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?(observation.bbox&&confidence>=threshold&&acceptedEvidence(observation)?'Target located':'Lost / uncertain observation'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
+    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?(observation.bbox&&confidence>=threshold&&acceptedEvidence(observation)?'Target located':'Lost / uncertain observation'):optical?(optical.reliable?'Optical prediction (unverified)':'Optical motion failed'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
     const tone=human?(humanBox?'tracked':'lost'):confidence!==null?(confidence>=threshold&&acceptedEvidence(observation)?'tracked':'uncertain'):'neutral';
     const storedLevel=track?.level_source?track:state.level_comparison?.[frame];
     const directVisual=storedLevel?.qwen_level_frame===frame;
@@ -107,6 +109,10 @@
       `Frame: ${frame} (zero-based) | Time: ${number(fps?frame/fps:null,3)} s`,
       `Result: ${state.config?.output_dir||'not available'}`,
       `Tracking confidence: ${percent(confidence)} — ${confidenceSource}`,
+      ...(optical?[`Optical prediction before crop validation: ${optical.reliable?'available (purple dotted box)':'motion failed; no prediction box'}`,
+        `Optical box [left, top, right, bottom] in raw pixels: ${vector(optical.bbox_px)}`,
+        `Optical source: frame ${optical.source_frame??'not recorded'} | ${optical.direction||'unknown'} | motion quality ${percent(optical.motion_quality)} (not identity confidence)`,
+        `Optical features: ${optical.feature_count??'not recorded'} | ${optical.reason||'Crop acceptance is separate; this overlay does not imply verified identity.'}`]:[]),
       ...(!observation&&!human?['No independent detection or crop-validation score is stored for this frame. Neighboring sampled-frame analyses are not shown.']:[]),
       '',
       `Object box used for render [left, top, right, bottom]: ${box?vector(box)+' px':'none'}`,
@@ -259,6 +265,23 @@
     element.querySelector('.analysis-box-clear').onclick=()=>{element._boxToken=null;element.querySelector('.analysis-box-preview').hidden=true;element.dispatchEvent(new CustomEvent('analysis-box',{bubbles:true,detail:null}));};
     element.querySelector('.analysis-json').value = JSON.stringify(result.data, null, 2);
   }
+  function opticalPrediction(state, frame) {
+    const direct=state.optical_motion?.[frame];
+    if(direct)return direct;
+    // Historical runs retained checkpoint predictions inside propagation validation.
+    const pair=state.tracking_comparison?.find(r=>r.frame===frame);
+    const row=state.observations?.find(r=>r.frame===frame)||pair?.selected;
+    const candidates=row?.propagation_validation||pair?.selected?.propagation_validation||{};
+    const estimate=Object.values(candidates).find(r=>r.analysis_source==='flow_crop_validation'&&r.bbox);
+    const flow=estimate||(row?.analysis_source==='flow_crop_validation'?row:null);
+    if(!flow?.bbox||!state.meta?.width||!state.meta?.height)return null;
+    return {frame,bbox_px:flow.bbox.map((v,i)=>v*(i%2?state.meta.height:state.meta.width)/1000),reliable:true,
+      motion_quality:flow.motion_quality,source_frame:row?.parent_frame,direction:flow.direction,origin:'saved propagation checkpoint'};
+  }
+  function opticalBox(state, frame) {
+    const prediction=opticalPrediction(state,frame),box=prediction?.bbox_px;
+    return prediction?.reliable&&Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]?box:null;
+  }
   function playbackBoxes(state, frame) {
     const row=state.tracking_comparison?.find(r=>r.frame===frame),meta=state.meta||{};
     if(!row||!meta.width||!meta.height)return [];
@@ -314,5 +337,5 @@
       button.onclick=()=>{if(enabled&&target!==null)seek(target);};
     }
   }
-  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes, navigationTargets, updateNavigation, renderedBox, humanLabel, trackingMethod};
+  window.FrameAnalysis = {describe, update, boxForLine, opticalPrediction, opticalBox, playbackBoxes, navigationTargets, updateNavigation, renderedBox, humanLabel, trackingMethod};
 })();

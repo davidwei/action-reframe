@@ -153,6 +153,8 @@ class Handler(BaseHTTPRequestHandler):
                        'exit_code':None if JOB is None else JOB.poll()}
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
+                from optical_diagnostics import load as load_optical
+                state['optical_motion']=load_optical(out)
                 from tracking_progress import progress_for_ui
                 state['analysis_progress']=progress_for_ui(out,config,state['analysis_progress'])
                 if config.get('batch_input_revision') and (out/'review_corrections.json').exists():

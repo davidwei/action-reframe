@@ -92,6 +92,11 @@ class TrackingSearch:
             except Exception:
                 if self.progress:self.progress.record('optical',i,'errored')
                 raise
+            from optical_diagnostics import record
+            record(self.c['output_dir'],dict(frame=i,source_frame=source['frame'],direction=direction,
+                bbox_px=motion['box'] if motion['reliable'] else None,reliable=motion['reliable'],
+                motion_quality=motion['motion_quality'],feature_count=motion.get('feature_count'),
+                uncertainty_px=motion['uncertainty_px'],reason=motion.get('reason')))
             if self.progress:self.progress.record('optical',i,'accepted' if motion['reliable'] else 'rejected')
             lookout_count('optical.update',outcome='success' if motion['reliable'] else 'lost')
             if not motion['reliable']:break

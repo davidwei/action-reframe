@@ -51,6 +51,7 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     if checkpoint.exists():
         previous=json.loads(checkpoint.read_text())
         if previous.get('fingerprint')==fingerprint:prior=previous
+    if prior is None:(out/'optical_motion.jsonl').write_text('')
     search=TrackingSearch(config,meta,gyro,model,helpers,api)
     progress=TrackingProgress(out,fingerprint,discovery,indices,start,stop,confidence_threshold(c),resuming=prior is not None,anchor_threshold=options['anchor_confidence'])
     search.progress=progress

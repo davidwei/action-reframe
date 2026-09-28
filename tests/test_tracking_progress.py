@@ -53,7 +53,7 @@ class ProgressTests(unittest.TestCase):
         from tracking_search import TrackingSearch
         with tempfile.TemporaryDirectory() as directory:
             progress=TrackingProgress(directory,'flow',[0,3],[0,3],0,3,.5)
-            search=TrackingSearch({},dict(cache=directory,fps=30),{},'model',(None,None,None),None)
+            search=TrackingSearch({'output_dir':directory},dict(cache=directory,fps=30),{},'model',(None,None,None),None)
             search.progress=progress;search.frame=lambda i:np.zeros((100,200,3),np.uint8)
             search.localize=Mock(return_value={'frame':3})
             motion=dict(box=[20,20,60,60],uncertainty_px=1,motion_quality=.9)
@@ -65,6 +65,11 @@ class ProgressTests(unittest.TestCase):
             self.assertEqual(counts['examined'],2);self.assertEqual(counts['attempts']['total'],2)
             self.assertEqual(counts['accepted'],1);self.assertEqual(counts['rejected'],1)
             self.assertNotIn('3',progress.frames['optical'])
+            from optical_diagnostics import load
+            predictions=load(directory)
+            self.assertEqual(predictions['1']['bbox_px'],[20,20,60,60])
+            self.assertIsNone(predictions['2']['bbox_px'])
+            self.assertNotIn('3',predictions)
             search.localize.assert_called_once()
 
     def test_confidence_thresholds_anchor_eligibility_and_resume(self):

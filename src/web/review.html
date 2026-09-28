@@ -14,7 +14,8 @@
 <p id="frameInfo"></p>
 <div id="frameNavigation" class="row" aria-label="Frame navigation"><button id="previous">Previous frame</button><button id="next">Next frame</button></div>
 <div id="frameAnalysis"></div>
-<p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear only for results recorded at this frame, including uncertain estimates. No interpolated or held boxes are overlaid. The green rectangle is the selected observation; your selection is white.</p>
+<p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear only for results recorded at this frame, including uncertain estimates. No interpolated or held boxes are overlaid. The green rectangle is the selected observation; your selection is white. Purple dotted boxes show optical predictions before crop validation; they do not imply verified identity.</p>
+<label><input id="showOptical" type="checkbox" checked> Show optical predictions (purple)</label>
 <p>Save target box keeps this project and makes your selection a human-confirmed tracking anchor. It is eligible for the existing context quotas; saving does not start processing.</p>
 <textarea id="target" aria-label="Target description"></textarea>
 <div class="row"><button id="newProject" hidden>Create new project from selection</button><button id="saveBox">Save target box</button><button id="absent">Mark target absent</button></div>
@@ -38,7 +39,7 @@
 <script src="/files/lookout.js?v=1"></script>
 <script src="/files/tracking_progress.js?v=2"></script>
 <script src="/files/description_review.js?v=6"></script>
-<script src="/files/frame_analysis.js?v=verification-7"></script>
+<script src="/files/frame_analysis.js?v=optical-overlay-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
 let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw';
@@ -56,6 +57,7 @@ function safe(fn){return async()=>{try{await fn()}catch(e){notice(e.message)}}}
 function rectangle(box){return [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]]}
 function mapped(points,matrix){return points.map(([x,y])=>[matrix[0][0]*x+matrix[0][1]*y+matrix[0][2],matrix[1][0]*x+matrix[1][1]*y+matrix[1][2]])}
 function outline(context,points,color){if(!points?.length)return;context.strokeStyle=color;context.lineWidth=3;context.setLineDash(color==='#ffffff'?[]:[7,4]);context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();context.stroke()}
+$('showOptical').onchange=()=>draw();
 function draw(){
  if(loadedFrame!==frame||loadedVideo!==sourceVideo)return;
  ctx.clearRect(0,0,$('source').width,$('source').height);ctx.drawImage(img,0,0);
@@ -66,6 +68,8 @@ function draw(){
   for(const box of FrameAnalysis.playbackBoxes(state,frame))both(box.polygon,box.path==='raw_angle'?'#00e5ff':'#ff9f32');
   const manual=FrameAnalysis.humanLabel(state,frame),box=manual&&'bbox'in manual?manual.bbox:FrameAnalysis.renderedBox(state,frame);
   if(box)both(manual?.source_polygon_px||rectangle(box),manual?.bbox?'#ffffff':'#5dff9d');
+  const optical=FrameAnalysis.opticalBox(state,frame);
+  if($('showOptical').checked&&optical)both(rectangle(optical),'#c878ff');
  }
  if(selectionPolygon){const raw=selectionSpace==='processed'?mapped(selectionPolygon,geometry.view_to_source):selectionPolygon;both(raw,'#ffffff')}
  if(inspectedBox?.frame===frame&&inspectedBox?.video===sourceVideo&&inspectedBox.box)both(rectangle(inspectedBox.box),inspectedBox.color||'#ffe066');
