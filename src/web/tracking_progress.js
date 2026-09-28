@@ -2,6 +2,11 @@
 window.TrackingProgressView={render(element,progress){
  element.replaceChildren();
  const text=(tag,value,parent=element)=>{const node=document.createElement(tag);node.textContent=value;parent.append(node);return node};
+ const labels={discovery:'Discovery',crop_description:'Crop descriptions',identity_comparison:'Identity comparisons',acceptance:'Acceptance decisions',optical_tracking:'Optical tracking',camera_path:'Camera path'};
+ if(progress?.stage_reuse){
+  text('strong','Stage reuse');
+  for(const [stage,counts] of Object.entries(progress.stage_reuse))text('p',`${labels[stage]||stage}: ${counts.computed} computed · ${counts.reused} reused`);
+ }
  const coverage=progress?.coverage;
  if(!coverage){if(progress?.stage)text('span',`${progress.stage}: ${progress.completed??'?'} / ${progress.total??'?'}`);return}
  const number=value=>Number.isFinite(value)?value.toLocaleString():'?';

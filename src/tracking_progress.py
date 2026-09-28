@@ -134,6 +134,9 @@ class TrackingProgress:
 
 def progress_for_ui(out,config,progress):
     """Old active processes can expose discovery coverage, but not invented flow counts."""
+    from stage_records import summary as stage_summary
+    reuse=stage_summary(Path(out)/'stage_usage.jsonl')
+    if reuse:progress=dict(progress or {},stage_reuse=reuse)
     if not progress or not progress.get('stage','').startswith('anchor_'):return progress
     out=Path(out);latest=out/'coverage_progress.json'
     if latest.exists():return dict(progress,coverage=json.loads(latest.read_text()))

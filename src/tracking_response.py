@@ -23,7 +23,7 @@ def structured_tracking(contextual,c,meta,index,direction,history,model,images,p
     def request(_url,payload):
         texts=payload['messages'][0]['content']
         task='\n'.join(part['text'] for part in texts)
-        response,audit=contextual(dict(c,_structured_tracking=True),dict(meta,cache=str(folder/str(len(audits)))),
+        response,audit=contextual(dict(c,_structured_tracking=True,_stage_validator=validator),dict(meta,cache=str(folder/str(len(audits)))),
             index,direction,history,model,images,task,payload['max_tokens'])
         audits.append(audit)
         return response

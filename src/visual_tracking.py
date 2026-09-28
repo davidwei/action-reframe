@@ -4,6 +4,9 @@ import numpy as np
 
 
 class VisualTracker:
+    def __init__(self,store=None):
+        self.store=store
+
     def initialize(self, image, box, polygon=None):
         self.gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
         self.box=np.asarray(box,dtype=float)
@@ -19,6 +22,25 @@ class VisualTracker:
         return self
 
     def update(self,image):
+        if self.store is None:return self._update(image)
+        from stage_records import array_id
+        inputs=dict(previous=array_id(self.gray),current=array_id(image),box=self.box.tolist(),
+                    corners=self.corners.tolist(),points=None if self.points is None else self.points.tolist(),
+                    uncertainty=self.uncertainty,opencv=cv2.__version__)
+        def compute(folder):
+            result=self._update(image)
+            return dict(motion=result,box=self.box.tolist(),corners=self.corners.tolist(),
+                        points=None if self.points is None else self.points.tolist(),uncertainty=self.uncertainty)
+        value,record=self.store.run('optical_tracking',1,inputs,compute)
+        motion=value['motion']
+        if motion['reliable']:
+            self.gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+            self.box=np.asarray(value['box']);self.corners=np.asarray(value['corners'])
+            self.points=None if value['points'] is None else np.asarray(value['points'],dtype=np.float32)
+            self.uncertainty=value['uncertainty']
+        return dict(motion,stage_record=record)
+
+    def _update(self,image):
         gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
         if self.points is None or len(self.points)<4:
             return self._lost('Too few target features')

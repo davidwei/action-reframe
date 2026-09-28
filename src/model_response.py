@@ -38,7 +38,23 @@ def fetch_response(api,url,payload,response_path,details):
     return response
 
 
-def completion(api,url,payload,audit,stage,validator=None,retry_invalid=False,correction_hint=""):
+def completion(api,url,payload,audit,stage,validator=None,retry_invalid=False,correction_hint="",cache=True):
+    # Contextual adapters have hidden multimodal inputs; cache only actual requests.
+    if url=='contextual' or not cache:
+        return _completion(api,url,payload,audit,stage,validator,retry_invalid,correction_hint)
+    from stage_records import locate, digest
+    name={'crop description':'crop_description','description comparison':'identity_comparison'}.get(stage)
+    if name is None:
+        return _completion(api,url,payload,audit,stage,validator,retry_invalid,correction_hint)
+    inputs=dict(endpoint=url,request_sha256=digest(payload),retry_invalid=retry_invalid,correction_hint=correction_hint)
+    def compute(folder):
+        return _completion(api,url,payload,folder/'request.json',stage,validator,retry_invalid,correction_hint)
+    result,record=locate(audit).run(name,1,inputs,compute)
+    if validator:validator(result)
+    return dict(result,stage_record=record)
+
+
+def _completion(api,url,payload,audit,stage,validator=None,retry_invalid=False,correction_hint=""):
     """Save raw envelopes; retry truncation once, and optionally malformed structured output."""
     audit=Path(audit);audit.parent.mkdir(parents=True,exist_ok=True)
     retry_reason="exceeded its output limit"

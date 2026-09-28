@@ -196,3 +196,7 @@ The [performance, reliability and operations plan](PERFORMANCE_RELIABILITY_OPERA
 tracks GPU rendering, measurement, process supervision, recovery, observability and
 queue resource scheduling within the existing components. It separates implemented
 behavior from proposed work and gives acceptance checks for each delivery step.
+
+## Independent process records
+
+The evidence/reuse layer now separates discovery, blind crop description, identity comparison, acceptance policy, optical motion state and camera paths. See [Stage records and efficient reruns](STAGE_RECORDS.md) for dependency rules, implemented behavior, validation and remaining optimization. Existing analysis and rerender queue actions use this layer; verification-only queue actions remain follow-up work.

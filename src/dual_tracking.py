@@ -66,7 +66,7 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
     signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,target_description(c),
         c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=cache/f'{signature}.json'
-    if result_path.exists():
+    if result_path.exists() and not c.get('stage_store_dir'):
         result=json.loads(result_path.read_text())
         if not result.get('error') and not result.get('box_verification',{}).get('error'):
             if verification_callback and result.get('box_verification'):verification_callback(dict(result['box_verification'],cache_hit=True))
@@ -170,7 +170,7 @@ def adjudicate_pair(c,meta,index,model,candidates,history,helpers,labels=PATHS,d
     key=hashlib.sha256(json.dumps([3,labels,direction,model,target_description(c),c.get('reference_frames',[]),
         c.get('temporal_context',{}),candidates,history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=folder/f'{key}.json'
-    if result_path.exists():
+    if result_path.exists() and not c.get('stage_store_dir'):
         previous=json.loads(result_path.read_text())
         if not previous.get('error'):return previous
     image=loader(c,meta,index);h,w=image.shape[:2];annotated=image.copy()

@@ -80,7 +80,10 @@ def load_config(path):
     c['_config_path'] = str(Path(path).resolve())
     c['video'] = str((Path(path).resolve().parent / c['video']).resolve())
     c['output_dir'] = str((Path(path).resolve().parent / c['output_dir']).resolve())
+    c['stage_store_dir']=str((Path(path).resolve().parent / c.get('stage_store_dir',os.environ.get('ACTION_REFRAME_STAGE_STORE',str(Path(c['output_dir'])/'.stage_records')))).resolve())
     c['ffmpeg'] = imageio_ffmpeg.get_ffmpeg_exe()
+    from stage_records import configure
+    configure(c)
     set_analysis_fps(c)
     if c.get('tracking_mode') not in ('single','dual','anchor'):
         raise ValueError('tracking_mode must be single, dual or anchor')
@@ -187,7 +190,29 @@ def contextual_completion(c,meta,index,direction,history,model,images,prompt,max
             continue
         write_json(folder/f'request_c{compression}.json',{'audit':audit,'task_prompt':prompt,'history_text':text,
             'current_images':[str(path) for path in images]})
-        result=api(c['api_url']+'/chat/completions',request)
+        validator=c.get('_stage_validator')
+        if validator:
+            from stage_records import configure,digest
+            def compute(folder):
+                response=api(c['api_url']+'/chat/completions',request)
+                # Failed generations still reach the normal audited retry handler.
+                choice=response['choices'][0]
+                raw=choice['message']['content']
+                if choice.get('finish_reason') in ('length','error','content_filter') or choice['message'].get('refusal'):
+                    raise UncacheableResponse(response)
+                try:
+                    parsed,_=json.JSONDecoder().raw_decode(raw[raw.index('{'):])
+                    validator(parsed)
+                except (ValueError,KeyError,TypeError):raise UncacheableResponse(response)
+                write_json(folder/'request.json',request)
+                return response
+            class UncacheableResponse(Exception):
+                def __init__(self,response):self.response=response
+            try:
+                result,record=configure(c).run('discovery',1,dict(endpoint=c['api_url'],request_sha256=digest(request)),compute)
+                audit['stage_record']=record
+            except UncacheableResponse as error:result=error.response
+        else:result=api(c['api_url']+'/chat/completions',request)
         audit['request_file']=str(folder/f'request_c{compression}.json')
         return result,audit
     raise RuntimeError('Current images and minimal temporal context exceed the configured context window')
@@ -771,7 +796,17 @@ def render(c):
     corrections_path=out/'corrections.json'
     corrections=json.loads(corrections_path.read_text()) if corrections_path.exists() else {}
     zoom_anchors=confident_frames(observations,corrections,meta['frames'],confidence_threshold(c))
-    centers,extent=camera_path(c,meta,boxes,supported,roll,zoom_anchors)
+    from stage_records import configure,array_id
+    store=configure(c)
+    inputs=dict(boxes=array_id(boxes),supported=array_id(supported),roll=array_id(roll),anchors=list(map(int,zoom_anchors)),
+        video={k:meta[k] for k in ('frames','width','height','fps')},
+        settings={k:c[k] for k in ('output_width','output_height','subject_height_fraction','margin_fraction','hold_seconds','widen_seconds','smoothing_seconds')})
+    def compute_camera(folder):
+        centers,extent=camera_path(c,meta,boxes,supported,roll,zoom_anchors)
+        return dict(centers=centers.tolist(),extent=extent.tolist())
+    camera,camera_record=store.run('camera_path',1,inputs,compute_camera)
+    centers,extent=np.asarray(camera['centers']),np.asarray(camera['extent'])
+    write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='pending'))
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
     tracks=[]
@@ -837,6 +872,9 @@ def render(c):
     write_json(out/'review_flags.json',intervals)
     print(f'Created {preview}; {sum(bool(f) for f in flags)}/{n} frames have review flags.',flush=True)
     make_comparison(c)
+    write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='complete',
+        settings=dict(width=ow,height=oh,feather_pixels=c['feather_pixels']),
+        outputs=['focused.mp4','comparison.mp4','tracks.json','review_flags.json']))
 
 
 def make_comparison(c):

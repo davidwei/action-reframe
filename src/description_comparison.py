@@ -65,7 +65,7 @@ match_score must be between 0 and 1.
 target_present and target_complete must be booleans.'''
 
 
-def compare_descriptions(a,b,model,api_url,api,audit):
+def compare_descriptions(a,b,model,api_url,api,audit,cache=True):
     prompt=PROMPT.format(a=json.dumps(a),b=json.dumps(b))
     request={'model':model,'messages':[{'role':'user','content':[{'type':'text','text':prompt}]}],'temperature':0,'max_tokens':1000}
     audit=Path(audit);audit.parent.mkdir(parents=True,exist_ok=True)
@@ -79,6 +79,6 @@ def compare_descriptions(a,b,model,api_url,api,audit):
         if result.get('exclusion_check') not in ('pass','contradicted','unclear'):raise ValueError('Missing exclusion check')
         if result.get('localization_support') not in ('supported','ambiguous','unsupported'):raise ValueError('Missing localization support')
         if any(not isinstance(result.get(k),str) for k in ('exclusion_reason','localization_reason')):raise ValueError('Missing verification reasons')
-    result=completion(api,api_url+'/chat/completions',request,audit,'description comparison',validate)
+    result=completion(api,api_url+'/chat/completions',request,audit,'description comparison',validate,cache=cache)
     audit.with_name(audit.stem+'_response.json').write_text(json.dumps(result,indent=2))
     return result

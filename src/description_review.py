@@ -135,7 +135,7 @@ def review(batch,project,action='status',description=None):
     description=description.strip()
     for r in refs:
         try:
-            comparison=compare_descriptions(description,r['crop_observation'],model,c['api_url'],api,attempt/f"{r['frame']}_compare_request.json")
+            comparison=compare_descriptions(description,r['crop_observation'],model,c['api_url'],api,attempt/f"{r['frame']}_compare_request.json",cache=False)
         except ModelResponseError as error:
             error.details.update(frame=r['frame'],time=r['time']);raise ModelResponseError(f"Frame {r['frame']} ({r['time']:.3f}s): {error}",error.details) from error
         r.update(comparison=comparison,confidence=confidence_from_verification(None,r['crop_observation'],comparison))

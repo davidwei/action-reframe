@@ -295,7 +295,8 @@ class Batch:
                 out=self.root/'outputs'/'batch'/job_id
                 config_path=self.folder/'runs'/job_id/'project.json'
                 snapshot=dict(c,video=str(self.path(c['video'])),output_dir=str(out),
-                    approved_target_description=prep['description'],batch_input_revision=revision)
+                    approved_target_description=prep['description'],batch_input_revision=revision,
+                    stage_store_dir=str(self.folder/'stage_records'))
                 write(config_path,snapshot);write(out/'corrections.json',labels)
                 source_stat=self.path(c['video']).stat()
                 write(config_path.parent/'inputs.json',dict(project=project,revision=revision,preparation=prep,config=c,labels=labels,
@@ -482,6 +483,7 @@ class Batch:
             from lookout.events import configure
             configure(self.root,job_id,Path(row['project']).stem)
             os.environ['LOOKOUT_WORKSPACE']=str(self.root)
+            os.environ['ACTION_REFRAME_STAGE_STORE']=str(self.folder/'stage_records')
             config=self.path(row['config']);c=read(config);out=self.path(c['output_dir'])
             try:
                 from code_version import current

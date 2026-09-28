@@ -45,7 +45,7 @@ class TrackingSearch:
     def localize(self,index,rows,direction='forward',region=None):
         history=self.history(rows,index,direction);folder=self.namespace(index,'detect',history,region)
         result_file=folder/'selected.json'
-        if result_file.exists():
+        if result_file.exists() and not self.c.get('stage_store_dir'):
             cached=json.loads(result_file.read_text())
             if not cached.get('error'):
                 if not cached.get('analysis_failures'):
@@ -85,7 +85,8 @@ class TrackingSearch:
         direction='forward' if step>0 else 'backward';history=self.history(rows,index,direction)
         frame=self.frame(source['frame']);h,w=frame.shape[:2]
         box=np.asarray(source['bbox'])*[w,h,w,h]/1000
-        tracker=VisualTracker().initialize(frame,box,source.get('source_polygon_px'));motion=None
+        from stage_records import configure
+        tracker=VisualTracker(configure(self.c)).initialize(frame,box,source.get('source_polygon_px'));motion=None
         for i in range(source['frame']+step,index+step,step):
             frame=self.frame(i)
             try:motion=tracker.update(frame)
@@ -121,6 +122,9 @@ class TrackingSearch:
                 from verification_policy import verification_decision
                 verification.update(verification_context='optical_motion',motion_reliable=True)
                 verification['decision']=verification_decision(verification,confidence_threshold(self.c))
+                if not verification.get('error'):
+                    from box_verification import record_decision
+                    record_decision(self.c,verification,folder/path/'motion_acceptance.json')
                 if self.progress:self.progress.verification(index,verification,path,localized=False)
                 if verification.get('error'):
                     if not output_failure(verification):raise RuntimeError(verification['error'])

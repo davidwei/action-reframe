@@ -12,7 +12,7 @@
 <section><h2>2. Existing projects</h2><p>New → Draft → Ready → Processing → Done. Ready requires a reviewed description and at least one ground-truth crop. Editing inputs requires approval again. Discard archives a project without deleting its video or results; queued jobs are cancelled and running jobs finish first.</p><div class="row"><button id="selectReady">Select all ready</button><button id="queue">Queue selected projects</button></div><div id="projects"></div><details><summary>Discarded projects (restore)</summary><div id="archived"></div></details></section>
 <section><h2>3. Overnight queue</h2><div class="row"><button id="start">Start / resume queue</button><button id="pause">Pause after current video</button><span id="queueState"></span></div><p>One video runs at a time. Rerenders run before waiting analysis jobs; the current job is never interrupted. Closing this page does not stop processing. Pause finishes the current video; queued jobs can be cancelled. Failed or interrupted jobs can retry using saved inputs and cached work. Start/resume also checks for interrupted runners after a restart.</p><div class="scroll"><table><thead><tr><th>Project / run</th><th>Status</th><th>Progress</th><th>Review / actions</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
 <script src="/files/lookout.js?v=1"></script>
-<script src="/files/tracking_progress.js?v=2"></script>
+<script src="/files/tracking_progress.js?v=3"></script>
 <script>
 const $=id=>document.getElementById(id);let state={},drafts=new Map(),selected=new Set();
 function text(tag,value){const e=document.createElement(tag);e.textContent=value;return e}
@@ -60,7 +60,7 @@ function renderJobs(){
   identity.append(document.createElement('br'),codeBadge(j.code_version));if(j.stage==='render')identity.append(document.createElement('br'),codeBadge(j.analysis_code_version,'Reused analysis'));
   const status=document.createElement('td');status.append(text('span',j.status));if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
   const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
-  if(j.stage!=='render'&&p.coverage)TrackingProgressView.render(progress,p);
+  if(p.coverage||p.stage_reuse)TrackingProgressView.render(progress,p);
   const actions=document.createElement('td');actions.append(link('Open video focus','/?config='+encodeURIComponent(j.config)));
   actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));
   if(['starting','running'].includes(j.status))actions.append(button('Stop processing',async()=>{await api('/stop',{id:j.id});await load();notice('Stopped. Cached frames and checkpoints are preserved for Retry saved inputs.')}));

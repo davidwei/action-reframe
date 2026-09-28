@@ -42,9 +42,6 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
     key=hashlib.sha256(crop.tobytes()+Path(reference).read_bytes()+json.dumps(
         [VERSION,DESCRIPTION_VERSION,COMPARISON_VERSION,model,target_description(c),c.get('approved_target_description'),box_note,box],sort_keys=True).encode()).hexdigest()[:24]
     output=folder/f'{key}.json'
-    if output.exists():
-        previous=json.loads(output.read_text())
-        if not previous.get('error'):return dict(previous,cache_hit=True,identity_score=confidence_from_verification(None,previous.get('description'),previous['comparison']),decision=verification_decision(previous,c.get('tracking_selection',{}).get('confidence_threshold',.5)))
     crop_path=folder/f'{key}.png';cv2.imwrite(str(crop_path),crop)
     def save(data):
         temp=output.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2,allow_nan=False));temp.replace(output)
@@ -77,4 +74,16 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
         result['error']=str(error)
         if hasattr(error,'details'):result['model_error']=error.details
     result['decision']=verification_decision(result,c.get('tracking_selection',{}).get('confidence_threshold',.5))
+    if not result.get('error'):record_decision(c,result,output)
     save(result);return result
+
+
+def record_decision(c,result,audit):
+    from stage_records import locate
+    from verification_policy import VERSION as POLICY_VERSION
+    inputs=dict(comparison={k:v for k,v in result['comparison'].items() if k not in ('stage_record','request_file','response_file')},
+        threshold=c.get('tracking_selection',{}).get('confidence_threshold',.5),
+        verification_version=result.get('version',0),context=result.get('verification_context'),motion_reliable=result.get('motion_reliable'))
+    decision,record=locate(audit).run('acceptance',POLICY_VERSION,inputs,
+        lambda folder:verification_decision(result,inputs['threshold']))
+    result.update(decision=decision,acceptance_record=record)

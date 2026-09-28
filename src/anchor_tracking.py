@@ -13,7 +13,7 @@ from tracking_selection import confidence_threshold
 from dual_tracking import VERSION as DETECTION_VERSION
 from box_verification import VERSION as VERIFICATION_VERSION
 
-VERSION=2
+VERSION=3
 DEFAULTS=dict(discovery_fps=2.,anchor_confidence=.85,padding_fraction=.15,min_padding_px=8.,
               max_dimension_ratio=1.5,max_area_ratio=2.,max_propagation_attempts=4)
 
@@ -46,7 +46,10 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     indices=sorted(set(i for i in meta['samples'] if start<=i<=stop)|set(discovery)|{i for i in manual if start<=i<=stop})
     if c.get('leveling_source')=='gyro':gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
     else:gyro={'frames':[{'roll':0} for _ in range(meta['frames'])]}
-    fingerprint=hashlib.sha256(json.dumps([VERSION,DETECTION_VERSION,VERIFICATION_VERSION,model,meta['signature'],config,manual],sort_keys=True,default=str).encode()).hexdigest()[:24]
+    from verification_policy import VERSION as POLICY_VERSION
+    from crop_description import VERSION as DESCRIPTION_VERSION
+    from description_comparison import VERSION as COMPARISON_VERSION
+    fingerprint=hashlib.sha256(json.dumps([VERSION,DETECTION_VERSION,VERIFICATION_VERSION,POLICY_VERSION,DESCRIPTION_VERSION,COMPARISON_VERSION,model,meta['signature'],config,manual],sort_keys=True,default=str).encode()).hexdigest()[:24]
     checkpoint=out/'anchor_checkpoint.json';prior=None
     if checkpoint.exists():
         previous=json.loads(checkpoint.read_text())

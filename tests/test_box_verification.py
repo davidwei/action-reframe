@@ -32,7 +32,7 @@ class BoxVerificationTests(unittest.TestCase):
             self.assertEqual(len(calls),3)
             # A different proposal reuses the trusted descriptor; missing note is fine.
             r=verify_box(c,view,[200,200,400,400],None,'model',ref,root/'verify',api)
-            self.assertNotIn('error',r);self.assertEqual(len(calls),5)
+            self.assertNotIn('error',r);self.assertEqual(len(calls),4)
 
     def test_human_approved_description_bypasses_reference_model_and_invalidates_cache(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -51,7 +51,7 @@ class BoxVerificationTests(unittest.TestCase):
             self.assertEqual(r['reference_description']['source'],'human_approved')
             c['approved_target_description']='APPROVED green sail and hull'
             verify_box(c,view,[100,100,400,500],None,'model',ref,folder,api)
-            self.assertEqual(len(calls),4)
+            self.assertEqual(len(calls),3)
 
     def test_score_ignores_proposal_confidence_and_separates_completeness(self):
         d={'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'A green sail with clipped tip'}
