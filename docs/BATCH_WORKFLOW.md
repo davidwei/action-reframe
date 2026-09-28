@@ -212,10 +212,12 @@ Both kinds of examples call the identical blind image descriptor and text compar
 neither model call receives the expected label. A full-frame negative is not the same
 visual test as every possible cropped region within that frame.
 
-Absent observations are excluded from the initial identity summary. A feedback retry
-includes their expected non-match and comparison details to identify overly broad
-identity claims, with explicit instructions not to adopt those scene contents as
-identity features. Original image descriptions are reused during rechecks/retries.
+Absent observations are supplied separately as contrast evidence in both initial
+drafting and feedback retries. Their shared scene features must not be mistaken
+for distinguishing identity features. The resulting paragraph describes the common
+subject as it appears in one photograph, without discussing a set of images or
+background scenery. Subject features must remain supported by the positive
+descriptions; negative scenes cannot introduce invented or opposite features. Original image descriptions are reused during rechecks/retries.
 
 ### Model failures during description review
 
@@ -239,3 +241,34 @@ separately. Error audits and raw responses live beside the description-review at
 or tracking verifier artifacts. These runtime records may contain private descriptions
 and are not checked into Git. Historical parser failures from before this logging
 change cannot be conclusively diagnosed if their original raw response was discarded.
+
+
+### Object-focused descriptions
+
+The shared blind crop prompt emphasizes the visible foreground object's type,
+shape, colors, markings and parts. It omits surrounding scenery and separates the
+features of multiple visible objects. Background-only images must still explicitly
+report that no distinct object is visible. This prompt is identical for human crops,
+detected crops and full-frame absent examples, without target identity hints.
+
+Drafting and feedback revision describe the common subject as one short caption of
+one photograph, rather than an account of multiple source images. Absent examples
+are separate contrast evidence: attributes shared with those scenes are weak
+identifiers, so the draft should favor supported distinctive object features. It
+must not enumerate the negative scenes, invent differences or drop the basic object
+category merely because a different object shares it. Crop prompt version 2
+invalidates prior crop-observation/verification caches when new work is requested;
+it does not rewrite saved human-approved text or completed video analysis.
+
+### Reading anchor progress
+
+`N/T examined; A anchors; Q queued` describes the scheduler inside one video:
+`N` counts distinct covered sample positions (including human labels and failed
+attempts); `T` counts the union of analysis samples, discovery samples and manual
+frames. `A` counts reliable propagation seeds. `Q` counts pending forward/backward
+propagation tasks, not folder jobs or remaining discovery work. Zero propagation
+tasks switches the scheduler to discovery of unresolved eligible samples. A newly
+qualified anchor can start more propagation. Progress is published before and after
+operations, so repeated counters do not necessarily indicate duplicate inference.
+The examined ratio is not a wall-time completion percentage; the scheduler can finish
+without examining every position on the finer analysis grid.

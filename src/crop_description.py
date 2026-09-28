@@ -5,12 +5,23 @@ from pathlib import Path
 import cv2
 from model_response import completion
 
-VERSION=1
+VERSION=2
 PROMPT='''Describe only what is visibly present in this image crop.
-List visible objects, colors, shapes, markings, equipment, parts and background. Mention blur, ambiguity and objects cut off at the edges.
-Describe coarse visible shapes and colors even if blurred. Blur is image quality, not proof that an object is absent; separate visible content from unreadable details.
-Do not guess what lies outside the crop or infer an intended subject. If it contains only background, say so.
-Return ONLY JSON: {"box_description":"literal visible contents and limitations"}.'''
+Focus on the prominent foreground object or objects: object type, shape, colors,
+markings, equipment, and visible parts. Describe the object itself, not the scene.
+Omit background scenery and incidental surroundings such as sky, terrain, water,
+buildings or distant vegetation when they are merely behind or around an object.
+Do not treat common background areas as object identity features.
+If multiple objects are visible, distinguish their features; do not merge them into
+one imaginary object or infer which one a user intends to follow.
+If the image contains only background with no distinct object, explicitly say so
+and identify that background briefly. Do not invent an object to satisfy the prompt.
+Describe supported coarse shapes and colors even when blurred. Blur is image
+quality, not proof that an object is absent. Briefly mention ambiguity, unreadable
+details and object parts cut off at the edges, separately from visible identity.
+Do not guess what lies outside the crop or infer an intended subject.
+Return ONLY JSON: {"box_description":"concise object-focused visible contents and limitations"}.
+'''
 
 
 def describe_crop(path, model, api_url, api, audit):

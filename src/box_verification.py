@@ -10,7 +10,7 @@ import numpy as np
 from description_comparison import compare_descriptions
 from crop_description import describe_crop, VERSION as DESCRIPTION_VERSION
 
-VERSION=5
+VERSION=6
 
 
 def score(value):

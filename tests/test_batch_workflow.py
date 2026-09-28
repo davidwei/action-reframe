@@ -212,7 +212,11 @@ class BatchTests(unittest.TestCase):
                 result=json.dumps(dict(match_score=negative_score if negative else .8,target_present=True,
                                       target_complete=True,differences=[],reason='Visual text evidence'))
             else:
-                self.assertNotIn('NEGATIVE_SCENE',prompt)
+                self.assertIn('ONE photograph',prompt)
+                self.assertIn('common subject',prompt)
+                subject,contrast=prompt.split('Scenes without the subject (contrast only):',1)
+                self.assertIn('POSITIVE_BOAT',subject);self.assertNotIn('NEGATIVE_SCENE',subject)
+                self.assertIn('NEGATIVE_SCENE',contrast)
                 result='BOAT_IDENTITY'
             return {'choices':[{'message':{'content':result}}]}
         with patch('reframe.api',side_effect=api):
