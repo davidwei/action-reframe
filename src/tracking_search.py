@@ -18,6 +18,7 @@ class TrackingSearch:
     def __init__(self,config,meta,gyro,model,helpers,api):
         self.c=config;self.meta=meta;self.gyro=gyro;self.model=model
         self.loader,self.completion,self.save=helpers;self.helpers=helpers;self.api=api
+        self.progress=None
         self.settings=config.get('anchor_tracking',{})
         self.folder=Path(meta['cache'])/'anchor_search';self.folder.mkdir(exist_ok=True)
 
@@ -43,13 +44,18 @@ class TrackingSearch:
         result_file=folder/'selected.json'
         if result_file.exists():
             cached=json.loads(result_file.read_text())
-            if not cached.get('error'):return cached
+            if not cached.get('error'):
+                if self.progress:
+                    for path,candidate in cached.get('candidates',{}).items():
+                        if candidate.get('box_verification'):self.progress.verification(index,candidate['box_verification'],path,cached=True)
+                return cached
         candidates={}
         def detect(path):
             sub=folder/path;sub.mkdir(exist_ok=True);(sub/'reference.jpg').write_bytes((folder/'reference.jpg').read_bytes())
             c=dict(self.c)
             if region is not None:c['_search_region']=region
-            return observe_path(c,dict(self.meta,cache=str(sub)),self.gyro,index,self.model,history,path,direction,self.helpers)
+            return observe_path(c,dict(self.meta,cache=str(sub)),self.gyro,index,self.model,history,path,direction,self.helpers,
+                                verification_callback=(lambda result:self.progress.verification(index,result,path)) if self.progress else None)
         with ThreadPoolExecutor(max_workers=2) as pool:
             pending={p:pool.submit(detect,p) for p in ('raw_angle','leveled')}
             candidates={p:f.result() for p,f in pending.items()}
@@ -70,7 +76,12 @@ class TrackingSearch:
         box=np.asarray(source['bbox'])*[w,h,w,h]/1000
         tracker=VisualTracker().initialize(frame,box,source.get('source_polygon_px'));motion=None
         for i in range(source['frame']+step,index+step,step):
-            frame=self.frame(i);motion=tracker.update(frame)
+            frame=self.frame(i)
+            try:motion=tracker.update(frame)
+            except Exception:
+                if self.progress:self.progress.record('optical',i,'errored')
+                raise
+            if self.progress:self.progress.record('optical',i,'accepted' if motion['reliable'] else 'rejected')
             if not motion['reliable']:break
         image=self.frame(index)
         if motion is None:raise ValueError('Propagation needs a different frame')
@@ -90,6 +101,7 @@ class TrackingSearch:
                 polygon=transform_points(box_points(region),matrix)
                 cropbox=(np.r_[polygon.min(axis=0),polygon.max(axis=0)]/np.tile(size,2)*1000).tolist()
                 verification=verify_box(self.c,view,cropbox,None,self.model,folder/'reference.jpg',folder/path,self.api)
+                if self.progress:self.progress.verification(index,verification,path)
                 if verification.get('error'):return dict(frame=index,error=verification['error'])
                 score=confidence_from_verification(None,verification['description'],verification['comparison'])
                 predicted=(np.asarray(motion['box'])/[w,h,w,h]*1000).tolist()

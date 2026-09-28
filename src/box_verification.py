@@ -39,7 +39,7 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
     output=folder/f'{key}.json'
     if output.exists():
         previous=json.loads(output.read_text())
-        if not previous.get('error'):return previous
+        if not previous.get('error'):return dict(previous,cache_hit=True)
     crop_path=folder/f'{key}.png';cv2.imwrite(str(crop_path),crop)
     def save(data):
         temp=output.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2,allow_nan=False));temp.replace(output)

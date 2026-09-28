@@ -54,7 +54,7 @@ def box_iou(a, b):
     return float(intersection/union) if union>0 else None
 
 
-def observe_path(c, meta, gyro, index, model, history, path, direction, helpers):
+def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,verification_callback=None):
     frame_loader, completion, save = helpers
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
@@ -63,7 +63,9 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers)
     result_path=cache/f'{signature}.json'
     if result_path.exists():
         result=json.loads(result_path.read_text())
-        if not result.get('error') and not result.get('box_verification',{}).get('error'):return result
+        if not result.get('error') and not result.get('box_verification',{}).get('error'):
+            if verification_callback and result.get('box_verification'):verification_callback(dict(result['box_verification'],cache_hit=True))
+            return result
     image=frame_loader(c,meta,index)
     h,w=image.shape[:2]
     region=c.get('_search_region',[0,0,w,h])
@@ -124,6 +126,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
                                         if entry.get('kind')=='human_target_crop'),cache/'reference.jpg')
                 verification=verify_box(c,cv2.imread(str(current_path)),box,data.get('box_note'),model,
                                         trusted_reference,cache/'box_verification',api)
+                if verification_callback:verification_callback(verification)
                 data['box_verification']=verification
                 data['confidence']=0 if verification.get('error') or original is None else confidence_from_verification(
                     score,verification['description'],verification['comparison'])

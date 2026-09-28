@@ -236,6 +236,8 @@ class Batch:
             c=read(self.path(job['config']));out=self.path(c['output_dir'])
             job['stage']=c.get('batch_stage','all')
             job['progress']=({'stage':'render','completed':None,'total':None} if job['stage']=='render' else read(out/'analysis_progress.json',{}))
+            from tracking_progress import progress_for_ui
+            job['progress']=progress_for_ui(out,c,job['progress'])
             flags=read(out/'review_flags.json',[])
             job['review_count']=len(flags) if isinstance(flags,(list,dict)) else 0
             job['comparison_available']=(out/'comparison.mp4').exists()

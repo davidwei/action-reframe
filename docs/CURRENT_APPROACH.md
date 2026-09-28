@@ -222,3 +222,11 @@ are continuous in zoom but may change speed at anchors; dense fluctuating confid
 boxes can still produce fluctuations. Apply to existing analysis via **Render with
 saved corrections**; no new Qwen analysis is needed. Already-running processes and
 previously rendered videos retain the old behavior until rerendered.
+
+
+### Tracking coverage diagnostics
+
+Progress now separates discovery scans, crop verification checkpoints and optical
+source-frame visits. Unique coverage, attempt outcomes, cached reuses and resolved
+discovery positions are reported independently; unknown historical counters remain
+explicitly unavailable. See [three-timescale reporting](BATCH_WORKFLOW.md#three-timescale-coverage-reporting).

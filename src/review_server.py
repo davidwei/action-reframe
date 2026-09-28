@@ -131,6 +131,8 @@ class Handler(BaseHTTPRequestHandler):
                        'exit_code':None if JOB is None else JOB.poll()}
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
+                from tracking_progress import progress_for_ui
+                state['analysis_progress']=progress_for_ui(out,config,state['analysis_progress'])
                 if config.get('batch_input_revision') and (out/'review_corrections.json').exists():
                     state['corrections']=json.loads((out/'review_corrections.json').read_text())
                 if config_name and state['meta'] is None:state['meta']=ensure_review_meta(config,out)
@@ -168,7 +170,7 @@ class Handler(BaseHTTPRequestHandler):
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html'}[parsed.path]) if parsed.path in ('/','/compare','/library') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
+            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html'}[parsed.path]) if parsed.path in ('/','/compare','/library') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
             if parsed.path not in ('/','/compare','/library') and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
             if not path.is_file():return self.json_response({'error':'Not found'},404)

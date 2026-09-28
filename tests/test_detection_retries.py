@@ -25,7 +25,7 @@ class DetectionRetryTests(unittest.TestCase):
 
     def run_case(self,success_at=None,direction='forward'):
         with tempfile.TemporaryDirectory() as folder:
-            requests=[];verifications=[]
+            requests=[];verifications=[];progress=[]
             def completion(c,meta,index,direction,history,model,images,prompt,tokens):
                 self.assertTrue(c['temporal_context']['omit_box_coordinates'])
                 requests.append((images,prompt,meta['cache']))
@@ -36,7 +36,8 @@ class DetectionRetryTests(unittest.TestCase):
             c={'target':'boat','verify_boxes':True}
             with patch('box_verification.verify_box',side_effect=verify):
                 result=observe_path(c,{'cache':folder,'fps':30}, {'frames':[{'roll':10}]},0,'test',[],'leveled',direction,
-                    (lambda *args:np.zeros((100,200,3),np.uint8),completion,lambda *args:None))
+                    (lambda *args:np.zeros((100,200,3),np.uint8),completion,lambda *args:None),verification_callback=progress.append)
+            self.assertEqual(len(progress),len(verifications))
             return result,requests
 
     def test_retry_corrects_rejected_proposal_and_stops(self):

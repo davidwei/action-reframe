@@ -53,7 +53,8 @@ class AnchorScheduler:
                     self.queue.popleft();continue
                 self._save('propagating')
                 candidate=self.propagate(source,target,task['direction'],self.state['results'])
-                if candidate.get('error'):raise RuntimeError(candidate['error'])
+                if candidate.get('error'):
+                    self._save('error');raise RuntimeError(candidate['error'])
                 candidate=dict(candidate,origin_anchor=source.get('origin_anchor',source['frame']),parent_frame=source['frame'])
                 self.queue.popleft();self.state['attempts'][task['key']]=task
                 chosen,conflict=resolve(existing,candidate,self.threshold,self.settings.get('agreement_iou',.35))
@@ -75,7 +76,8 @@ class AnchorScheduler:
             if not pending:break
             index=min(pending);self._save('discovering')
             row=self.discover(index,self.state['results'])
-            if row.get('error'):raise RuntimeError(row['error'])
+            if row.get('error'):
+                self._save('error');raise RuntimeError(row['error'])
             row=dict(row,origin_anchor=index,parent_frame=None,anchor_kind='discovery')
             self.state['results'][str(index)]=row
             self.state['coverage'].setdefault(str(index),{}).update(independent_scanned=True,reliably_covered=reliable(row,self.threshold))

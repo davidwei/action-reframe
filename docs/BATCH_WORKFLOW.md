@@ -262,7 +262,7 @@ it does not rewrite saved human-approved text or completed video analysis.
 
 ### Reading anchor progress
 
-`N/T examined; A anchors; Q queued` describes the scheduler inside one video:
+Older logs use `N/T examined; A anchors; Q queued` to describe the scheduler inside one video:
 `N` counts distinct covered sample positions (including human labels and failed
 attempts); `T` counts the union of analysis samples, discovery samples and manual
 frames. `A` counts reliable propagation seeds. `Q` counts pending forward/backward
@@ -272,3 +272,46 @@ qualified anchor can start more propagation. Progress is published before and af
 operations, so repeated counters do not necessarily indicate duplicate inference.
 The examined ratio is not a wall-time completion percentage; the scheduler can finish
 without examining every position on the finer analysis grid.
+
+### Three-timescale coverage reporting
+
+Folder job rows and Video focus now share three coverage cards:
+
+| Counter | Denominator | Unique position count |
+| --- | --- | --- |
+| Discovery | Actual 2 FPS discovery grid within the selected interval, including its endpoint | Positions where independent discovery was attempted |
+| Crop verification | Actual propagation checkpoints: analysis grid plus discovery/manual additions | Positions with at least one crop-verification result or error, across either path |
+| Optical tracking | Source frames in the selected interval, inclusive | Frames on which the optical tracker actually ran an update |
+
+Rates are taken from the run settings, not hardcoded to 2/10/30 FPS. No counter
+claims to predict elapsed-time completion. Discovery may resolve positions through
+reliable tracking or explicit human labels without scanning them; this appears as
+**resolved without scanning**, separate from scans and remaining discovery positions.
+Conflict-driven off-grid discovery is reported separately from the regular grid.
+
+Each card separates unique positions from total attempts and cached-result reuses.
+An attempt is one discovery operation, one path's crop verification, or one optical
+frame update—not one HTTP/model request. Both paths, detection retries and backward
+visits can increase attempts without increasing unique coverage. Cached results
+establish coverage but count as reuses rather than fresh attempts.
+
+Verification position outcomes use the latest result for each path: accepted if
+any path meets the confidence threshold and completeness check, otherwise rejected
+if a completed rejection exists, otherwise errored. These are crop-verification
+outcomes, not a guarantee the final path selector accepted that frame. Optical
+positions are usable if any recorded update produced a usable prediction; failed
+repeat visits still appear in attempt counts. Per-attempt errors remain visible
+even if a later retry succeeds.
+
+`tracking_work.jsonl` records completed work events under an analysis fingerprint;
+`coverage_progress.json` provides lightweight UI updates. Events are replayed on
+resume without recounting already-recorded work. The normal anchor checkpoint
+continues to own scheduling decisions. A partial/truncated event log is flagged as
+incomplete rather than silently claiming exact historical counts.
+
+Older active runs expose discovery coverage from existing scheduler state. Their
+unrecorded verification and optical history is shown as **Not recorded**, not zero.
+New or instrumented resumed runs record all three counters; a resume lacking the
+historical event log labels its counts partial. Deployment does not interrupt an
+active old runner to obtain counters. Old logs retain their original wording;
+new-run logs report the three coverage totals, anchors and propagation tasks.
