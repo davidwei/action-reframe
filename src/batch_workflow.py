@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -73,6 +74,9 @@ class Batch:
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
                 INSERT OR IGNORE INTO settings VALUES ('paused','1');
             ''')
+            db.execute('BEGIN IMMEDIATE')
+            if 'priority' not in {r[1] for r in db.execute('PRAGMA table_info(jobs)')}:
+                db.execute('ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0')
 
     def db(self):
         db = sqlite3.connect(self.folder / 'queue.sqlite3', timeout=30)
@@ -206,13 +210,17 @@ class Batch:
                 legacy_done=not related and comparison.exists() and inputs_mtime<=comparison.stat().st_mtime and (not prep or (prep.get('approved_at') or float('inf'))<=comparison.stat().st_mtime)
                 has_input=bool(c.get('reference_box') or labels or c.get('target','').strip() or prep.get('description','').strip())
                 status='Processing' if pending else 'Done' if completed or legacy_done else 'Ready' if ready else 'Draft' if has_input else 'New'
+                try:
+                    self.rerender_source(path.name,jobs);can_rerender=not pending and path.name not in discarded
+                except (ValueError,OSError,KeyError):can_rerender=False
                 actions=['Label subject','Review descriptions']
+                if can_rerender:actions.append('Queue Rerendering (no re-analysis)')
                 if status=='Ready':actions.append('Queue processing')
                 if status in ('Processing','Done'):actions.append('Open video focus')
                 if status=='Done':actions.append('Watch side by side')
                 actions.append('Discard project')
                 projects.append(dict(project=path.name,updated_at=updated_at,status=status,actions=actions,discard_pending=path.name in discarded,
-                    active_job=pending['id'] if pending else None,active_config=pending['config'] if pending else None,completed_config=completed['config'] if completed else path.name if legacy_done else None,
+                    can_rerender=can_rerender,active_job=pending['id'] if pending else None,active_config=pending['config'] if pending else None,completed_config=completed['config'] if completed else path.name if legacy_done else None,
                     latest_job=pending['status'] if pending else related[-1]['status'] if related else None,
                     has_box=bool(c.get('reference_box')),video=c['video'],target=c['target'],
                     reference_time=c.get('reference_time',0),reference_box=c['reference_box'],
@@ -226,7 +234,8 @@ class Batch:
         jobs=self.jobs()
         for job in jobs:
             c=read(self.path(job['config']));out=self.path(c['output_dir'])
-            job['progress']=read(out/'analysis_progress.json',{})
+            job['stage']=c.get('batch_stage','all')
+            job['progress']=({'stage':'render','completed':None,'total':None} if job['stage']=='render' else read(out/'analysis_progress.json',{}))
             flags=read(out/'review_flags.json',[])
             job['review_count']=len(flags) if isinstance(flags,(list,dict)) else 0
             job['comparison_available']=(out/'comparison.mp4').exists()
@@ -269,6 +278,79 @@ class Batch:
                 relative=str(config_path.relative_to(self.root));now=time.time()
                 db.execute('INSERT INTO jobs (id,project,revision,status,created,updated,config) VALUES (?,?,?,?,?,?,?)',
                     (job_id,project,revision,'queued',now,now,relative));ids.append(job_id)
+        return ids
+
+    def rerender_source(self, project, jobs=None):
+        """Find the latest completed analysis, falling back to legacy source output."""
+        jobs=self.jobs() if jobs is None else jobs
+        candidates=[j['config'] for j in reversed(jobs) if j['project']==project and j['status']=='succeeded']+[project]
+        for name in candidates:
+            c=read(self.path(name));out=self.path(c['output_dir'])
+            c=read(out/'run_config.json',c)
+            observations=f"tracking_{c.get('tracking_render_path','selected')}.json" if c.get('tracking_mode')=='dual' else 'observations.json'
+            meta=read(out/'meta.json',{})
+            if (out/observations).is_file() and meta.get('frames') and meta.get('cache'):
+                reference=self.path(meta['cache'])/'reference.jpg'
+                if reference.is_file():return name,out,observations,meta,reference
+        raise ValueError(f'{project}: no saved analysis is available to rerender')
+
+    def enqueue_rerender(self, projects):
+        if not projects:raise ValueError('Select at least one project with saved analysis')
+        prepared=[];jobs=self.jobs()
+        for project in dict.fromkeys(projects):
+            if project in self.discarded():raise ValueError('Restore discarded projects before queuing')
+            if any(j['project']==project and j['status'] in ('queued','starting','running') for j in jobs):
+                raise ValueError(f'{project}: a job is already queued or running')
+            current,current_labels,rev=self.inputs(project);prep=self.preparation(project)
+            source_name,source_out,observations,meta,reference=self.rerender_source(project,jobs)
+            source_config=read(source_out/'run_config.json',read(self.path(source_name)))
+            if self.path(source_config['video'])!=self.path(current['video']):
+                raise ValueError('Video changed since the saved analysis; analyze the new video first')
+            manifest=read(self.path(source_name).parent/'inputs.json',{}) if source_name!=project else {}
+            stat=self.path(current['video']).stat();source_stat={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns}
+            if manifest and manifest.get('source_stat')!=source_stat:
+                raise ValueError('Source video changed since analysis; analyze it again first')
+            # Review-run corrections start from its frozen labels. Source edits
+            # override only labels actually changed since that run was queued.
+            labels=read(source_out/'review_corrections.json',read(source_out/'corrections.json',{}))
+            baseline=manifest.get('source_labels',manifest.get('labels',{}))
+            if source_name==project:labels=current_labels
+            else:
+                for frame in baseline.keys()|current_labels.keys():
+                    if current_labels.get(frame)!=baseline.get(frame):
+                        if frame in current_labels:labels[frame]=current_labels[frame]
+                        else:labels.pop(frame,None)
+            snapshot=dict(source_config)
+            for key in ('output_width','output_height','subject_height_fraction','margin_fraction',
+                        'hold_seconds','widen_seconds','smoothing_seconds','feather_pixels','border',
+                        'tracking_selection','leveling_source','level_divergence_degrees'):
+                if key in current:snapshot[key]=current[key]
+            prepared.append((project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat))
+        ids=[]
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat in prepared:
+                if db.execute("SELECT 1 FROM jobs WHERE project=? AND status IN ('queued','starting','running')",(project,)).fetchone():
+                    raise ValueError(f'{project}: a job is already queued or running')
+                job_id=uuid.uuid4().hex;out=self.root/'outputs'/'batch'/job_id
+                config_path=self.folder/'runs'/job_id/'project.json'
+                out.mkdir(parents=True);cache=out/'cache';cache.mkdir()
+                shutil.copy2(reference,cache/'reference.jpg')
+                write(out/'meta.json',dict(meta,cache=str(cache)))
+                for name in {observations,'observations.json','tracking_raw_angle.json','tracking_leveled.json',
+                             'tracking_selected.json','tracking_comparison.json','level_observations.json'}:
+                    if (source_out/name).is_file():shutil.copy2(source_out/name,out/name)
+                revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
+                snapshot.update(video=str(self.path(current['video'])),output_dir=str(out),batch_stage='render',
+                                batch_input_revision=revision,rerender_source=source_name)
+                write(config_path,snapshot);write(out/'corrections.json',labels)
+                # Adoption compares against current source inputs, just like analysis jobs.
+                preparation=dict(prep,revision=rev,description=prep.get('description',''))
+                write(config_path.parent/'inputs.json',dict(project=project,revision=revision,preparation=preparation,
+                    config=current,labels=labels,source_labels=current_labels,source_stat=source_stat,stage='render',analysis_source=source_name))
+                now=time.time();relative=str(config_path.relative_to(self.root))
+                db.execute('INSERT INTO jobs (id,project,revision,status,created,updated,config,priority) VALUES (?,?,?,?,?,?,?,?)',
+                           (job_id,project,revision,'queued',now,now,relative,1));ids.append(job_id)
         return ids
 
     def adopt(self, job_id):
@@ -333,7 +415,7 @@ class Batch:
                 with self.db() as db:
                     db.execute('BEGIN IMMEDIATE')
                     if db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()[0]=='1':return
-                    row=db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+                    row=db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY priority DESC, created LIMIT 1").fetchone()
                     if not row:return
                     db.execute("UPDATE jobs SET status='starting',updated=? WHERE id=?",(time.time(),row['id']))
                 subprocess.run([sys.executable,str(Path(__file__).resolve()),'--workspace',str(self.root),'--execute',row['id']])
@@ -363,7 +445,9 @@ class Batch:
                     else:
                         import runpy
                         with __import__('contextlib').redirect_stdout(log), __import__('contextlib').redirect_stderr(log):
-                            sys.argv=[str(SOURCE/'reframe.py'),str(config),'--stage','all']
+                            stage=c.get('batch_stage','all')
+                            if stage not in ('all','render'):raise ValueError('Invalid batch stage')
+                            sys.argv=[str(SOURCE/'reframe.py'),str(config),'--stage',stage]
                             runpy.run_path(str(SOURCE/'reframe.py'),run_name='__main__')
                         code=0
                 if code:raise RuntimeError(f'Processor exited with code {code}; see job log')

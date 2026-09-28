@@ -169,3 +169,30 @@ Observations, summary requests, comparison responses and each completed attempt 
 stored under the workspace `.batch/description_drafts/`, keyed by source/labels and
 prompt version; observation caches additionally separate models. Existing tracking
 results are not rewritten. New tracking calls use the updated verifier version.
+
+### Priority rerender jobs
+
+Projects with saved analysis offer **Queue Rerendering (no re-analysis)** in the
+folder view. This is available without approving a new analysis plan. It is hidden
+while that project already has queued/running work or is being discarded.
+
+Rerenders share the persistent queue with analysis jobs, but run first among waiting
+jobs. Each group uses FIFO order. A running job is never interrupted. The queue
+shows the same priority ordering and labels jobs **Rerender only · priority** or
+**Analyze + render**. Start/resume, pause, cancel and retry work for both types.
+
+A rerender copies the latest successful run's saved observations, leveling
+observations and reference crop into a new output folder; legacy project analysis
+is the fallback. Review corrections on that run are included. Source-project label
+changes since the run was queued override corresponding saved labels. Current
+render settings (dimensions, framing margins, confidence threshold, leveling and
+border settings) apply, but tracking/target analysis is reused. Changing the target
+or wanting new detections still requires an analysis job.
+
+The worker runs `--stage render`, producing both focused and side-by-side videos,
+new metadata sidecars and frame transforms. No model requests or tracking passes
+are performed. Prior video results and analysis files remain intact. Source changes
+since a batch analysis snapshot are rejected; unavailable analysis is reported
+before a job is queued. Rendering remains CPU/encoding work and runs serially with
+analysis to avoid resource contention. Repeated rerender submissions can delay
+waiting analysis jobs; they do not preempt active work.

@@ -9,7 +9,7 @@
 <div id="notice" role="status">Loading…</div>
 <section><h2>1. Add a video project</h2><div class="row"><select id="videos" aria-label="Video"></select><button id="create">Add project</button><button id="reload">Refresh folder</button></div><div id="quickPreview" hidden><video id="quickVideo" controls playsinline preload="metadata" style="max-width:600px;width:100%"></video><img id="quickFrame" alt="Video preview frame" hidden style="max-width:600px;width:100%"><label>Preview position <input id="previewPosition" type="range" min="0" max="0" value="0" step="1" style="width:60%"><span id="previewTime"></span></label><small id="previewHint">Play the video or scrub to preview a frame.</small></div><p>Add video files to this server's workspace folder, then refresh. Existing projects appear below. Each video can have more than one target/project.</p></section>
 <section><h2>2. Existing projects</h2><p>New → Draft → Ready → Processing → Done. Ready requires a reviewed description and at least one ground-truth crop. Editing inputs requires approval again. Discard archives a project without deleting its video or results; queued jobs are cancelled and running jobs finish first.</p><div class="row"><button id="selectReady">Select all ready</button><button id="queue">Queue selected projects</button></div><div id="projects"></div><details><summary>Discarded projects (restore)</summary><div id="archived"></div></details></section>
-<section><h2>3. Overnight queue</h2><div class="row"><button id="start">Start / resume queue</button><button id="pause">Pause after current video</button><span id="queueState"></span></div><p>One video runs at a time. Closing this page does not stop processing. Pause finishes the current video; queued jobs can be cancelled. Failed or interrupted jobs can retry using saved inputs and cached work. Start/resume also checks for interrupted runners after a restart.</p><div class="scroll"><table><thead><tr><th>Project / run</th><th>Status</th><th>Progress</th><th>Review / actions</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
+<section><h2>3. Overnight queue</h2><div class="row"><button id="start">Start / resume queue</button><button id="pause">Pause after current video</button><span id="queueState"></span></div><p>One video runs at a time. Rerenders run before waiting analysis jobs; the current job is never interrupted. Closing this page does not stop processing. Pause finishes the current video; queued jobs can be cancelled. Failed or interrupted jobs can retry using saved inputs and cached work. Start/resume also checks for interrupted runners after a restart.</p><div class="scroll"><table><thead><tr><th>Project / run</th><th>Status</th><th>Progress</th><th>Review / actions</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
 <script>
 const $=id=>document.getElementById(id);let state={},drafts=new Map(),selected=new Set();
 function text(tag,value){const e=document.createElement(tag);e.textContent=value;return e}
@@ -33,6 +33,7 @@ function renderProjects(){
   if(p.has_box)card.append(img);
   const actions=document.createElement('div');actions.className='row';
   actions.append(link('Label subject','/?config='+encodeURIComponent(p.project)+'#subject-labels'),link('Review descriptions','/?config='+encodeURIComponent(p.project)+'#identity-description'));
+  if(p.can_rerender)actions.append(button('Queue Rerendering (no re-analysis)',async()=>{await api('/queue-rerender',{projects:[p.project]});await load();notice('Rerender queued using saved analysis and corrections. Start/resume the queue when ready.')}));
   if(p.status==='Ready')actions.append(button('Queue processing',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Queued. Start/resume the queue when ready.')}));
   if(['Processing','Done'].includes(p.status))actions.append(link('Open video focus','/?config='+encodeURIComponent(p.active_config||p.completed_config||p.project)));
   if(p.status==='Done'&&p.completed_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.completed_config)));
@@ -45,10 +46,11 @@ function renderProjects(){
 function renderJobs(){
  $('queueState').textContent=(state.paused?'Paused':'Queue enabled')+(state.legacy_running?' · existing single-video job still running':'');$('start').disabled=state.legacy_running;
  $('jobs').replaceChildren();
- for(const j of [...state.jobs].reverse()){
-  const row=document.createElement('tr'),identity=document.createElement('td');identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · attempt '+j.attempts));
+ const rank=j=>['starting','running'].includes(j.status)?0:j.status==='queued'?1:2;
+ for(const j of [...state.jobs].sort((a,b)=>rank(a)-rank(b)||(rank(a)===1?(b.priority||0)-(a.priority||0)||a.created-b.created:b.created-a.created))){
+  const row=document.createElement('tr'),identity=document.createElement('td');identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · '+(j.stage==='render'?'Rerender only · priority':'Analyze + render')+' · attempt '+j.attempts));
   const status=document.createElement('td');status.append(text('span',j.status));if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
-  const p=j.progress||{},progress=text('td',p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
+  const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
   const actions=document.createElement('td');actions.append(link('Open video focus','/?config='+encodeURIComponent(j.config)));
   actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));
   if(j.status==='queued')actions.append(button('Cancel',async()=>{await api('/cancel',{id:j.id});await load()}));

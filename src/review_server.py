@@ -223,6 +223,9 @@ class Handler(BaseHTTPRequestHandler):
                         result=batch.discard(data['project']);result['finishing']=result['finishing'] or legacy_project()==data['project'];return self.json_response(result)
                     if action=='restore':return self.json_response(batch.restore(data['project']))
                     if action=='prepare':return self.json_response(batch.prepare(data['project'],data.get('description',''),data.get('ready',False)))
+                    if action=='queue-rerender':
+                        if legacy_project() in data.get('projects',[]):raise ValueError('Wait for this project’s running analysis to finish before queuing a rerender')
+                        return self.json_response({'jobs':batch.enqueue_rerender(data.get('projects',[]))})
                     if action=='queue':return self.json_response({'jobs':batch.enqueue(data.get('projects',[]))})
                     if action=='start':
                         if JOB is not None and JOB.poll() is None:raise ValueError('An existing single-video job is running. Prepare/queue videos now; start the batch when it finishes.')
