@@ -379,3 +379,11 @@ label), not interpolated rendering coordinates; absence labels override estimate
 
 Navigation uses Previous and Next fieldsets with short button labels; accessible
 labels retain the full direction and frame type.
+
+Description generation is explicit. Opening Review descriptions, polling status,
+or changing a manual box/absence label never calls Qwen to draft a description or
+replaces the editor with a cached generated draft. Saved descriptions load when a
+project is opened; unsaved text remains intact on label refresh. Draft from labeled
+crops and Revise using feedback are the only generation actions; Check against
+crops validates the current text without rewriting it. Label changes can still
+invalidate approval and prior crop checks, requiring review before another run.
