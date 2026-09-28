@@ -77,10 +77,12 @@ def bidirectional_pass(observations, attempt, adjudicate, threshold=.65, agreeme
     """Extend each reliable reverse chain through confident forward observations.
 
     Reverse motion history contains the reverse estimates, even when forward wins the
-    output comparison. An unreliable reverse observation ends its chain; an earlier
+    output comparison. A malformed model response is skipped using the last good seed.
+    Other unreliable reverse observations end their chain; an earlier
     reliable forward observation can seed a new one. Inputs are never mutated.
     """
     from tracking_selection import overlap
+    from analysis_failures import output_failure
     forward=copy.deepcopy(sorted(observations,key=lambda r:r['frame']))
     result=copy.deepcopy(forward);history=[]
     report={'mode':'bidirectional','threshold':threshold,'agreement_iou':agreement_iou,
@@ -150,6 +152,9 @@ def bidirectional_pass(observations, attempt, adjudicate, threshold=.65, agreeme
         # Winning the output comparison is NOT required to continue a reliable chain.
         if bgood and not (judgment and choice=='neither'):
             history.append(copy.deepcopy(evidence))
+        elif output_failure(evidence) or output_failure(evidence.get('box_verification',{})):
+            # Skip a malformed response; the next earlier sample still uses the last successful seed.
+            pass
         else:
             chain['stop_reason']='Unresolved direction disagreement' if bgood else 'Backward confidence/verification failed'
             history=[]

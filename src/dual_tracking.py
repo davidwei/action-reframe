@@ -5,6 +5,9 @@ import json
 import math
 from pathlib import Path
 import shutil
+import threading
+from tracking_response import structured_tracking, validate_detection, ABSENCE_HINT
+from analysis_failures import path_failures
 from concurrent.futures import ThreadPoolExecutor
 from tracking_selection import TrackSelector
 
@@ -13,7 +16,7 @@ import numpy as np
 from backward_tracking import bidirectional_pass
 from leveling import extract_gyro
 
-VERSION = 7
+VERSION = 8
 PATHS = ('raw_angle', 'leveled')
 
 
@@ -57,6 +60,7 @@ def box_iou(a, b):
 
 def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,verification_callback=None):
     frame_loader, completion, save = helpers
+    history=[r for r in history if not r.get('error') and not r.get('box_verification',{}).get('error')]
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
     signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,target_description(c),
@@ -97,6 +101,7 @@ After proposing the coordinates, inspect the region they enclose. Describe ACTUA
 If that region does not contain the target, correct the box before answering or return null. box_note must describe your FINAL box.
 Return ONLY JSON: {{"bbox":[left,top,right,bottom] or null,"confidence":0.0,"visibility":"visible|partial|absent|uncertain","scene_cut":false,"note":"identity and uncertainty evidence","box_note":"actual contents inside final box and any truncation; unavailable if bbox is null"}}.
 Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history coordinates.'''
+    prompt+='\n'+ABSENCE_HINT
     retries=c.get('box_verification_retries',2)
     if type(retries) is not int or not 0<=retries<=2:raise ValueError('box_verification_retries must be 0, 1 or 2')
     detection_config=dict(c,temporal_context=dict(c.get('temporal_context',{}),omit_box_coordinates=True))
@@ -106,16 +111,9 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
         attempt_cache.mkdir(parents=True,exist_ok=True)
         raw=None
         try:
-            answer,audit=completion(detection_config,dict(meta,cache=str(attempt_cache)),index,direction,history,model,
-                images,prompt+feedback,650)
-            raw=answer['choices'][0]['message']['content']
-            data=json.loads(raw[raw.index('{'):raw.rindex('}')+1]);box=data.get('bbox')
-            if box is not None and (not isinstance(box,list) or len(box)!=4 or
-                not all(isinstance(v,(int,float)) and math.isfinite(v) and 0<=v<=1000 for v in box) or
-                box[0]>=box[2] or box[1]>=box[3]):raise ValueError('Invalid Qwen rectangle')
-            score=float(data.get('confidence',0))
-            if not math.isfinite(score) or not 0<=score<=1:raise ValueError('Invalid confidence')
-            if data.get('visibility') not in ('visible','partial','absent','uncertain'):raise ValueError('Invalid visibility')
+            data,audit=structured_tracking(completion,detection_config,dict(meta,cache=str(attempt_cache)),index,direction,history,model,
+                images,prompt+feedback,650,validate_detection)
+            raw=data['raw'];box=data['bbox'];score=data['confidence']
             original,polygon=source_box(box,matrix,size,(w,h))
             data.update(bbox=original,confidence=score if original is not None else 0,
                         qwen_view_bbox=box,source_polygon_px=polygon,raw=raw,temporal_context=audit)
@@ -194,15 +192,17 @@ Use visible identity evidence and supplied selected-track motion history. Do not
 If neither can be verified, choose neither. A camera movement can explain a jump, but confirm it from image evidence.
 Return ONLY JSON: {{"choice":"{labels[0]}|{labels[1]}|neither","confidence":0.0,"reason":"identity and motion evidence"}}.'''
     try:
-        answer,audit=completion(c,dict(meta,cache=str(folder)),index,direction,history,model,
-            [Path(meta['cache'])/'reference.jpg',clean,marked],prompt,350)
-        raw=answer['choices'][0]['message']['content']
-        result=json.loads(raw[raw.index('{'):raw.rindex('}')+1])
-        score=result.get('confidence')
-        if result.get('choice') not in (*labels,'neither') or not isinstance(score,(int,float)) or not math.isfinite(score) or not 0<=score<=1:
-            raise ValueError('Invalid adjudication response')
-        result.update(raw=raw,temporal_context=audit)
-    except Exception as error:result={'choice':'neither','confidence':0,'error':str(error),'reason':'Adjudication failed'}
+        def validate(result):
+            score=result.get('confidence')
+            if result.get('choice') not in (*labels,'neither') or isinstance(score,bool) or not isinstance(score,(int,float)) or not math.isfinite(score) or not 0<=score<=1:
+                raise ValueError('Invalid adjudication response')
+        result,audit=structured_tracking(completion,c,dict(meta,cache=str(folder/key)),index,direction,
+            [r for r in history if not r.get('error') and not r.get('box_verification',{}).get('error')],model,
+            [Path(meta['cache'])/'reference.jpg',clean,marked],prompt,350,validate,'tracking adjudication')
+        result['temporal_context']=audit
+    except Exception as error:
+        result={'choice':'neither','confidence':0,'error':str(error),'reason':'Adjudication failed'}
+        if hasattr(error,'details'):result['model_error']=error.details
     save(result_path,result);return result
 
 
@@ -224,20 +224,35 @@ def run_dual(c, meta, model, api_helpers, single=None):
         namespace.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(Path(meta['cache'])/'reference.jpg',namespace/'reference.jpg')
         metas[path]=dict(meta,cache=str(namespace))
+    failure_file=out/'analysis_failures.json'
+    failures_by_frame={entry['frame']:entry for entry in json.loads(failure_file.read_text())} if failure_file.exists() else {}
+    failure_lock=threading.Lock()
+    def record_failures(index,candidates,direction):
+        failures=path_failures(candidates)
+        if failures:
+            with failure_lock:
+                entry=failures_by_frame.setdefault(index,dict(frame=index,time=index/meta['fps'],failures=[]))
+                for failure in failures:
+                    failure=dict(failure,direction=direction)
+                    if failure not in entry['failures']:entry['failures'].append(failure)
+                save(failure_file,[failures_by_frame[i] for i in sorted(failures_by_frame)])
+        return failures
     def select_pair(a,b,selector,history):
         row=selector.choose(a,b,lambda candidates:adjudicate_pair(c,meta,a['frame'],model,candidates,history,api_helpers))
+        if row.get('adjudication',{}):record_failures(a['frame'],{'adjudication':row['adjudication']},'selection')
         paired={'frame':a['frame'],'time':a['time'],'raw_angle':a,'leveled':b,
                 'box_iou':row['box_iou'],'selected':row}
         return row,paired
-    failures=0
     with ThreadPoolExecutor(max_workers=2) as pool:
         for index in indices:
             pending={} if index in manual else {path:pool.submit(observe_path,c,metas[path],gyro,index,model,
                                       list(results[path]),path,'forward',api_helpers) for path in PATHS}
             pair={path:dict(manual[index],path=path,gyro_roll=gyro['frames'][index]['roll']) if index in manual else pending[path].result() for path in PATHS}
+            frame_failures=record_failures(index,pair,'forward')
             for path in PATHS:
                 results[path].append(pair[path]);save(out/f'tracking_{path}_forward.json',results[path])
             row,paired=select_pair(pair['raw_angle'],pair['leveled'],selector,selected)
+            row['analysis_failures']=frame_failures
             selected.append(row);comparison.append(paired)
             save(out/'tracking_selected_forward.json',selected)
             save(out/'tracking_comparison.json',comparison)
@@ -245,18 +260,23 @@ def run_dual(c, meta, model, api_helpers, single=None):
                 'frame':index,'time':index/meta['fps'],'analysis_fps':c['analysis_fps'],
                 'selected_path':row['selected_path'],'candidate_errors':{p:r['error'] for p,r in pair.items() if r.get('error')}})
             print(f"Dual paired {len(selected)}/{len(indices)} t={row['time']:.2f} selected={row['selected_path']} reason={row['selection_reason']}",flush=True)
-            failures=failures+1 if all(r.get('error') for r in pair.values()) else 0
-            if failures>=3:raise RuntimeError('Both tracking paths failed for three consecutive samples; resume after checking service/errors')
+            # Frame-local output failures are reviewable gaps; service/system failures raise in record_failures.
         save(out/'observations_first_pass.json',selected if render_path=='selected' else results[render_path])
         if c.get('backward_recovery',True) and single is None:
             def recover(path):
                 def attempt(current,seed,history):
-                    return observe_path(c,metas[path],gyro,current['frame'],model,history,path,'backward',api_helpers)
+                    row=observe_path(c,metas[path],gyro,current['frame'],model,history,path,'backward',api_helpers)
+                    row['analysis_failures']=record_failures(current['frame'],{path:row},'backward')
+                    return row
                 def resolve(forward,backward,history):
-                    return adjudicate_pair(c,metas[path],forward['frame'],model,
+                    result=adjudicate_pair(c,metas[path],forward['frame'],model,
                         {'forward':forward,'backward':backward},history,api_helpers,
                         labels=('forward','backward'),direction='backward')
+                    record_failures(forward['frame'],{'adjudication_'+path:result},'backward')
+                    return result
                 def progress(report,row):
+                    judgment=row.get('direction_comparison',{}).get('adjudication')
+                    if judgment:record_failures(row['frame'],{'adjudication_'+path:judgment},'backward')
                     save(out/f'tracking_{path}_backward_progress.json',
                          {'frame':row['frame'],'time':row['time'],'attempted_samples':report['attempted_samples'],
                           'direction_choice':row['direction_choice'],'reason':row['direction_reason']})

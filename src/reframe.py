@@ -178,6 +178,7 @@ def contextual_completion(c,meta,index,direction,history,model,images,prompt,max
         content.append({'type':'text','text':prompt+'\nHistory estimates can be wrong. Explain significant object changes using current image evidence.'})
         messages=[{'role':'user','content':content}]
         request={'model':model,'messages':messages,'temperature':0,'max_tokens':max_tokens}
+        if c.get('_structured_tracking'):request['response_format']={'type':'json_object'}
         # Use the server's actual multimodal tokenizer, not a character/token heuristic.
         tokenized=api(c['api_url'].removesuffix('/v1')+'/tokenize',{'model':model,'messages':messages})
         tokens=tokenized['count']

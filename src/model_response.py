@@ -38,17 +38,19 @@ def fetch_response(api,url,payload,response_path,details):
     return response
 
 
-def completion(api,url,payload,audit,stage,validator=None):
-    """Save raw envelopes before parsing. Retry output truncation once with a concise-output instruction."""
+def completion(api,url,payload,audit,stage,validator=None,retry_invalid=False,correction_hint=""):
+    """Save raw envelopes; retry truncation once, and optionally malformed structured output."""
     audit=Path(audit);audit.parent.mkdir(parents=True,exist_ok=True)
+    retry_reason="exceeded its output limit"
     for attempt in range(2):
         request=copy.deepcopy(payload)
         if attempt:
             request['max_tokens']=min(4096,request.get('max_tokens',1000)*2)
-            instruction=('The previous generation exceeded its output limit. Answer the original task again from scratch, '
+            instruction=(f'The previous generation {retry_reason}. Answer the original task again from scratch, '
                          'concisely. Do not repeat observations or elaborate speculatively. '
                          'Preserve required fields and uncertainty; finish the complete answer within 250 words.')
             if validator is not None:instruction+=' Return only one complete JSON object, including its closing brace.'
+            instruction+=' '+correction_hint
             messages=request.setdefault('messages',[])
             if messages and messages[-1].get('role')=='user':
                 content=messages[-1].get('content','')
@@ -106,6 +108,9 @@ def completion(api,url,payload,audit,stage,validator=None):
         except ModelResponseError as error:
             error.details['elapsed_seconds']=round(time.monotonic()-started,3)
             request_path.with_name(request_path.stem+'_error.json').write_text(json.dumps(dict(error.details,error=str(error)),indent=2))
+            if retry_invalid and not attempt and error.details.get('kind') in ('invalid_json_or_schema','empty_response','invalid_response'):
+                retry_reason='was invalid: '+str(error)[:400]
+                continue
             raise
 
 
