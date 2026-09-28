@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local, resumable VL-assisted video reframing. See README.md for limitations."""
+from export_metadata import ffmpeg_metadata_args, write_sidecar
 from tracking_selection import confidence_threshold
 
 import argparse
@@ -760,7 +761,7 @@ def render(c):
     command=[c['ffmpeg'],'-y','-hide_banner','-loglevel','error','-f','rawvideo','-pix_fmt','bgr24',
         '-s',f'{ow}x{oh}','-r',str(fps),'-i','pipe:0','-i',c['video'],'-map','0:v:0','-map','1:a?',
         '-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy',
-        '-map_metadata','-1','-movflags','+faststart',str(temp)]
+        *ffmpeg_metadata_args(c['video']),'-movflags','+faststart+use_metadata_tags',str(temp)]
     encoder=subprocess.Popen(command,stdin=subprocess.PIPE)
     cap=cv2.VideoCapture(c['video'])
     thumbs=out/'review_frames';thumbs.mkdir(exist_ok=True)
@@ -791,6 +792,7 @@ def render(c):
         raise RuntimeError(f'FFmpeg failed: {code}')
     temp.replace(preview)
     write_json(out/'tracks.json',tracks)
+    write_sidecar(c)
     intervals=[]
     for i,f in enumerate(flags):
         reasons=sorted(f)
@@ -818,7 +820,7 @@ def make_comparison(c):
     subprocess.run([c['ffmpeg'],'-y','-hide_banner','-loglevel','error','-i',c['video'],
         '-i',str(out/'focused.mp4'),'-filter_complex',filters,'-map','[v]','-map','1:a?',
         '-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy',
-        '-movflags','+faststart',str(temp)],check=True)
+        *ffmpeg_metadata_args(c['video']),'-movflags','+faststart+use_metadata_tags',str(temp)],check=True)
     temp.replace(out/'comparison.mp4')
     print(f"Created synchronized comparison: {out/'comparison.mp4'}",flush=True)
 

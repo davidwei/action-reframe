@@ -193,3 +193,11 @@ then scores every observation against the summary using the tracking comparator
 and completeness separately; scores below 80% offer a feedback-driven summary retry.
 Retries reuse observations. Edited text requires rechecking to display current scores.
 See [batch workflow](BATCH_WORKFLOW.md#description-review-and-consistency-checks).
+
+### Export provenance
+
+Rendered MP4 files preserve recording time and camera identification, while source
+attitude remains separate from processed orientation. A metadata sidecar links the
+original tags, archived data-track packets, extracted gyro values and per-frame
+reframing transforms. See [export metadata](EXPORT_METADATA.md) for preserved
+fields, archive format and limitations.
