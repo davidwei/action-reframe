@@ -287,14 +287,21 @@
   function updateNavigation(element,state,frame,seek,enabled=true){
     if(!element.dataset.mounted){
       element.dataset.mounted='true';
-      for(const [direction,kind] of [['previous','reviewed'],['previous','tracked'],['previous','sampled'],['next','sampled'],['next','tracked'],['next','reviewed']]){
-        const button=document.createElement('button');button.type='button';button.dataset.target=direction+kind;
-        button.textContent=`${direction==='previous'?'Previous':'Next'} ${kind} frame`;
-        element.append(button);
+      for(const direction of ['previous','next']){
+        const group=document.createElement('fieldset');group.style.cssText='display:flex;gap:8px;flex-wrap:wrap;border:1px solid #526274;border-radius:8px;padding:10px';
+        const legend=document.createElement('legend');legend.textContent=direction==='previous'?'Previous':'Next';group.append(legend);
+        const kinds=direction==='previous'?['reviewed','tracked','sampled','frame']:['frame','sampled','tracked','reviewed'];
+        for(const kind of kinds){
+          const button=kind==='frame'?document.getElementById(direction):document.createElement('button');
+          if(!button)continue;
+          button.type='button';button.textContent=kind[0].toUpperCase()+kind.slice(1);
+          button.setAttribute('aria-label',`${legend.textContent} ${kind==='frame'?'frame':kind+' frame'}`);
+          button.dataset.lookoutAction=`frame.${direction}_${kind}`;
+          if(kind!=='frame')button.dataset.target=direction+kind;
+          group.append(button);
+        }
+        element.append(group);
       }
-      const previous=document.getElementById('previous'),next=document.getElementById('next');
-      const nextSample=element.querySelector('[data-target=nextsampled]');
-      if(previous&&next){element.insertBefore(previous,nextSample);element.insertBefore(next,nextSample)}
       element.title='Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule. Tracked: accepted target box at this exact frame (including human labels), not interpolated framing.';
     }
     const targets=navigationTargets(state,frame);
