@@ -15,19 +15,19 @@ def transform(points,matrix):
     return (np.c_[points,np.ones(len(points))]@np.asarray(matrix).T).tolist()
 
 
-def preview_geometry(config,meta,track=None,roll=0):
+def preview_geometry(config,meta,track=None,roll=None):
     from dual_tracking import expanded_rotation
     if track and track.get('center') is not None and track.get('crop_height',0)>0:
         width,height=int(config.get('output_width',1280)),int(config.get('output_height',720))
         center=np.asarray(track['center'],float)
         matrix=cv2.getRotationMatrix2D(tuple(center),float(track.get('roll',0)),height/track['crop_height'])
         matrix[:,2]+=np.array([width/2,height/2])-center
-        mode='saved_render'
+        mode='saved_render';roll=float(track.get('roll',0))
     else:
-        matrix,(width,height)=expanded_rotation(meta['width'],meta['height'],roll)
-        mode='leveled_full_frame'
+        matrix,(width,height)=expanded_rotation(meta['width'],meta['height'],roll if roll is not None else 0)
+        mode='leveled_full_frame' if roll is not None else 'raw_full_frame'
     result=dict(source_to_view=matrix.tolist(),view_to_source=cv2.invertAffineTransform(matrix).tolist(),
-                width=int(width),height=int(height),source_width=meta['width'],source_height=meta['height'],mode=mode)
+                width=int(width),height=int(height),source_width=meta['width'],source_height=meta['height'],mode=mode,roll_degrees=roll,level_available=roll is not None)
     result['signature']=hashlib.sha256(json.dumps(result,sort_keys=True).encode()).hexdigest()[:20]
     return result
 

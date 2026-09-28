@@ -23,9 +23,18 @@
       ...(row?.analysis_source==='flow_crop_validation'?[`${label} optical motion quality: ${percent(row.motion_quality)} | uncertainty: ${number(row.motion_uncertainty_px)} px; separate from identity confidence`]:[])
     ];
   }
+  function humanLabel(state,frame){
+    const correction=state.corrections?.[frame];if(own(correction,'bbox'))return correction;
+    const row=state.observations?.find(r=>r.frame===frame);
+    if(!row?.manual)return null;
+    return {...row,bbox:row.bbox?row.bbox.map((v,i)=>v*(i%2?state.meta.height:state.meta.width)/1000):null};
+  }
   function renderedBox(state,frame){
-    const box=state.tracks?.[frame]?.bbox;
-    return Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]?box:null;
+    if(own(state.corrections?.[frame],'bbox'))return null;
+    const row=state.observations?.find(r=>r.frame===frame)||state.tracking_comparison?.find(r=>r.frame===frame)?.selected;
+    const box=row?.bbox,meta=state.meta||{};
+    return !row?.manual&&!row?.error&&Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]
+      ?box.map((v,i)=>v*(i%2?meta.height:meta.width)/1000):null;
   }
   function verificationLines(row,label) {
     if(!row)return [];
@@ -244,28 +253,15 @@
     element.querySelector('.analysis-json').value = JSON.stringify(result.data, null, 2);
   }
   function playbackBoxes(state, frame) {
-    const rows=state.tracking_comparison||[],meta=state.meta||{};
-    if(!rows.length||!meta.width||!meta.height)return [];
-    let lo=0,hi=rows.length;
-    while(lo<hi){const mid=(lo+hi)>>1;if(rows[mid].frame<frame)lo=mid+1;else hi=mid;}
-    const left=rows[Math.max(0,lo-1)],right=rows[Math.min(rows.length-1,lo)];
-    const step=meta.fps/(meta.analysis_fps||state.config?.analysis_fps||2);
-    const nearest=Math.abs(frame-left.frame)<=Math.abs(right.frame-frame)?left:right;
-    const valid=r=>Array.isArray(r?.bbox)&&r.bbox.length===4&&r.bbox.every(Number.isFinite)&&r.bbox[2]>r.bbox[0]&&r.bbox[3]>r.bbox[1]&&!r.error;
-    const points=(row,path)=>{
-      const r=row[path];if(!valid(r))return null;
-      if(path==='raw_angle'&&r.source_polygon_px?.length>=3&&r.source_polygon_px.every(p=>p.length===2&&p.every(Number.isFinite)))return r.source_polygon_px;
-      const [x1,y1,x2,y2]=r.bbox.map((v,i)=>v*(i%2?meta.height:meta.width)/1000);
-      return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
-    };
+    const row=state.tracking_comparison?.find(r=>r.frame===frame),meta=state.meta||{};
+    if(!row||!meta.width||!meta.height)return [];
     return ['raw_angle','leveled'].flatMap(path=>{
-      let polygon,interpolated=false;
-      const a=points(left,path),b=points(right,path);
-      if(a&&b&&a.length===b.length&&left.frame<frame&&frame<right.frame&&right.frame-left.frame<=step*1.5){
-        const weight=(frame-left.frame)/(right.frame-left.frame);
-        polygon=a.map((point,i)=>point.map((v,j)=>v+(b[i][j]-v)*weight));interpolated=true;
-      }else if(Math.abs(nearest.frame-frame)<=Math.max(1,step/2+.5))polygon=points(nearest,path);
-      return polygon?[{path,polygon,interpolated,sampleFrame:nearest.frame}]:[];
+      const r=row[path],box=r?.bbox;
+      if(r?.manual||r?.error||!Array.isArray(box)||box.length!==4||!box.every(Number.isFinite)||box[2]<=box[0]||box[3]<=box[1])return [];
+      let polygon;
+      if(path==='raw_angle'&&r.source_polygon_px?.length>=3&&r.source_polygon_px.every(p=>p.length===2&&p.every(Number.isFinite)))polygon=r.source_polygon_px;
+      else {const [x1,y1,x2,y2]=box.map((v,i)=>v*(i%2?meta.height:meta.width)/1000);polygon=[[x1,y1],[x2,y1],[x2,y2],[x1,y2]];}
+      return [{path,polygon,interpolated:false,sampleFrame:frame}];
     });
   }
   function navigationTargets(state, frame) {
@@ -311,5 +307,5 @@
       button.onclick=()=>{if(enabled&&target!==null)seek(target);};
     }
   }
-  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes, navigationTargets, updateNavigation, renderedBox, trackingMethod};
+  window.FrameAnalysis = {describe, update, boxForLine, playbackBoxes, navigationTargets, updateNavigation, renderedBox, humanLabel, trackingMethod};
 })();

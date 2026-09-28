@@ -6,7 +6,7 @@
 </style>
 <p><a href="/library">← Folder library and batch queue</a></p><p><a href="/lookout">Lookout · daily improvements and collection controls</a></p>
 <h1>Original / processed</h1><p>Both views share one timeline. Left: original framing. Right: leveled and reframed output.</p>
-<p id="resultIdentity" role="status">Loading result identity…</p><p id="playbackLegend" class="hint" hidden>Original-view candidates: <span style="color:#00e5ff">cyan polygon = raw + angle</span>; <span style="color:#ff9f32">orange rectangle = leveled → source</span>; <span style="color:#5dff9d">green = saved final render track</span>; <span style="color:#ffffff">solid white = human label</span>. All estimation outlines are dotted. Includes uncertain candidates. Boxes interpolate between adjacent available analysis samples; gaps are not bridged.</p>
+<p id="resultIdentity" role="status">Loading result identity…</p><p id="playbackLegend" class="hint" hidden>Original-view candidates: <span style="color:#00e5ff">cyan polygon = raw + angle</span>; <span style="color:#ff9f32">orange rectangle = leveled → source</span>; <span style="color:#5dff9d">green = selected observation at this frame</span>; <span style="color:#ffffff">solid white = human label</span>. All estimation outlines are dotted. Includes uncertain candidates. Boxes appear only for recorded results at this exact frame; interpolation and held positions are not overlaid.</p>
 <div id="stage"><div class="labels"><span>Original</span><span>Processed</span></div><div style="position:relative"><video id="video" playsinline preload="metadata"></video><svg id="playbackBoxes" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg><svg id="inspectedBox" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg></div></div>
 <div class="controls"><button id="play" disabled>Play both</button><button id="back" disabled>−1 frame</button><button id="forward" disabled>+1 frame</button><button id="minus" disabled>−5 seconds</button><button id="plus" disabled>+5 seconds</button><label>Speed <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button id="mute">Mute</button><button id="fullscreen">Fullscreen</button><span id="readout">Loading…</span></div>
 <input id="seek" type="range" min="0" max="1" step="1" value="0" disabled aria-label="Shared video frame">
@@ -41,7 +41,7 @@ function drawPlaybackBoxes(){
   for(const [key,value] of Object.entries({x:dx+finalBox[0]*scale,y:dy+finalBox[1]*scale,width:(finalBox[2]-finalBox[0])*scale,height:(finalBox[3]-finalBox[1])*scale,fill:'none',stroke:'#5dff9d','stroke-width':3,'stroke-dasharray':'7 4'}))rect.setAttribute(key,value);
   rect.dataset.path='rendered';svg.append(rect);
  }
- const manual=analysisState.corrections?.[currentFrame];
+ const manual=FrameAnalysis.humanLabel(analysisState,currentFrame);
  if(manual?.bbox){
   const [x1,y1,x2,y2]=manual.bbox,points=manual.source_polygon_px||[[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
   const shape=document.createElementNS('http://www.w3.org/2000/svg','polygon');

@@ -20,3 +20,13 @@ class LabelGeometryTests(unittest.TestCase):
         self.assertEqual(clipped['bbox'],[0,0,20,20])
         for points in [box_polygon([-30,-30,-10,-10]),[[0,0],[10,10],[0,10],[10,0]],[[0,0],[1,float('nan')],[4,4]]]:
             with self.assertRaises(ValueError):canonical_label(points,'raw',geometry)
+
+class PreviewLevelAvailabilityTests(unittest.TestCase):
+    def test_unknown_level_does_not_claim_leveled(self):
+        geometry=preview_geometry({},dict(width=100,height=80))
+        self.assertEqual(geometry['mode'],'raw_full_frame')
+        self.assertFalse(geometry['level_available']);self.assertIsNone(geometry['roll_degrees'])
+        geometry=preview_geometry({},dict(width=100,height=80),roll=0)
+        self.assertEqual(geometry['mode'],'leveled_full_frame');self.assertTrue(geometry['level_available'])
+        geometry=preview_geometry({},dict(width=100,height=80),roll=9)
+        self.assertEqual(geometry['roll_degrees'],9)

@@ -14,7 +14,7 @@
 <p id="frameInfo"></p>
 <div id="frameNavigation" class="row" aria-label="Frame navigation"><button id="previous">Previous frame</button><button id="next">Next frame</button></div>
 <div id="frameAnalysis"></div>
-<p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear automatically when available, including uncertain estimates; between samples they may be interpolated. The green rectangle is the current track; your selection is white.</p>
+<p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear only for results recorded at this frame, including uncertain estimates. No interpolated or held boxes are overlaid. The green rectangle is the selected observation; your selection is white.</p>
 <p>Save target box keeps this project and makes your selection a human-confirmed tracking anchor. It is eligible for the existing context quotas; saving does not start processing.</p>
 <textarea id="target" aria-label="Target description"></textarea>
 <div class="row"><button id="newProject" hidden>Create new project from selection</button><button id="saveBox">Save target box</button><button id="absent">Mark target absent</button></div>
@@ -63,7 +63,7 @@ function draw(){
  const both=(points,color)=>{outline(ctx,points,color);if(geometry&&processedImage)outline(processedContext,mapped(points,geometry.source_to_view),color)};
  if(sourceVideo===state.config?.video){
   for(const box of FrameAnalysis.playbackBoxes(state,frame))both(box.polygon,box.path==='raw_angle'?'#00e5ff':'#ff9f32');
-  const manual=state.corrections?.[frame],box=manual&&'bbox'in manual?manual.bbox:state.tracks?.[frame]?.bbox;
+  const manual=FrameAnalysis.humanLabel(state,frame),box=manual&&'bbox'in manual?manual.bbox:FrameAnalysis.renderedBox(state,frame);
   if(box)both(manual?.source_polygon_px||rectangle(box),manual?.bbox?'#ffffff':'#5dff9d');
  }
  if(selectionPolygon){const raw=selectionSpace==='processed'?mapped(selectionPolygon,geometry.view_to_source):selectionPolygon;both(raw,'#ffffff')}
@@ -75,7 +75,7 @@ async function showFrame(){
  const preview=sourceVideo===state.config?.video&&project?request('/api/review-frame?config='+encodeURIComponent(project)+'&frame='+frame).catch(error=>({error:error.message})):Promise.resolve(null);
  const [_,data]=await Promise.all([fresh.decode(),preview]);if(id!==loadId)return;
  if(data?.image){const image=new Image();image.src=data.image;await image.decode();if(id!==loadId)return;geometry=data.geometry;processedImage=image;$('processed').width=geometry.width;$('processed').height=geometry.height;}
- $('processedCaption').textContent=data?.error?'Processed preview unavailable: '+data.error:geometry?.mode==='saved_render'?'Leveled and zoomed — saved render geometry':'Leveled full frame — render to enable zoomed preview';
+ $('processedCaption').textContent=data?.error?'Processed preview unavailable: '+data.error:geometry?.mode==='saved_render'?`Leveled and zoomed — saved render geometry (${geometry.roll_degrees.toFixed(2)}°)`:geometry?.level_available?`Leveled full frame (${geometry.roll_degrees.toFixed(2)}°) — render to enable zoomed preview`:'Full frame — leveling unavailable; no rotation applied';
  img=fresh;loadedFrame=frame;loadedVideo=sourceVideo;$('source').width=info.width;$('source').height=info.height;draw();showAnalysis();$('roll').value=(state.tracks?.[frame]?.roll||0).toFixed(1);
 }
 async function loadVideo(){sourceVideo=$('videos').value;info=await request('/api/info?video='+encodeURIComponent(sourceVideo));$('scrub').max=info.frames-1;frame=Math.round(Number($('time').value)*info.fps);await showFrame()}

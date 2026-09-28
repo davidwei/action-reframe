@@ -58,7 +58,12 @@ def review_geometry(config,out,index):
     track_path=out/'tracks.json';tracks=json.loads(track_path.read_text()) if track_path.exists() else []
     track=tracks[index] if index<len(tracks) else None
     level_path=out/'level_comparison.json';levels=json.loads(level_path.read_text()) if not track and level_path.exists() else []
-    roll=levels[index].get('final_roll',0) if index<len(levels) else 0
+    roll=levels[index].get('final_roll') if index<len(levels) else None
+    if roll is None and not track and config.get('leveling_source')=='gyro':
+        gyro_path=out/'gyro.json'
+        if gyro_path.exists():
+            rows=json.loads(gyro_path.read_text()).get('frames',[])
+            if index<len(rows):roll=rows[index].get('roll')
     return meta,track,preview_geometry(config,meta,track,roll)
 
 
