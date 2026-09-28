@@ -175,3 +175,21 @@ edit active run snapshots. See [batch workflow](BATCH_WORKFLOW.md) for exact beh
 Commit and push each completed, tested increment. Record benchmark artifacts and
 limitations with the relevant implementation commit. Keep private footage, generated
 outputs, environments and secrets out of Git.
+
+### Repetitive crop descriptions (2026-09-28)
+
+Two batch jobs exhausted both the 1,000-token crop-description budget and its
+2,000-token retry. Saved response envelopes reported `finish_reason=length`;
+the output repeatedly elaborated on sail details (about 8,800–9,400 characters).
+Input sizes were only 368 and 475 tokens, so these incidents were output
+truncation rather than context-window exhaustion. The retry had repeated the
+same temperature-zero request with a larger budget.
+
+Crop descriptions now request 2–4 short sentences, at most 120 words, without
+repeated features. A truncation retry adds an explicit concise-output instruction
+while retaining the original images and task. It still has a bounded budget and
+fails explicitly if the second response is truncated; partial JSON is never
+accepted as evidence. This is an output-format reliability change: identity and
+confidence rules are unchanged, and successful caches/checkpoints are retained.
+Already-running processes retain their loaded code. Retry failed jobs with a new
+runner to use the fix; no running analysis is interrupted for deployment.

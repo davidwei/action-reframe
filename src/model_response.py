@@ -1,5 +1,6 @@
 """Audited model responses with actionable transport, truncation and format errors."""
 import json
+import copy
 import socket
 import time
 import urllib.error
@@ -38,11 +39,22 @@ def fetch_response(api,url,payload,response_path,details):
 
 
 def completion(api,url,payload,audit,stage,validator=None):
-    """Save raw envelopes before parsing. Retry output truncation only, once."""
+    """Save raw envelopes before parsing. Retry output truncation once with a concise-output instruction."""
     audit=Path(audit);audit.parent.mkdir(parents=True,exist_ok=True)
     for attempt in range(2):
-        request=dict(payload)
-        if attempt:request['max_tokens']=min(4096,request.get('max_tokens',1000)*2)
+        request=copy.deepcopy(payload)
+        if attempt:
+            request['max_tokens']=min(4096,request.get('max_tokens',1000)*2)
+            instruction=('The previous generation exceeded its output limit. Answer the original task again from scratch, '
+                         'concisely. Do not repeat observations or elaborate speculatively. '
+                         'Preserve required fields and uncertainty; finish the complete answer within 250 words.')
+            if validator is not None:instruction+=' Return only one complete JSON object, including its closing brace.'
+            messages=request.setdefault('messages',[])
+            if messages and messages[-1].get('role')=='user':
+                content=messages[-1].get('content','')
+                if isinstance(content,list):content.append({'type':'text','text':instruction})
+                else:messages[-1]['content']=content+'\n'+instruction
+            else:messages.append({'role':'user','content':instruction})
         if validator is not None:request['response_format']={'type':'json_object'}
         request_path=audit if attempt==0 else audit.with_name(audit.stem+'_retry.json')
         # Never duplicate base64 images in the audit; their source crops are kept separately.

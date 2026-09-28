@@ -62,3 +62,19 @@ class ModelResponseTests(unittest.TestCase):
                 discover_model(api,'http://test/models',Path(folder)/'models.json')
             self.assertIn('429',str(caught.exception));self.assertIn('too many requests',str(caught.exception))
             self.assertEqual(caught.exception.details['stage'],'model discovery')
+
+    def test_truncation_retry_changes_instruction_without_mutating_multimodal_input(self):
+        with tempfile.TemporaryDirectory() as folder:
+            payload={'max_tokens':1000,'messages':[{'role':'user','content':[
+                {'type':'image_url','image_url':{'url':'data:image/png;base64,example'}},
+                {'type':'text','text':'Describe this crop.'}]}]}
+            original=json.dumps(payload);calls=[]
+            def api(url,request):
+                calls.append(request)
+                return self.response('unfinished','length') if len(calls)==1 else self.response('{"x":1}')
+            completion(api,'test',payload,Path(folder)/'request.json','crop description',lambda r:None)
+            self.assertEqual(json.dumps(payload),original)
+            self.assertEqual(len(calls[0]['messages'][0]['content']),2)
+            self.assertEqual(len(calls[1]['messages'][0]['content']),3)
+            self.assertIn('Do not repeat',calls[1]['messages'][0]['content'][-1]['text'])
+            self.assertEqual(calls[1]['messages'][0]['content'][0],payload['messages'][0]['content'][0])

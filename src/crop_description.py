@@ -20,6 +20,8 @@ Describe supported coarse shapes and colors even when blurred. Blur is image
 quality, not proof that an object is absent. Briefly mention ambiguity, unreadable
 details and object parts cut off at the edges, separately from visible identity.
 Do not guess what lies outside the crop or infer an intended subject.
+Use at most 120 words in 2–4 short sentences. State each feature only once; prioritize
+identity features and visible limitations. Stop after those sentences.
 Return ONLY JSON: {"box_description":"concise object-focused visible contents and limitations"}.
 '''
 
