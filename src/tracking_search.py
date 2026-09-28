@@ -101,7 +101,7 @@ class TrackingSearch:
                 polygon=transform_points(box_points(region),matrix)
                 cropbox=(np.r_[polygon.min(axis=0),polygon.max(axis=0)]/np.tile(size,2)*1000).tolist()
                 verification=verify_box(self.c,view,cropbox,None,self.model,folder/'reference.jpg',folder/path,self.api)
-                if self.progress:self.progress.verification(index,verification,path)
+                if self.progress:self.progress.verification(index,verification,path,localized=False)
                 if verification.get('error'):return dict(frame=index,error=verification['error'])
                 score=confidence_from_verification(None,verification['description'],verification['comparison'])
                 predicted=(np.asarray(motion['box'])/[w,h,w,h]*1000).tolist()
@@ -113,8 +113,11 @@ class TrackingSearch:
             valid=[r for r in candidates.values() if r['confidence']>=confidence_threshold(self.c) and r['box_verification']['comparison']['target_complete']]
             if valid:
                 chosen=max(valid,key=lambda r:r['confidence'])
+                if self.progress:self.progress.detection('optical',index,chosen)
                 return dict(chosen,selected_path=chosen['path'],selection_reason='Optical-flow prediction with verified relaxed crop; box not independently localized',
                             selection_flags=['tracking_propagated_box'],candidates=candidates)
+        if self.progress and motion['reliable']:
+            self.progress.detection('optical',index,max(candidates.values(),key=lambda r:r['confidence']) if candidates else {})
         result=self.localize(index,rows,direction,region)
         result.update(motion_quality=motion['motion_quality'],motion_reason=motion.get('reason'),propagation_validation=candidates)
         return result

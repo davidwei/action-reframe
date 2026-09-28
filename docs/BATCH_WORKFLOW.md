@@ -315,3 +315,18 @@ New or instrumented resumed runs record all three counters; a resume lacking the
 historical event log labels its counts partial. Deployment does not interrupt an
 active old runner to obtain counters. Old logs retain their original wording;
 new-run logs report the three coverage totals, anchors and propagation tasks.
+
+Progress cards also show unique frames with **medium or higher** object confidence
+(at least the configured acceptance threshold), and the **high / anchor-eligible**
+subset (at least the configured anchor threshold, independently localized,
+complete, and without a conflict). High counts are included in medium-or-higher
+counts; they are eligible results, not the number of anchors actually scheduled.
+For discovery these describe the selected detection. Crop verification counts
+use the latest result per path, counting a frame once if either path qualifies.
+These statistics describe each action's evidence, not final cross-branch decisions.
+Optical motion quality is not identity confidence: only motion checkpoints with
+crop verification receive object-confidence counts. Intermediate optical-only
+frames remain unverified, and propagated boxes cannot become anchors without
+independent localization. The number of positions with recorded confidence is
+shown separately. Older runs show unavailable confidence counts; active workers
+must finish before new jobs collect these additional statistics.

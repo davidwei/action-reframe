@@ -17,6 +17,12 @@ window.TrackingProgressView={render(element,progress){
   text('p',`${number(group.examined)} / ${number(group.total)} unique positions ${verb}`,card);
   if(kind==='discovery')text('p',`${number(group.resolved_without_scan)} resolved without scanning · ${number(group.remaining)} remaining`,card);
   if(group.accepted!==undefined)text('p',`${number(group.accepted)} ${kind==='optical'?'usable':'accepted'} · ${number(group.rejected)} ${kind==='optical'?'unusable':'rejected'} · ${number(group.errored)} errored positions`,card);
+  const confidence=group.confidence;
+  if(confidence){
+   text('p',`${number(confidence.passed)} medium or higher (≥${Math.round(confidence.threshold*100)}%) · ${number(confidence.high)} high / anchor-eligible (≥${Math.round(confidence.anchor_threshold*100)}%)`,card);
+   text('small',`Confidence recorded for ${number(confidence.recorded)} positions. High is a subset of medium or higher.`,card);
+   if(kind==='optical')text('p','Only crop-verified motion checkpoints have object confidence; optical-only frames are unverified. Independent localization is required for anchors.',card);
+  }else text('p','Confidence counts not recorded for this run.',card);
   if(group.attempts)text('small',`${number(group.attempts.total)} attempts (${number(group.attempts.accepted)} accepted, ${number(group.attempts.rejected)} rejected, ${number(group.attempts.errored)} errors) · ${number(group.attempts.cached)} cached reuses`,card);
   if(group.off_grid_examined)text('p',`${number(group.off_grid_examined)} additional off-grid positions`,card);
  }

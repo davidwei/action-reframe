@@ -66,3 +66,29 @@ class ProgressTests(unittest.TestCase):
             self.assertEqual(counts['accepted'],1);self.assertEqual(counts['rejected'],1)
             self.assertNotIn('3',progress.frames['optical'])
             search.localize.assert_called_once()
+
+    def test_confidence_thresholds_anchor_eligibility_and_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p=TrackingProgress(directory,'confidence',[0,1,2],range(3),0,2,.6,anchor_threshold=.9)
+            def row(score,localized=True,complete=True):
+                return dict(bbox=[0,0,10,10],confidence=score,visibility='visible',localized=localized,
+                    box_verification={'comparison':dict(target_present=True,match_score=score,target_complete=complete)})
+            for i,score in enumerate([.59,.6,.9]):
+                p.record('discovery',i,'accepted');p.detection('discovery',i,row(score))
+            p.verification(1,row(.95)['box_verification'],'raw',localized=False)
+            p.verification(1,row(.95)['box_verification'],'leveled',localized=True)
+            p.verification(2,row(.99,complete=False)['box_verification'],'raw')
+            p.record('optical',1,'accepted');p.detection('optical',1,row(.99,localized=False))
+            p.record('optical',2,'accepted')
+            result=p.publish({})
+            self.assertEqual(result['discovery']['confidence']['passed'],2)
+            self.assertEqual(result['discovery']['confidence']['high'],1)
+            self.assertEqual(result['verification']['confidence']['passed'],2)
+            self.assertEqual(result['verification']['confidence']['high'],1)
+            self.assertEqual(result['optical']['confidence']['recorded'],1)
+            self.assertEqual(result['optical']['confidence']['passed'],1)
+            self.assertEqual(result['optical']['confidence']['high'],0)
+            resumed=TrackingProgress(directory,'confidence',[0,1,2],range(3),0,2,.6,resuming=True,anchor_threshold=.9)
+            self.assertEqual(resumed.publish({}),result)
+            resumed.verification(1,{'error':'failed'},'leveled')
+            self.assertEqual(resumed.publish({})['verification']['confidence']['high'],0)

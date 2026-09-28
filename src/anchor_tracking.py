@@ -52,13 +52,14 @@ def run_anchors(c,meta,model,helpers,api,single=None):
         previous=json.loads(checkpoint.read_text())
         if previous.get('fingerprint')==fingerprint:prior=previous
     search=TrackingSearch(config,meta,gyro,model,helpers,api)
-    progress=TrackingProgress(out,fingerprint,discovery,indices,start,stop,confidence_threshold(c),resuming=prior is not None)
+    progress=TrackingProgress(out,fingerprint,discovery,indices,start,stop,confidence_threshold(c),resuming=prior is not None,anchor_threshold=options['anchor_confidence'])
     search.progress=progress
     def discover(index,rows):
         try:row=search.localize(index,rows)
         except Exception:
             progress.record('discovery',index,'errored');raise
         progress.record('discovery',index,'errored' if row.get('error') else 'accepted' if reliable(row,confidence_threshold(c)) else 'rejected')
+        progress.detection('discovery',index,row)
         return row
     def publish(state):
         state['fingerprint']=fingerprint;save(checkpoint,state)

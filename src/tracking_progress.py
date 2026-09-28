@@ -15,10 +15,10 @@ def save(path,value):
 
 
 class TrackingProgress:
-    def __init__(self,out,fingerprint,discovery,checkpoints,start,stop,threshold,resuming=False):
+    def __init__(self,out,fingerprint,discovery,checkpoints,start,stop,threshold,resuming=False,anchor_threshold=.85):
         self.out=Path(out);self.path=self.out/'tracking_work.jsonl'
         self.discovery=set(discovery);self.checkpoints=set(checkpoints);self.start=start;self.stop=stop
-        self.threshold=threshold;self.lock=threading.RLock();self.state=None;self.last_write=0
+        self.anchor_threshold=anchor_threshold;self.confidence={k:{} for k in ("discovery","verification","optical")};self.threshold=threshold;self.lock=threading.RLock();self.state=None;self.last_write=0
         self.frames={'discovery':{},'verification':{},'optical':{}}
         self.attempts={k:dict(total=0,accepted=0,rejected=0,errored=0,cached=0) for k in self.frames}
         self.incomplete=bool(resuming)
@@ -42,7 +42,11 @@ class TrackingProgress:
             self.path.write_text(json.dumps({'fingerprint':fingerprint,'historical_incomplete':self.incomplete})+'\n')
 
     def _apply(self,event):
-        kind=event['kind'];frame=str(event['frame']);outcome=event['outcome']
+        kind=event['kind'];frame=str(event['frame'])
+        if event.get('confidence_event'):
+            self.confidence[kind].setdefault(frame,{})[event.get('path','')]=event
+            return
+        outcome=event['outcome']
         counts=self.attempts[kind]
         if event.get('cached'):counts['cached']+=1
         else:counts['total']+=1;counts[outcome]+=1
@@ -60,12 +64,27 @@ class TrackingProgress:
             self._apply(event)
             if self.state is not None and time.monotonic()-self.last_write>=1:self.publish(self.state)
 
-    def verification(self,frame,result,path,cached=False):
+    def detection(self,kind,frame,row,path=''):
+        from tracking_evidence import reliable
+        passed=reliable(row,self.threshold)
+        high=bool(passed and row.get('confidence',0)>=self.anchor_threshold and row.get('localized')
+                  and not row.get('conflict') and (row.get('manual') or
+                  row.get('box_verification',{}).get('comparison',{}).get('target_complete') is True))
+        event=dict(confidence_event=True,kind=kind,frame=frame,path=path,passed=passed,high=high)
+        if not self.start<=frame<=self.stop:return
+        with self.lock:
+            with self.path.open('a') as stream:stream.write(json.dumps(event)+'\n')
+            self._apply(event)
+
+    def verification(self,frame,result,path,cached=False,localized=True):
         comparison=result.get('comparison',{})
         outcome='errored' if result.get('error') else 'accepted' if (
             comparison.get('target_present') and comparison.get('match_score',0)>=self.threshold
             and comparison.get('target_complete') is True) else 'rejected'
         self.record('verification',frame,outcome,path,cached or result.get('cache_hit',False))
+        self.detection('verification',frame,dict(bbox=[] if comparison.get('target_present') else None,
+            confidence=comparison.get('match_score',0),visibility='visible',localized=localized,
+            error=result.get('error'),box_verification=result),path)
 
     def publish(self,state):
         with self.lock:
@@ -81,6 +100,11 @@ class TrackingProgress:
                     counts[category]+=1
                 groups[kind]=dict(examined=len(selected),total=len(allowed) if allowed is not None else self.stop-self.start+1,
                     **counts,attempts=dict(self.attempts[kind]),off_grid_examined=len(positions)-len(selected),available=True)
+            for kind,group in groups.items():
+                allowed=self.discovery if kind=='discovery' else self.checkpoints if kind=='verification' else None
+                evidence=[paths for f,paths in self.confidence[kind].items() if (allowed is None or int(f) in allowed) and f in self.frames[kind]]
+                group['confidence']=dict(recorded=len(evidence),passed=sum(any(e['passed'] for e in paths.values()) for paths in evidence),
+                    high=sum(any(e['high'] for e in paths.values()) for paths in evidence),threshold=self.threshold,anchor_threshold=self.anchor_threshold)
             scanned=set(map(int,self.frames['discovery']))
             coverage=state.get('coverage',{})
             resolved=sum(i not in scanned and (coverage.get(str(i),{}).get('manual') or coverage.get(str(i),{}).get('reliably_covered',False)) for i in self.discovery)
