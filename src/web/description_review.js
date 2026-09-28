@@ -1,7 +1,7 @@
 /* Shared blind observations and identity checks; human approval stays explicit. */
 window.DescriptionReview=(()=>{
  const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,autoAttempted=false,review=null,lastPoll=0,polling=false;
- async function request(action,body){const r=await fetch('/api/batch/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json();if(!r.ok)throw Error(result.error||r.status);return result}
+ async function request(action,body){const r=await fetch('/api/batch/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json();if(!r.ok){const error=Error(result.error||r.status);error.modelDetails=result.model_error;throw error;}return result}
  function status(text){$('descriptionStatus').textContent=text}
  function current(){return review?.description===$('descriptionText').value.trim()}
  function crops(){
@@ -30,9 +30,10 @@ window.DescriptionReview=(()=>{
  }
  async function generate(action='draft'){
   if(busy||!project||(action!=='check-description'&&!state?.config?.reference_box))return;
+  $('descriptionErrorDetails').hidden=true;$('descriptionErrorText').textContent='';
   const active=++token;busy=true;controls();status(action==='draft'?'Qwen is describing all labeled crops, summarizing, and checking each crop…':action==='retry-description'?'Qwen is revising the summary using feedback, then rechecking each crop…':'Comparing each crop description with your edited description…');
   try{const result=await request(action,{project,description:$('descriptionText').value.trim()});if(active!==token)return;review=result;if(action!=='check-description'){$('descriptionText').value=result.description;dirty=true}crops();status(result.all_passed?'All positive and absent checks pass. Review and approve when satisfied.':'Some examples fail their expected confidence range. Review the scores, feedback and labels.');}
-  catch(e){if(active===token)status(e.message+' You can edit the description manually.')}
+  catch(e){if(active===token){status(e.message);if(e.modelDetails){$('descriptionErrorDetails').hidden=false;$('descriptionErrorText').textContent=JSON.stringify(e.modelDetails,null,2)}}}
   finally{if(active===token){busy=false;controls()}}
  }
  async function refreshReview(){

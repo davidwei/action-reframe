@@ -216,3 +216,26 @@ Absent observations are excluded from the initial identity summary. A feedback r
 includes their expected non-match and comparison details to identify overly broad
 identity claims, with explicit instructions not to adopt those scene contents as
 identity features. Original image descriptions are reused during rechecks/retries.
+
+### Model failures during description review
+
+Description review distinguishes HTTP/server errors, connection failures, timeouts,
+empty answers, truncated output, and invalid JSON/schema. The main message includes
+the affected stage and frame where applicable; **Model error details** exposes HTTP
+status or finish reason, token usage, elapsed time, request ID, response excerpt and
+audit-file locations. A successful HTTP response can still contain invalid model
+output; it is not shown as a successful description or replaced with a fabricated score.
+
+The shared crop-description and text-comparison calls request JSON-object output and
+allow 1,000 output tokens. A confirmed `finish_reason=length` triggers one retry with
+double the budget, capped at 4,096; another truncation is an explicit error. Summary
+calls use their own initial budget and the same bounded truncation retry. Transport
+and server errors are not automatically retried in this path, avoiding retry storms
+when the model server is busy. Previously completed crop observations remain reusable.
+
+Raw response envelopes are saved before parsing, including unsuccessful format
+responses. Request audits omit inline image bytes; source crop images are retained
+separately. Error audits and raw responses live beside the description-review attempt
+or tracking verifier artifacts. These runtime records may contain private descriptions
+and are not checked into Git. Historical parser failures from before this logging
+change cannot be conclusively diagnosed if their original raw response was discarded.

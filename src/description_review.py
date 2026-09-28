@@ -6,6 +6,7 @@ from pathlib import Path
 
 from crop_description import describe_crop, VERSION
 from description_comparison import compare_descriptions
+from model_response import completion, discover_model, ModelResponseError
 
 THRESHOLD=.8
 ABSENT_THRESHOLD=.2
@@ -86,11 +87,14 @@ def review(batch,project,action='status',description=None):
     if action in ('draft','retry') and not any(r['expected_present'] for r in refs):
         raise ValueError('Draw a positive ground-truth box before drafting an identity description')
     if action not in ('draft','check','retry'):raise ValueError('Unknown description action')
-    model=api(c['api_url']+'/models')['data'][0]['id']
+    model=discover_model(api,c['api_url']+'/models',folder/'model_request.json')
     observation_folder=folder/hashlib.sha256(model.encode()).hexdigest()[:16]
     for r in refs:
         cache=observation_folder/f"{r['frame']}_observation.json"
-        observation=json.loads(cache.read_text()) if cache.exists() else describe_crop(batch.root/r['crop_path'],model,c['api_url'],api,observation_folder/f"{r['frame']}_request.json")
+        try:
+            observation=json.loads(cache.read_text()) if cache.exists() else describe_crop(batch.root/r['crop_path'],model,c['api_url'],api,observation_folder/f"{r['frame']}_request.json")
+        except ModelResponseError as error:
+            error.details.update(frame=r['frame'],time=r['time']);raise ModelResponseError(f"Frame {r['frame']} ({r['time']:.3f}s): {error}",error.details) from error
         write(cache,observation);r['box_description']=observation['box_description']
     attempt=folder/uuid.uuid4().hex
     original=json.dumps([{'frame':r['frame'],'box_description':r['box_description']} for r in refs if r['expected_present']])
@@ -101,11 +105,14 @@ def review(batch,project,action='status',description=None):
         else:prompt=SUMMARY+original
         request={'model':model,'temperature':0,'max_tokens':800,'messages':[{'role':'user','content':[{'type':'text','text':prompt}]}]}
         write(attempt/'summary_request.json',request)
-        description=api(c['api_url']+'/chat/completions',request)['choices'][0]['message']['content']
+        description=completion(api,c['api_url']+'/chat/completions',request,attempt/'summary_request.json','identity summary')
     if not isinstance(description,str) or not description.strip():raise ValueError('Enter an identity description first')
     description=description.strip()
     for r in refs:
-        comparison=compare_descriptions(description,r['box_description'],model,c['api_url'],api,attempt/f"{r['frame']}_compare_request.json")
+        try:
+            comparison=compare_descriptions(description,r['box_description'],model,c['api_url'],api,attempt/f"{r['frame']}_compare_request.json")
+        except ModelResponseError as error:
+            error.details.update(frame=r['frame'],time=r['time']);raise ModelResponseError(f"Frame {r['frame']} ({r['time']:.3f}s): {error}",error.details) from error
         r.update(comparison=comparison,confidence=comparison['match_score'] if comparison['target_present'] else 0.)
         r['passed']=r['confidence']>=THRESHOLD if r['expected_present'] else r['confidence']<=ABSENT_THRESHOLD
     result=dict(description=description,references=refs,evidence_key=key,threshold=THRESHOLD,absent_threshold=ABSENT_THRESHOLD,

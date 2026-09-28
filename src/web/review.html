@@ -21,7 +21,7 @@
 </section>
 <section id="identity-description"><h2>Review descriptions</h2>
 <p>Review the target's distinguishing appearance across your ground-truth crops. With crops and no saved description, Qwen drafts a summary here; without crops, start with an empty draft.</p>
-<p id="descriptionStatus" role="status"></p><textarea id="descriptionText" aria-label="Target identity description" style="height:160px"></textarea>
+<p id="descriptionStatus" role="status"></p><details id="descriptionErrorDetails" hidden><summary>Model error details</summary><pre id="descriptionErrorText" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details><textarea id="descriptionText" aria-label="Target identity description" style="height:160px"></textarea>
 <div class="row"><button id="draftDescription">Draft from labeled crops</button><button id="checkDescription">Check against crops</button><button id="retryDescription">Revise using feedback</button><button id="saveDescription">Save draft</button><button id="approveDescription">Approve description</button></div>
 <p>Selected crops and full frames marked absent use the same blind description and text-comparison function as tracking, without telling the model which label applies. Present examples should score ≥80%; absent examples should score ≤20%. Unexpected scores need review; use “Revise using feedback” to retry the summary without describing the images again. Identity score and crop completeness are separate.</p><div id="descriptionCrops" style="display:flex;flex-wrap:wrap;gap:16px"></div>
 </section>
@@ -33,7 +33,7 @@
 <div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
 <video id="preview" controls playsinline></video><pre id="log"></pre></section>
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
-<script src="/files/description_review.js?v=3"></script>
+<script src="/files/description_review.js?v=4"></script>
 <script src="/files/frame_analysis.js?v=dotted-estimates-4"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';

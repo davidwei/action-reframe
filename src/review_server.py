@@ -195,7 +195,10 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError,ConnectionResetError):
             pass
         except Exception as e:
-            self.json_response({'error':str(e)},400)
+            from model_response import ModelResponseError
+            if isinstance(e,ModelResponseError):
+                self.json_response({'error':str(e),'model_error':e.details},504 if e.details.get('kind')=='timeout' else 502)
+            else:self.json_response({'error':str(e)},400)
 
     def do_POST(self):
         global JOB,LOG
@@ -329,7 +332,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json_response({'started':JOB.pid})
                 self.json_response({'error':'Not found'},404)
         except Exception as e:
-            self.json_response({'error':str(e)},400)
+            from model_response import ModelResponseError
+            if isinstance(e,ModelResponseError):
+                self.json_response({'error':str(e),'model_error':e.details},504 if e.details.get('kind')=='timeout' else 502)
+            else:self.json_response({'error':str(e)},400)
 
 
 if __name__=='__main__':
