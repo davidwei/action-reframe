@@ -31,6 +31,7 @@ function renderProjects(){
   row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at),document.createElement('br'),codeBadge(p.code_version),document.createElement('br'),codeBadge(p.analysis_code_version,'Analysis'),document.createElement('br'),codeBadge(p.render_code_version,'Render'));
   card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} analysis FPS · ${p.labels} additional labels`));
   card.append(text('p','Actions: '+p.actions.join(' · ')));
+  if(p.result_is_previous)card.append(text('p','Video focus and side-by-side playback open the last successful result. It may use earlier inputs or code; the latest attempt is listed in the queue below.'));
   if(p.stale)card.append(text('p','Inputs changed — review and approve again.'));
   if(['failed','interrupted'].includes(p.latest_job))card.append(text('p','Last job '+p.latest_job+' — inspect the log and retry from the queue below.'));
   const img=document.createElement('img');img.className='preview';img.alt='Human-selected target crop';img.loading='lazy';if(p.has_box)img.src='/api/reference?config='+encodeURIComponent(p.project);
@@ -41,8 +42,9 @@ function renderProjects(){
   if(p.analysis_code_version?.status!=='current'&&!p.ready&&p.status!=='Processing'&&p.can_rerender)actions.append(text('small','Review and approve inputs to re-run analysis.'));
   if(p.can_rerender)actions.append(button(p.render_code_version?.status!=='current'?'Re-render (no re-analysis)':'Queue Rerendering (no re-analysis)',async()=>{await api('/queue-rerender',{projects:[p.project]});await load();notice('Rerender queued using saved analysis and corrections. Start/resume the queue when ready.')}));
   if(p.status==='Ready')actions.append(button('Queue processing',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Queued. Start/resume the queue when ready.')}));
-  if(['Processing','Done'].includes(p.status))actions.append(link('Open video focus','/?config='+encodeURIComponent(p.active_config||p.completed_config||p.project)));
-  if(p.status==='Done'&&p.completed_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.completed_config)));
+  if(p.result_config||['Processing','Done'].includes(p.status))actions.append(link('Open video focus','/?config='+encodeURIComponent(p.result_config||p.active_config||p.completed_config||p.project)));
+  if(p.active_config&&p.result_config&&p.active_config!==p.result_config)actions.append(link('Open current run','/?config='+encodeURIComponent(p.active_config)));
+  if(p.result_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.result_config)));
   actions.append(button('Discard project',async()=>{const r=await api('/discard',{project:p.project});drafts.delete(p.project);selected.delete(p.project);await load();notice(r.finishing?'Discard requested; the running job will finish first.':'Project discarded. Video and results preserved; restore it below if needed.')}));
   if(p.discard_pending)for(const b of actions.querySelectorAll('button'))b.disabled=true;
   card.append(actions);$('projects').append(card);
@@ -65,6 +67,7 @@ function renderJobs(){
   if(j.status==='queued')actions.append(button('Cancel',async()=>{await api('/cancel',{id:j.id});await load()}));
   if(['failed','interrupted'].includes(j.status))actions.append(button('Retry saved inputs',async()=>{await api('/retry',{id:j.id});await load();notice('Requeued. Start/resume if paused.')}));
   if(['succeeded','failed','interrupted'].includes(j.status))actions.append(button('Copy corrections to source',async()=>{const r=await api('/adopt',{id:j.id});await load();notice(`Copied ${r.labels} labels to ${r.project}. Review and approve it before queuing a new run.`)}));
+  if(j.comparison_available)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(j.config)));
   actions.append(document.createElement('br'),link('Job log','/files/'+j.output_dir+'/job.log'));
   row.append(identity,status,progress,actions);$('jobs').append(row);
  }

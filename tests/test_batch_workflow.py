@@ -286,3 +286,38 @@ with file_lock(root/'.batch/locks'/(job+'.lock')) as acquired:
             for p in (process,other):
                 if p.poll() is None:p.kill()
                 p.wait()
+
+    def test_successful_result_remains_reviewable_after_new_revision_failure(self):
+        first=self.queue();self.starting(first)
+        self.batch.execute(first,[sys.executable,'-c','pass'])
+        old=self.batch.jobs()[0];old_config=old['config']
+        output=Path(read(self.root/old_config)['output_dir'])
+        (output/'comparison.mp4').write_bytes(b'rendered fixture')
+        self.batch.prepare('project.json','Revised approved subject',True)
+        second=self.batch.enqueue(['project.json'])[0]
+        project=self.batch.library()['projects'][0]
+        self.assertEqual(project['status'],'Processing')
+        self.assertEqual(project['result_config'],old_config)
+        self.assertTrue(project['result_is_previous'])
+        self.assertIn('Watch side by side',project['actions'])
+        self.starting(second);self.batch.execute(second,[sys.executable,'-c','raise SystemExit(3)'])
+        project=self.batch.library()['projects'][0]
+        self.assertEqual(project['latest_job'],'failed')
+        self.assertEqual(project['result_config'],old_config)
+        self.assertIsNone(project['completed_config']) # Previous inputs are not marked complete.
+        self.assertIn('Open video focus',project['actions'])
+        self.assertIn('Watch side by side',project['actions'])
+        self.assertTrue((output/'comparison.mp4').exists())
+        # Do not offer a dead result link if its files have been removed externally.
+        (output/'comparison.mp4').unlink()
+        self.assertIsNone(self.batch.library()['projects'][0]['result_config'])
+
+    def test_legacy_result_remains_available_with_failed_batch_attempt(self):
+        job=self.queue();self.starting(job)
+        self.batch.execute(job,[sys.executable,'-c','raise SystemExit(3)'])
+        source=self.root/'outputs/source';source.mkdir(parents=True,exist_ok=True)
+        (source/'comparison.mp4').write_bytes(b'legacy render fixture')
+        project=self.batch.library()['projects'][0]
+        self.assertEqual(project['result_config'],'project.json')
+        self.assertTrue(project['result_is_previous'])
+        self.assertEqual(project['latest_job'],'failed')

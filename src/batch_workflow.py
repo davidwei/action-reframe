@@ -210,7 +210,13 @@ class Batch:
                 if path.name in discarded and not pending:
                     archived.append({'project':path.name,'video':c['video'],'updated_at':updated_at});continue
                 completed=next((j for j in reversed(related) if j['status']=='succeeded' and j['revision']==revision),None)
+                # Reviewable results survive input revisions and later failed/running attempts.
+                last_success=next((j for j in reversed(related) if j['status']=='succeeded'
+                    and (self.path(read(self.path(j['config']))['output_dir'])/'comparison.mp4').exists()),None)
                 comparison=self.path(c['output_dir'])/'comparison.mp4'
+                result_config=last_success['config'] if last_success else path.name if comparison.exists() else None
+                result_is_previous=bool(result_config and (not last_success or not completed or last_success['id']!=completed['id']
+                    or related[-1]['id']!=last_success['id']))
                 inputs_mtime=max(path.stat().st_mtime,(self.path(c['output_dir'])/'corrections.json').stat().st_mtime if (self.path(c['output_dir'])/'corrections.json').exists() else 0)
                 legacy_done=not related and comparison.exists() and inputs_mtime<=comparison.stat().st_mtime and (not prep or (prep.get('approved_at') or float('inf'))<=comparison.stat().st_mtime)
                 has_input=bool(c.get('reference_box') or labels or c.get('target','').strip() or prep.get('description','').strip())
@@ -221,10 +227,12 @@ class Batch:
                 actions=['Label subject','Review descriptions']
                 if can_rerender:actions.append('Queue Rerendering (no re-analysis)')
                 if status=='Ready':actions.append('Queue processing')
-                if status in ('Processing','Done'):actions.append('Open video focus')
-                if status=='Done':actions.append('Watch side by side')
+                if result_config or status in ('Processing','Done'):actions.append('Open video focus')
+                if result_config:actions.append('Watch side by side')
                 actions.append('Discard project')
                 projects.append(dict(project=path.name,updated_at=updated_at,status=status,actions=actions,discard_pending=path.name in discarded,
+                    result_config=result_config,result_is_previous=result_is_previous,
+                    result_job=last_success['id'] if last_success else None,
                     can_rerender=can_rerender,active_job=pending['id'] if pending else None,active_config=pending['config'] if pending else None,completed_config=completed['config'] if completed else path.name if legacy_done else None,
                     latest_job=pending['status'] if pending else related[-1]['status'] if related else None,
                     has_box=bool(c.get('reference_box')),video=c['video'],target=c['target'],
