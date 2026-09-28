@@ -17,6 +17,7 @@ window.TrackingProgressView={render(element,progress){
   text('p',`${number(group.examined)} / ${number(group.total)} unique positions ${verb}`,card);
   if(kind==='discovery')text('p',`${number(group.resolved_without_scan)} resolved without scanning · ${number(group.remaining)} remaining`,card);
   if(group.accepted!==undefined)text('p',`${number(group.accepted)} ${kind==='optical'?'usable':'accepted'} · ${number(group.rejected)} ${kind==='optical'?'unusable':'rejected'} · ${number(group.errored)} errored positions`,card);
+  if(group.rejection_reasons){const r=group.rejection_reasons;text('p',`${number(r.identity_rejected)} identity rejected · ${number(r.localization_rejected)} localization rejected · ${number(r.request_error)} request errors${r.unclassified?` · ${number(r.unclassified)} other/unclassified`:''}`,card)}
   const confidence=group.confidence;
   if(confidence){
    text('p',`${number(confidence.passed)} medium or higher (≥${Math.round(confidence.threshold*100)}%) · ${number(confidence.high)} high / anchor-eligible (≥${Math.round(confidence.anchor_threshold*100)}%)`,card);
@@ -26,7 +27,7 @@ window.TrackingProgressView={render(element,progress){
   if(group.attempts)text('small',`${number(group.attempts.total)} attempts (${number(group.attempts.accepted)} accepted, ${number(group.attempts.rejected)} rejected, ${number(group.attempts.errored)} errors) · ${number(group.attempts.cached)} cached reuses`,card);
   if(group.off_grid_examined)text('p',`${number(group.off_grid_examined)} additional off-grid positions`,card);
  }
- text('small','Coverage, not completion percentage. Positions count once; attempts include repeated visits and both verification paths. Crop acceptance requires confidence and completeness.');
+ text('small','Coverage, not completion percentage. Positions count once; attempts include repeated visits and both verification paths. New crop acceptance requires identity confidence and supported localization; partial visibility is allowed. Older runs retain their recorded decisions.');
  if(coverage.historical_incomplete)text('p',coverage.legacy?'This run predates detailed counters: verification and optical history were not recorded.':'Earlier work was not recorded by this version; coverage and attempts are partial.');
  if(coverage.stage==='complete')text('p','Scheduling complete. Adaptive tracking does not require every coverage counter to reach its denominator.');
 }};

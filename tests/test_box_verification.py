@@ -15,13 +15,13 @@ class BoxVerificationTests(unittest.TestCase):
                 if 'Describe only what' in prompt:
                     self.assertNotIn('CLAIM_SENTINEL',prompt);self.assertNotIn('TARGET_SENTINEL',prompt);self.assertNotIn('TRUSTED_SENTINEL',prompt)
                     self.assertEqual(sum(p['type']=='image_url' for p in content),1)
-                    result={'box_description':'TRUSTED_SENTINEL green triangular sailboat' if len(calls)==1 else 'Only water'}
+                    result={'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'TRUSTED_SENTINEL green triangular sailboat' if len(calls)==1 else 'Only water'}
                     if len(calls)==2:self.assertEqual(prompt,calls[0]['messages'][0]['content'][-1]['text'])
                 else:
                     self.assertNotIn('CLAIM_SENTINEL',prompt);self.assertNotIn('TARGET_SENTINEL',prompt)
                     self.assertIn('TRUSTED_SENTINEL',prompt);self.assertIn('Only water',prompt)
                     self.assertTrue(all(p['type']=='text' for p in content))
-                    result={'match_score':.05,'target_present':False,'target_complete':False,'differences':['Only water seen'],'reason':'Wrong content'}
+                    result={'exclusion_check':'pass','exclusion_reason':'No contradiction','localization_support':'supported','localization_reason':'Isolated subject','match_score':.05,'target_present':False,'target_complete':False,'differences':['Only water seen'],'reason':'Wrong content'}
                 return {'choices':[{'message':{'content':json.dumps(result)}}]}
             c={'target':'TARGET_SENTINEL','api_url':'http://test/v1'}
             r=verify_box(c,view,[100,200,300,400],'CLAIM_SENTINEL', 'model',ref,root/'verify',api)
@@ -40,10 +40,10 @@ class BoxVerificationTests(unittest.TestCase):
             calls=[]
             def api(url,payload):
                 prompt=payload['messages'][0]['content'][-1]['text'];calls.append(prompt)
-                if 'Describe only' in prompt:result={'box_description':'A green sail'}
+                if 'Describe only' in prompt:result={'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'A green sail'}
                 else:
                     self.assertIn('APPROVED',prompt)
-                    result={'match_score':.9,'target_present':True,'target_complete':True,'differences':[],'reason':'match'}
+                    result={'exclusion_check':'pass','exclusion_reason':'No contradiction','localization_support':'supported','localization_reason':'Isolated subject','match_score':.9,'target_present':True,'target_complete':True,'differences':[],'reason':'match'}
                 return {'choices':[{'message':{'content':json.dumps(result)}}]}
             c={'target':'boat','api_url':'http://test/v1','approved_target_description':'APPROVED green sail'}
             r=verify_box(c,view,[100,100,400,500],None,'model',ref,folder,api)
@@ -54,10 +54,11 @@ class BoxVerificationTests(unittest.TestCase):
             self.assertEqual(len(calls),4)
 
     def test_score_ignores_proposal_confidence_and_separates_completeness(self):
-        d={'box_description':'A green sail with clipped tip'}
-        comparison={'match_score':.9,'target_present':True,'target_complete':False}
+        d={'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'A green sail with clipped tip'}
+        comparison={'exclusion_check':'pass','exclusion_reason':'No contradiction','localization_support':'supported','localization_reason':'Isolated subject','match_score':.9,'target_present':True,'target_complete':False}
         self.assertEqual(confidence_from_verification(.1,d,comparison),.9)
         self.assertEqual(confidence_from_verification(1,d,comparison),.9)
+        self.assertEqual(confidence_from_verification(1,d,dict(comparison,exclusion_check='contradicted')),0)
         comparison['target_present']=False
         self.assertEqual(confidence_from_verification(1,d,comparison),0)
         for bad in [float('nan'),True,1.1,-.1]:

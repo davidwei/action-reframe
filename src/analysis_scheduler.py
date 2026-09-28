@@ -34,9 +34,8 @@ class AnchorScheduler:
         self.queue.append(dict(source=row['frame'],target=target,direction=direction,origin=row.get('origin_anchor',row['frame']),key=key))
 
     def can_anchor(self,row):
-        return (row.get('localized') and reliable(row,max(self.high,self.threshold))
-                and (row.get('manual') or row.get('box_verification',{}).get('comparison',{}).get('target_complete') is True)
-                and not row.get('conflict'))
+        from verification_policy import anchor_eligible
+        return anchor_eligible(row,self.threshold,self.high)
 
     def _anchor(self,row):
         if row['frame'] in self.state['anchors']:return

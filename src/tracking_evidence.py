@@ -3,8 +3,8 @@ from tracking_selection import overlap
 
 
 def reliable(row,threshold):
-    return bool(row and row.get('bbox') is not None and row.get('confidence',0)>=threshold
-                and row.get('visibility') in ('visible','partial') and not row.get('error'))
+    from verification_policy import accepted_row
+    return accepted_row(row,threshold)
 
 
 def resolve(previous,candidate,threshold=.5,agreement_iou=.35):

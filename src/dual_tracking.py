@@ -1,4 +1,5 @@
 """Independent raw+angle and leveled-image tracking, stored in source coordinates."""
+from verification_policy import target_description, verification_decision
 import hashlib
 import json
 import math
@@ -12,7 +13,7 @@ import numpy as np
 from backward_tracking import bidirectional_pass
 from leveling import extract_gyro
 
-VERSION = 6
+VERSION = 7
 PATHS = ('raw_angle', 'leveled')
 
 
@@ -58,7 +59,7 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
     frame_loader, completion, save = helpers
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
-    signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,c['target'],
+    signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,target_description(c),
         c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=cache/f'{signature}.json'
     if result_path.exists():
@@ -81,7 +82,7 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
 Image 1: original target reference crop. Image 2: current {'leveled' if path=='leveled' else 'raw'} full frame, clean.
 Locate the target afresh in clean IMAGE 2. No previous box coordinates or target outline are supplied.
 Additional human-labeled target crops are identity references at their labeled timestamps, not current-position hints.
-Target: {c['target']}
+Target: {target_description(c)}
 The user accepts a blurry, distant or low-resolution target. Track it whenever visible evidence supports its identity; do not reject it or lower confidence solely because it is blurry.
 Use coarse shape, color, equipment and motion context when fine details are unreadable. Do not invent missing details; return uncertainty only when the available evidence cannot distinguish the target.
 Current source frame {index}, time {index/meta['fps']:.3f}s. Source size {w}x{h}; IMAGE 2 size {size[0]}x{size[1]}.
@@ -89,7 +90,7 @@ Current source frame {index}, time {index/meta['fps']:.3f}s. Source size {w}x{h}
 Current gyro-derived roll is {angle:.6f} degrees. Positive roll requires counterclockwise correction.
 {'IMAGE 2 has already been rotated counterclockwise by that angle, with expanded black borders to avoid cutting content. Do not rotate again. Black padding is not scene content.' if path=='leveled' else 'IMAGE 2 has NOT been rotated. Use the angle to understand camera tilt; return coordinates in the RAW image.'}
 Additional HISTORY full frames use ORIGINAL RAW views, even in the leveled path. Use their visual motion context; return coordinates only in IMAGE 2.
-Use all visible target parts and equipment; exclude reflections and the camera platform. Do not switch identity. If absent or uncertain, return null and honest confidence.
+Use visible target parts and equipment. Apply exclusions from the approved target description; do not invent project-specific exclusions. Do not switch identity. If absent or uncertain, return null and honest confidence.
 Coordinates: IMAGE 2 top-left is (0,0), bottom-right is (1000,1000). X increases rightward and Y downward.
 Normalize X by the FULL IMAGE 2 width and Y by its FULL height, including any black padding. Return [xmin,ymin,xmax,ymax]. Do not unrotate your answer.
 After proposing the coordinates, inspect the region they enclose. Describe ACTUAL contents there, including target parts, cut-off parts and unrelated background; do not repeat the intended target description.
@@ -139,14 +140,16 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
         verification=data.get('box_verification')
         threshold=c.get('tracking_selection',{}).get('confidence_threshold',.5)
         if (attempt==retries or not verification or verification.get('error') or data.get('error')
-                or (data['confidence']>=threshold and verification.get('comparison',{}).get('target_complete',True))):break
+                or verification_decision(verification,threshold)['accepted']):break
         # Feedback contains crop evidence, never the rejected coordinates or previous answer.
         crop=verification.get('crop_path')
         if not crop:break
         images=[cache/'reference.jpg',current_path,Path(crop)]
         evidence={k:verification.get(k) for k in ('description','comparison')}
         evidence={k:{x:y for x,y in v.items() if x not in ('raw','request_file')} for k,v in evidence.items() if v}
-        feedback=('\nRETRY: The previous proposal failed independent crop verification. '
+        decision=verification_decision(verification,threshold)
+        advice=('Isolate the intended subject with a corrected box.' if decision['category']=='localization_rejected' else 'Search for a different candidate consistent with the approved identity requirements.')
+        feedback=('\nRETRY: '+decision['reason']+'. '+advice+' '
                   'Image 3 is the rejected crop from CURRENT IMAGE 2, NOT an identity reference. '
                   'Find a corrected box from the clean full frame (IMAGE 2); inspect the entire frame, '
                   'not just the previously considered area. Do not return coordinates in the crop. '
@@ -166,7 +169,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
 def adjudicate_pair(c,meta,index,model,candidates,history,helpers,labels=PATHS,direction='forward'):
     loader,completion,save=helpers
     folder=Path(meta['cache'])/('adjudication_'+'_'.join(labels)+'_'+direction);folder.mkdir(parents=True,exist_ok=True)
-    key=hashlib.sha256(json.dumps([3,labels,direction,model,c['target'],c.get('reference_frames',[]),
+    key=hashlib.sha256(json.dumps([3,labels,direction,model,target_description(c),c.get('reference_frames',[]),
         c.get('temporal_context',{}),candidates,history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=folder/f'{key}.json'
     if result_path.exists():
@@ -184,7 +187,7 @@ def adjudicate_pair(c,meta,index,model,candidates,history,helpers,labels=PATHS,d
     prompt=f'''Adjudicate two independent tracking candidates for the SAME user-selected target.
 Image 1 is the target reference. Image 2 is the CURRENT RAW frame. Image 3 marks candidates:
 {labels[0]} = cyan, {labels[1]} = orange. All candidate boxes use normalized ORIGINAL RAW coordinates.
-Target: {c['target']}. Current frame: {index}.
+Target: {target_description(c)}. Current frame: {index}.
 Candidates: {json.dumps({k:{'bbox':r.get('bbox'),'note':r.get('note')} for k,r in candidates.items()})}
 The user accepts blurry or low-resolution targets. Blur alone is not a reason to choose neither or lower confidence; use the available shape, color and motion evidence. Unreadable fine details are not identity contradictions. Remain uncertain if the visible evidence cannot distinguish the target.
 Use visible identity evidence and supplied selected-track motion history. Do not choose merely because a candidate has a box.

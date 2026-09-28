@@ -5,12 +5,13 @@ import uuid
 from pathlib import Path
 
 from crop_description import describe_crop, VERSION
-from description_comparison import compare_descriptions
+from description_comparison import compare_descriptions, VERSION as COMPARISON_VERSION
+from box_verification import confidence_from_verification
 from model_response import completion, discover_model, ModelResponseError
 
 THRESHOLD=.8
 ABSENT_THRESHOLD=.2
-REVIEW_VERSION=2
+REVIEW_VERSION=3
 SUMMARY_VERSION=2
 SUBJECT_RULES='''Describe the common subject as it appears in ONE photograph, in present tense.
 Write one concise, natural paragraph about that object. Do not describe a set of
@@ -61,7 +62,7 @@ def evidence(batch,project):
     from reframe import load_config
     c=load_config(batch.path(project));_,labels,_=batch.inputs(project)
     stat=Path(c['video']).stat()
-    key=hashlib.sha256(json.dumps([VERSION,REVIEW_VERSION,c['video'],stat.st_size,stat.st_mtime_ns,
+    key=hashlib.sha256(json.dumps([VERSION,REVIEW_VERSION,COMPARISON_VERSION,c['video'],stat.st_size,stat.st_mtime_ns,
         c.get('reference_time'),c.get('reference_box'),labels,c['api_url']],sort_keys=True).encode()).hexdigest()
     folder=batch.folder/'description_drafts'/hashlib.sha256(project.encode()).hexdigest()[:20]/key
     return c,labels,key,folder
@@ -116,7 +117,7 @@ def review(batch,project,action='status',description=None):
             observation=json.loads(cache.read_text()) if cache.exists() else describe_crop(batch.root/r['crop_path'],model,c['api_url'],api,observation_folder/f"{r['frame']}_request.json")
         except ModelResponseError as error:
             error.details.update(frame=r['frame'],time=r['time']);raise ModelResponseError(f"Frame {r['frame']} ({r['time']:.3f}s): {error}",error.details) from error
-        write(cache,observation);r['box_description']=observation['box_description']
+        write(cache,observation);r['box_description']=observation['box_description'];r['crop_observation']={k:observation[k] for k in ('box_description','composition','visibility','viewpoint')}
     attempt=folder/uuid.uuid4().hex
     original=json.dumps([{'frame':r['frame'],'box_description':r['box_description']} for r in refs if r['expected_present']])
     contrast=json.dumps([{'frame':r['frame'],'box_description':r['box_description']} for r in refs if not r['expected_present']])
@@ -134,10 +135,10 @@ def review(batch,project,action='status',description=None):
     description=description.strip()
     for r in refs:
         try:
-            comparison=compare_descriptions(description,r['box_description'],model,c['api_url'],api,attempt/f"{r['frame']}_compare_request.json")
+            comparison=compare_descriptions(description,r['crop_observation'],model,c['api_url'],api,attempt/f"{r['frame']}_compare_request.json")
         except ModelResponseError as error:
             error.details.update(frame=r['frame'],time=r['time']);raise ModelResponseError(f"Frame {r['frame']} ({r['time']:.3f}s): {error}",error.details) from error
-        r.update(comparison=comparison,confidence=comparison['match_score'] if comparison['target_present'] else 0.)
+        r.update(comparison=comparison,confidence=confidence_from_verification(None,r['crop_observation'],comparison))
         r['passed']=r['confidence']>=THRESHOLD if r['expected_present'] else r['confidence']<=ABSENT_THRESHOLD
     result=dict(description=description,references=refs,evidence_key=key,threshold=THRESHOLD,absent_threshold=ABSENT_THRESHOLD,
                 all_passed=all(r['passed'] for r in refs),approved=False,model=model,action=action,summary_version=SUMMARY_VERSION)

@@ -20,6 +20,7 @@ class TrackingProgress:
         self.discovery=set(discovery);self.checkpoints=set(checkpoints);self.start=start;self.stop=stop
         self.anchor_threshold=anchor_threshold;self.confidence={k:{} for k in ("discovery","verification","optical")};self.threshold=threshold;self.lock=threading.RLock();self.state=None;self.last_write=0
         self.frames={'discovery':{},'verification':{},'optical':{}}
+        self.rejections={k:{} for k in self.frames}
         self.attempts={k:dict(total=0,accepted=0,rejected=0,errored=0,cached=0) for k in self.frames}
         self.incomplete=bool(resuming)
         matching=False
@@ -55,10 +56,11 @@ class TrackingProgress:
         path=event.get('path','')
         if kind=='optical' and paths.get(path)=='accepted':return
         paths[path]=outcome
+        self.rejections[kind].setdefault(frame,{})[path]=event.get('category')
 
-    def record(self,kind,frame,outcome,path='',cached=False):
+    def record(self,kind,frame,outcome,path='',cached=False,category=None):
         if not self.start<=frame<=self.stop:return
-        event=dict(kind=kind,frame=frame,outcome=outcome,path=path,cached=cached)
+        event=dict(kind=kind,frame=frame,outcome=outcome,path=path,cached=cached,category=category)
         with self.lock:
             with self.path.open('a') as stream:stream.write(json.dumps(event)+'\n')
             self._apply(event)
@@ -67,9 +69,8 @@ class TrackingProgress:
     def detection(self,kind,frame,row,path=''):
         from tracking_evidence import reliable
         passed=reliable(row,self.threshold)
-        high=bool(passed and row.get('confidence',0)>=self.anchor_threshold and row.get('localized')
-                  and not row.get('conflict') and (row.get('manual') or
-                  row.get('box_verification',{}).get('comparison',{}).get('target_complete') is True))
+        from verification_policy import anchor_eligible
+        high=anchor_eligible(row,self.threshold,self.anchor_threshold)
         event=dict(confidence_event=True,kind=kind,frame=frame,path=path,passed=passed,high=high)
         if not self.start<=frame<=self.stop:return
         with self.lock:
@@ -78,13 +79,17 @@ class TrackingProgress:
 
     def verification(self,frame,result,path,cached=False,localized=True):
         comparison=result.get('comparison',{})
-        outcome='errored' if result.get('error') else 'accepted' if (
-            comparison.get('target_present') and comparison.get('match_score',0)>=self.threshold
-            and comparison.get('target_complete') is True) else 'rejected'
-        self.record('verification',frame,outcome,path,cached or result.get('cache_hit',False))
-        self.detection('verification',frame,dict(bbox=[] if comparison.get('target_present') else None,
-            confidence=comparison.get('match_score',0),visibility='visible',localized=localized,
-            error=result.get('error'),box_verification=result),path)
+        from verification_policy import verification_decision, verification_anchor_eligible
+        decision=verification_decision(result,self.threshold)
+        outcome='errored' if decision['category']=='request_error' else 'accepted' if decision['accepted'] else 'rejected'
+        self.record('verification',frame,outcome,path,cached or result.get('cache_hit',False),decision['category'])
+        # Verification evaluates a real crop; no synthetic coordinates are reported as a detection.
+        high=verification_anchor_eligible(result,self.threshold,self.anchor_threshold,localized)
+        event=dict(confidence_event=True,kind='verification',frame=frame,path=path,passed=(decision['accepted'] if result.get('version',0)>=7 else bool(not result.get('error') and comparison.get('target_present') and comparison.get('match_score',0)>=self.threshold)),high=high)
+        if not self.start<=frame<=self.stop:return
+        with self.lock:
+            with self.path.open('a') as stream:stream.write(json.dumps(event)+'\n')
+            self._apply(event)
 
     def publish(self,state):
         with self.lock:
@@ -101,6 +106,17 @@ class TrackingProgress:
                 groups[kind]=dict(examined=len(selected),total=len(allowed) if allowed is not None else self.stop-self.start+1,
                     **counts,attempts=dict(self.attempts[kind]),off_grid_examined=len(positions)-len(selected),available=True)
             for kind,group in groups.items():
+                allowed=self.discovery if kind=='discovery' else self.checkpoints if kind=='verification' else None
+                reasons={key:0 for key in ('identity_rejected','localization_rejected','request_error','unclassified')}
+                for frame,paths in self.rejections[kind].items():
+                    if allowed is not None and int(frame) not in allowed:continue
+                    outcomes=self.frames[kind].get(frame,{})
+                    if 'accepted' in outcomes.values():continue
+                    categories=set(paths.values())
+                    # One category per rejected position, preferring recoverable localization evidence.
+                    key=next((key for key in ('localization_rejected','identity_rejected','request_error') if key in categories),'unclassified')
+                    reasons[key]+=1
+                group['rejection_reasons']=reasons
                 allowed=self.discovery if kind=='discovery' else self.checkpoints if kind=='verification' else None
                 evidence=[paths for f,paths in self.confidence[kind].items() if (allowed is None or int(f) in allowed) and f in self.frames[kind]]
                 group['confidence']=dict(recorded=len(evidence),passed=sum(any(e['passed'] for e in paths.values()) for paths in evidence),

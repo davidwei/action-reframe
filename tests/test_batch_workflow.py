@@ -161,11 +161,11 @@ class BatchTests(unittest.TestCase):
             calls.append(payload);content=payload['messages'][0]['content'];prompt=content[-1]['text']
             if prompt==PROMPT:
                 self.assertEqual(sum(c['type']=='image_url' for c in content),1)
-                result=json.dumps({'box_description':'A green target'})
+                result=json.dumps({'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'A green target'})
             elif prompt.startswith('Compare Description A'):
-                self.assertEqual(prompt,COMPARE.format(a=json.dumps('A green target'),b=json.dumps('A green target')))
+                self.assertEqual(prompt,COMPARE.format(a=json.dumps('A green target'),b=json.dumps(dict(box_description='A green target',composition='isolated_subject',visibility='boundary_cut',viewpoint='external_view'))))
                 self.assertEqual(len(content),1)
-                result=json.dumps(dict(match_score=value,target_present=True,target_complete=False,differences=['Clipped edge'],reason='Green appearance matches'))
+                result=json.dumps(dict(exclusion_check='pass',exclusion_reason='No contradiction',localization_support='supported',localization_reason='Isolated subject',match_score=value,target_present=True,target_complete=False,differences=['Clipped edge'],reason='Green appearance matches'))
             else:
                 self.assertEqual(len(content),1);self.assertNotIn('ground truth',prompt);self.assertNotIn('candidate crop',prompt)
                 result='A green target'
@@ -205,11 +205,11 @@ class BatchTests(unittest.TestCase):
             if prompt==PROMPT:
                 image=cv2.imdecode(np.frombuffer(base64.b64decode(content[0]['image_url']['url'].split(',')[1]),np.uint8),cv2.IMREAD_COLOR)
                 seen_sizes.append(image.shape[:2])
-                result=json.dumps({'box_description':'NEGATIVE_SCENE' if image.shape[:2]==(48,64) else 'POSITIVE_BOAT'})
+                result=json.dumps({'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'NEGATIVE_SCENE' if image.shape[:2]==(48,64) else 'POSITIVE_BOAT'})
             elif prompt.startswith('Compare Description A'):
                 negative='NEGATIVE_SCENE' in prompt
-                self.assertEqual(prompt,COMPARISON_PROMPT.format(a=json.dumps('BOAT_IDENTITY'),b=json.dumps('NEGATIVE_SCENE' if negative else 'POSITIVE_BOAT')))
-                result=json.dumps(dict(match_score=negative_score if negative else .8,target_present=True,
+                self.assertEqual(prompt,COMPARISON_PROMPT.format(a=json.dumps('BOAT_IDENTITY'),b=json.dumps(dict(box_description='NEGATIVE_SCENE' if negative else 'POSITIVE_BOAT',composition='isolated_subject',visibility='boundary_cut',viewpoint='external_view'))))
+                result=json.dumps(dict(exclusion_check='pass',exclusion_reason='No contradiction',localization_support='supported',localization_reason='Isolated subject',match_score=negative_score if negative else .8,target_present=True,
                                       target_complete=True,differences=[],reason='Visual text evidence'))
             else:
                 self.assertIn('ONE photograph',prompt)

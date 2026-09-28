@@ -4,6 +4,7 @@
   const percent = value => Number.isFinite(value) ? `${Math.round(value * 100)}%` : 'not available';
   const vector = value => Array.isArray(value) ? `[${value.map(v => number(v, 1)).join(', ')}]` : 'not available';
   const own = (object, key) => object != null && Object.prototype.hasOwnProperty.call(object, key);
+  const acceptedEvidence = row => row?.manual || !(row?.box_verification?.version>=7) || row.box_verification.decision?.accepted===true;
   function trackingMethod(row, fallback = null) {
     if(!row)return 'not recorded';
     if(row.manual)return 'human label';
@@ -45,7 +46,13 @@
       ...(v?.version>=2?[
         `${label} trusted target description: ${v.reference_description?.target_description||'not available'}`,
         `${label} blind crop description: ${v.description?.box_description||v.error||'not available'}`,
-        `${label} text-match identity score: ${percent(v.identity_score)} | target present=${v.comparison?.target_present??'?'} | box complete=${v.comparison?.target_complete??'?'}`,
+        `${label} text-match identity score: ${percent(v.identity_score)} | model match score: ${percent(v.comparison?.match_score)} | target present=${v.comparison?.target_present??'?'} | box complete=${v.comparison?.target_complete??'?'}`,
+        ...(v.version>=7?[
+          `${label} crop viewpoint: ${v.description?.viewpoint||'unclear'} | composition: ${v.description?.composition||'unclear'} | visibility: ${v.description?.visibility||'unclear'} (model observations)`,
+          `${label} localization: ${v.comparison?.localization_support||'unclear'} — ${v.comparison?.localization_reason||'not recorded'}`,
+          `${label} identity exclusions: ${v.comparison?.exclusion_check||'unclear'} — ${v.comparison?.exclusion_reason||'not recorded'}`,
+          `${label} verification decision: ${v.decision?.category||'not recorded'} — ${v.decision?.reason||v.error||'not recorded'}${v.decision?` (threshold ${percent(v.decision.threshold)})`:''}`
+        ]:[]),
         `${label} match evidence: ${v.comparison?.reason||'not available'} | differences: ${v.comparison?.differences?.join('; ')||'none recorded'}`,
         `${label} confidence used: ${percent(row.confidence)} (text-match reliability, not calibrated probability); detector self-score: ${percent(row.model_confidence)} (diagnostic only)`
       ]:v?[
@@ -89,8 +96,8 @@
     else if(track?.bbox)confidenceSource=`interpolated/held tracking from ${pathName} analysis — no analysis at this frame`;
     else confidenceSource='no analysis at this frame';
     const confidence=human?(humanBox?1:0):(Number.isFinite(observation?.confidence)?observation.confidence:null);
-    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?(observation.bbox&&confidence>=threshold?'Target located':'Lost / uncertain observation'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
-    const tone=human?(humanBox?'tracked':'lost'):confidence!==null?(confidence>=threshold?'tracked':'uncertain'):'neutral';
+    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?(observation.bbox&&confidence>=threshold&&acceptedEvidence(observation)?'Target located':'Lost / uncertain observation'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
+    const tone=human?(humanBox?'tracked':'lost'):confidence!==null?(confidence>=threshold&&acceptedEvidence(observation)?'tracked':'uncertain'):'neutral';
     const storedLevel=track?.level_source?track:state.level_comparison?.[frame];
     const directVisual=storedLevel?.qwen_level_frame===frame;
     // Do not put a neighboring frame's visual-level estimate into this frame's badge.
@@ -271,7 +278,7 @@
     const rows=new Map((state.observations||[]).map(r=>[r.frame,r]));
     for(const pair of state.tracking_comparison||[])if(pair.selected)rows.set(pair.frame,{...pair.selected,frame:pair.frame});
     for(const [i,c] of Object.entries(state.corrections||{}))if(Object.prototype.hasOwnProperty.call(c,'bbox'))rows.set(Number(i),{frame:Number(i),bbox:c.bbox,confidence:c.bbox?1:0,visibility:c.bbox?'visible':'absent'});
-    const tracked=[...rows.values()].filter(r=>r.bbox&&r.confidence>=threshold&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>r.frame);
+    const tracked=[...rows.values()].filter(r=>r.bbox&&r.confidence>=threshold&&acceptedEvidence(r)&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>r.frame);
     const result={};
     for(const [kind,values] of Object.entries({reviewed,sampled,tracked})){
       const frames=[...new Set(values)].filter(i=>Number.isInteger(i)&&i>=0&&(!state.meta?.frames||i<state.meta.frames)).sort((a,b)=>a-b);

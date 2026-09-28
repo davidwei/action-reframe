@@ -4,13 +4,8 @@ import math
 
 
 def confident(observation, threshold=.65):
-    box=observation.get('bbox')
-    score=observation.get('confidence')
-    return (isinstance(box,(list,tuple)) and len(box)==4
-            and all(isinstance(v,(int,float)) and math.isfinite(v) and 0<=v<=1000 for v in box)
-            and box[0]<box[2] and box[1]<box[3]
-            and isinstance(score,(int,float)) and math.isfinite(score) and threshold<=score<=1
-            and observation.get('visibility') in ('visible','partial'))
+    from verification_policy import accepted_row
+    return accepted_row(observation,threshold)
 
 
 def uncertain_intervals(observations, threshold=.65):

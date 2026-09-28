@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local, resumable VL-assisted video reframing. See README.md for limitations."""
+from verification_policy import target_description
 from zoom_path import confident_frames, interpolate_zoom
 from export_metadata import ffmpeg_metadata_args, write_sidecar
 from tracking_selection import confidence_threshold
@@ -24,7 +25,7 @@ from scipy.ndimage import gaussian_filter1d, median_filter
 from backward_tracking import backward_pass, confident
 from temporal_context import build_context, context_key
 
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 
 
 def set_analysis_fps(c, value=None, source_fps=None):
@@ -119,7 +120,7 @@ def prepare(c, max_time=None):
     write_json(out / 'source_metadata.json', probe)
     source = Path(c['video']).stat()
     signature = hashlib.sha256(json.dumps([c['video'], source.st_size, source.st_mtime_ns,
-        c['reference_time'], c['reference_box'], c.get('reference_frames',[]), c['target'], c['sample_interval'], PROMPT_VERSION]).encode()).hexdigest()[:16]
+        c['reference_time'], c['reference_box'], c.get('reference_frames',[]), target_description(c), c['sample_interval'], PROMPT_VERSION]).encode()).hexdigest()[:16]
     cache = out / 'cache' / signature
     cache.mkdir(parents=True, exist_ok=True)
     cap.set(cv2.CAP_PROP_POS_FRAMES, round(c['reference_time'] * fps))
@@ -206,7 +207,7 @@ def observe(c, meta, i, model, history=None):
     prompt = f'''You are measuring a frame for an offline object-following video editor.
 Image 1 is a close-up reference of the chosen target. Image 2 is the CURRENT full video frame.
 Additional labeled images are temporal HISTORY, not the current frame.
-Target description: {c['target']}
+Target description: {target_description(c)}
 Identify only the user-selected subject described above; do not switch to foreground or similar objects.
 Return the tight bounding box of ALL visible target parts and requested equipment. Exclude reflections.
 If outside the frame, hidden, or not identifiable, return bbox=null; do not guess another object.
@@ -321,7 +322,7 @@ def backward_observe(c,meta,current,seed,model,history=None):
     """Condition Qwen on the immediately later accepted crop and motion-guided search region."""
     history=history or [seed]
     version=4
-    fingerprint=hashlib.sha256(json.dumps([version,model,c['target'],meta['signature'],
+    fingerprint=hashlib.sha256(json.dumps([version,model,target_description(c),meta['signature'],
         current['frame'],seed['frame'],seed['bbox'],seed['confidence'],c.get('color_refinement',False),c.get('target_hue'),
         context_key(history,meta,current['frame'],'backward',c.get('temporal_context',{}))],sort_keys=True).encode()).hexdigest()[:20]
     cache=Path(meta['cache'])/'backward';cache.mkdir(exist_ok=True)
@@ -391,7 +392,7 @@ Image 1: original user-selected identity reference.
 Image 2: crop of a CONFIRMED later detection at {seed['time']:.3f} seconds.
 Image 3: enlarged search region in the EARLIER frame at {current['time']:.3f} seconds.
 Image 4: CURRENT EARLIER full frame. Additional labeled images are temporal HISTORY.
-Target: {c['target']}
+Target: {target_description(c)}
 The time gap is {seed['time']-current['time']:.3f} seconds. Camera and subject may move.
 Use the later appearance to find the same target in Image 3, including all visible parts.
 Do not merely copy its later coordinates, assume it is present, select reflections or switch to a similar object.
@@ -498,7 +499,7 @@ def recover_small(c,meta,r,model,history=None):
         cv2.putText(tile,f'Candidate {k}',(8,23),cv2.FONT_HERSHEY_SIMPLEX,.7,(255,255,255),2);tiles.append(tile)
     montage=cache/f"{r['frame']:07d}_candidates.jpg";cv2.imwrite(str(montage),np.hstack(tiles))
     prompt=f'''Image 1 is the target reference. Image 2 contains numbered enlarged candidate crops from a distant shoreline.
-Target: {c['target']}
+Target: {target_description(c)}
 Look carefully at the tiny lime-green sail. Select a candidate only if it is plausibly the same separate sailing dinghy,
 not a buoy, roof, tree, windsurfer, or piece of the foreground camera boat. If too ambiguous, select null.
 Return ONLY JSON {{"candidate": integer or null, "confidence":0..1, "bbox":[x1,y1,x2,y2] or null,"note":"brief reason"}}.
@@ -603,7 +604,9 @@ def measurements(c, meta, observations):
         obs[i]=r
     observations=sorted(obs.values(),key=lambda x:x['frame'])
     ix=np.array([r['frame'] for r in observations])
-    valid=np.array([r.get('bbox') is not None and r.get('confidence',0)>=confidence_threshold(c) and r.get('visibility') not in ('absent','uncertain') for r in observations])
+    from verification_policy import accepted_row
+    valid=np.array([accepted_row(r,confidence_threshold(c)) if r.get('box_verification',{}).get('version',0)>=7 else
+        r.get('bbox') is not None and r.get('confidence',0)>=confidence_threshold(c) and r.get('visibility') not in ('absent','uncertain') for r in observations])
     if not valid.any():
         raise RuntimeError('No reliable target observations. Use the review UI to supply a correction.')
     boxes=np.array([r['bbox'] for r,v in zip(observations,valid) if v])*[w/1000,h/1000,w/1000,h/1000]

@@ -58,7 +58,13 @@ def run_anchors(c,meta,model,helpers,api,single=None):
         try:row=search.localize(index,rows)
         except Exception:
             progress.record('discovery',index,'errored');raise
-        progress.record('discovery',index,'errored' if row.get('error') else 'accepted' if reliable(row,confidence_threshold(c)) else 'rejected')
+        from verification_policy import verification_decision
+        decisions=[verification_decision(r['box_verification'],confidence_threshold(c)) for r in row.get('candidates',{}).values() if r.get('box_verification')]
+        categories={d['category'] for d in decisions}
+        category=('request_error' if row.get('error') else 'accepted' if reliable(row,confidence_threshold(c)) else
+                  'localization_rejected' if 'localization_rejected' in categories or 'accepted' in categories else
+                  'identity_rejected' if 'identity_rejected' in categories or not categories else 'request_error')
+        progress.record('discovery',index,'errored' if category=='request_error' else 'accepted' if category=='accepted' else 'rejected',category=category)
         progress.detection('discovery',index,row)
         return row
     def publish(state):

@@ -2,15 +2,16 @@
 import hashlib
 import json
 import math
+from verification_policy import verification_decision, target_description
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from description_comparison import compare_descriptions
+from description_comparison import compare_descriptions, VERSION as COMPARISON_VERSION
 from crop_description import describe_crop, VERSION as DESCRIPTION_VERSION
 
-VERSION=6
+VERSION=7
 
 
 def score(value):
@@ -22,7 +23,7 @@ def score(value):
 def confidence_from_verification(model_confidence, description, comparison):
     # Proposal confidence and proposal notes are diagnostics only.
     value=score(comparison['match_score'])
-    return value if comparison['target_present'] else 0.
+    return value if comparison['target_present'] and comparison.get('exclusion_check')!='contradicted' else 0.
 
 
 from lookout.events import timed as lookout_timed
@@ -39,11 +40,11 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
     crop=view[y1:y2,x1:x2]
     folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
     key=hashlib.sha256(crop.tobytes()+Path(reference).read_bytes()+json.dumps(
-        [VERSION,DESCRIPTION_VERSION,model,c['target'],c.get('approved_target_description'),box_note,box],sort_keys=True).encode()).hexdigest()[:24]
+        [VERSION,DESCRIPTION_VERSION,COMPARISON_VERSION,model,target_description(c),c.get('approved_target_description'),box_note,box],sort_keys=True).encode()).hexdigest()[:24]
     output=folder/f'{key}.json'
     if output.exists():
         previous=json.loads(output.read_text())
-        if not previous.get('error'):return dict(previous,cache_hit=True)
+        if not previous.get('error'):return dict(previous,cache_hit=True,identity_score=confidence_from_verification(None,previous.get('description'),previous['comparison']),decision=verification_decision(previous,c.get('tracking_selection',{}).get('confidence_threshold',.5)))
     crop_path=folder/f'{key}.png';cv2.imwrite(str(crop_path),crop)
     def save(data):
         temp=output.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2,allow_nan=False));temp.replace(output)
@@ -53,7 +54,7 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
         # Cache the trusted descriptor separately: it depends only on the reference,
         # target identity, model and verifier version, never the candidate crop.
         reference_key=hashlib.sha256(Path(reference).read_bytes()+json.dumps(
-            [VERSION,DESCRIPTION_VERSION,model,c['target'],c.get('approved_target_description')],sort_keys=True).encode()).hexdigest()[:24]
+            [VERSION,DESCRIPTION_VERSION,COMPARISON_VERSION,model,target_description(c),c.get('approved_target_description')],sort_keys=True).encode()).hexdigest()[:24]
         reference_cache=folder/f'reference_{reference_key}.json'
         if c.get('approved_target_description'):
             trusted={'target_description':c['approved_target_description'],'source':'human_approved','input_revision':c.get('batch_input_revision')}
@@ -68,11 +69,12 @@ def verify_box(c,view,box,box_note,model,reference,folder,api):
         # proposal, confidence, history or earlier messages.
         description=describe_crop(crop_path,model,c['api_url'],api,folder/f'{key}_describe_request.json')
         result['description']=description
-        comparison=compare_descriptions(trusted['target_description'],description['box_description'],model,c['api_url'],api,folder/f'{key}_compare_request.json')
+        comparison=compare_descriptions(trusted['target_description'],{k:description[k] for k in ('box_description','composition','visibility','viewpoint')},model,c['api_url'],api,folder/f'{key}_compare_request.json')
         result['comparison']=comparison
         result['confidence_source']='blind_crop_text_match'
         result['identity_score']=confidence_from_verification(None,description,comparison)
     except Exception as error:
         result['error']=str(error)
         if hasattr(error,'details'):result['model_error']=error.details
+    result['decision']=verification_decision(result,c.get('tracking_selection',{}).get('confidence_threshold',.5))
     save(result);return result

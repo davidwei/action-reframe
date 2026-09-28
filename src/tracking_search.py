@@ -14,7 +14,7 @@ from lookout.events import timed as lookout_timed,count as lookout_count
 from analysis_failures import path_failures,output_failure
 from visual_tracking import VisualTracker,relaxed_box,too_large
 
-VERSION=1
+VERSION=2
 
 class TrackingSearch:
     def __init__(self,config,meta,gyro,model,helpers,api):
@@ -126,7 +126,8 @@ class TrackingSearch:
                     source_polygon_px=box_points(motion['box']).tolist(),analysis_source='flow_crop_validation',localized=False,
                     search_region_px=region,motion_quality=motion['motion_quality'],motion_uncertainty_px=uncertainty,
                     last_localized_box=source.get('last_localized_box') or source['bbox'],last_localized_frame=source.get('last_localized_frame',source['frame']))
-            valid=[r for r in candidates.values() if not r['box_verification'].get('error') and r['confidence']>=confidence_threshold(self.c) and r['box_verification']['comparison']['target_complete']]
+            from verification_policy import accepted_row
+            valid=[r for r in candidates.values() if accepted_row(r,confidence_threshold(self.c))]
             if valid:
                 chosen=max(valid,key=lambda r:r['confidence'])
                 if self.progress:self.progress.detection('optical',index,chosen)

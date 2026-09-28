@@ -17,3 +17,13 @@ assert.equal(sandbox.window.FrameAnalysis.playbackBoxes(overlayState,1199).lengt
 assert.equal(sandbox.window.FrameAnalysis.playbackBoxes(overlayState,1200).length,0);
 assert.equal(sandbox.window.FrameAnalysis.renderedBox(overlayState,1200),null);
 console.log('Overlays: exact zero-confidence proposals retained; interpolated/held render boxes suppressed.');
+const rejected={frame:10,time:1,bbox:[10,20,30,40],confidence:.95,visibility:'partial',box_verification:{version:7,identity_score:.95,description:{composition:'scene_dominated',visibility:'boundary_cut',viewpoint:'surrounding_camera'},comparison:{localization_support:'ambiguous',localization_reason:'Multiple subjects',exclusion_check:'unclear'},decision:{accepted:false,category:'localization_rejected',reason:'Multiple subjects',threshold:.5}}};
+const verifiedState={config:{tracking_selection:{confidence_threshold:.5}},meta:{fps:10,frames:20,width:1920,height:1080},observations:[rejected],tracking_comparison:[{frame:10,raw_angle:rejected,leveled:rejected,selected:rejected}]};
+const details=sandbox.window.FrameAnalysis.describe(verifiedState,10);
+assert(details.text.includes('localization_rejected'));
+assert(details.text.includes('surrounding_camera'));
+assert(details.text.includes('95%'));
+assert.equal(details.status,'Lost / uncertain observation');
+assert.equal(sandbox.window.FrameAnalysis.navigationTargets(verifiedState,0).nexttracked,null);
+assert.equal(sandbox.window.FrameAnalysis.playbackBoxes(verifiedState,10).length,2);
+console.log('Verification UI: high identity score retained, rejection explained, estimates remain visible.');

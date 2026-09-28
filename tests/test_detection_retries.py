@@ -28,12 +28,13 @@ class DetectionRetryTests(unittest.TestCase):
             requests=[];verifications=[];progress=[]
             def completion(c,meta,index,direction,history,model,images,prompt,tokens):
                 self.assertTrue(c['temporal_context']['omit_box_coordinates'])
+                self.assertIn('APPROVED_IDENTITY',prompt);self.assertNotIn('OLD_TARGET',prompt)
                 requests.append((images,prompt,meta['cache']))
                 return {'choices':[{'message':{'content':json.dumps(dict(bbox=[100,200,300,600],confidence=.9,visibility='visible',box_note='boat'))}}]},{}
             def verify(*args):
                 verifications.append(1);good=len(verifications)==success_at
-                return dict(crop_path=str(Path(folder)/'crop.png'),description=dict(target_present=good,target_complete=good,confidence=.9 if good else .2,box_description='boat' if good else 'water'),comparison=dict(match_score=.9 if good else 0,target_present=good,target_complete=good))
-            c={'target':'boat','verify_boxes':True}
+                return dict(version=7,crop_path=str(Path(folder)/'crop.png'),description=dict(target_present=good,target_complete=good,confidence=.9 if good else .2,box_description='boat' if good else 'water'),comparison=dict(match_score=.9 if good else 0,target_present=good,target_complete=False,exclusion_check='pass',exclusion_reason='No contradiction',localization_support='supported' if good else 'unsupported',localization_reason='Visible crop evidence'))
+            c={'target':'OLD_TARGET','approved_target_description':'APPROVED_IDENTITY','verify_boxes':True}
             with patch('box_verification.verify_box',side_effect=verify):
                 result=observe_path(c,{'cache':folder,'fps':30}, {'frames':[{'roll':10}]},0,'test',[],'leveled',direction,
                     (lambda *args:np.zeros((100,200,3),np.uint8),completion,lambda *args:None),verification_callback=progress.append)
@@ -48,6 +49,12 @@ class DetectionRetryTests(unittest.TestCase):
         self.assertIn('water',requests[1][1]);self.assertIn('NOT an identity reference',requests[1][1])
         self.assertNotEqual(requests[0][2],requests[1][2])
         self.assertEqual(len(result['detection_attempts']),2)
+
+    def test_partial_target_stops_without_completeness_retry(self):
+        result,requests=self.run_case(1)
+        self.assertEqual(len(requests),1)
+        self.assertFalse(result['box_verification']['comparison']['target_complete'])
+        self.assertEqual(result['confidence'],.9)
 
     def test_backward_exhaustion_is_bounded_and_uncertain(self):
         result,requests=self.run_case(direction='backward')
