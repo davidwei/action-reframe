@@ -82,3 +82,15 @@ class RerenderTests(unittest.TestCase):
         self.assertEqual(self.batch.jobs(),[])
         self.batch.discard('project.json')
         with self.assertRaises(ValueError):self.batch.enqueue_rerender(['project.json'])
+
+    def test_rerender_uses_unverified_per_frame_motion_for_framing(self):
+        from optical_diagnostics import record
+        from reframe import render
+        record(self.out,dict(frame=2,reliable=True,bbox_px=[8,8,20,30],motion_quality=.8))
+        original=(self.out/'observations.json').read_bytes()
+        render(load_config(self.root/'project.json'))
+        tracks=read(self.out/'tracks.json')
+        np.testing.assert_allclose(tracks[2]['bbox'],[8,8,20,30])
+        self.assertIn('optical_identity_unverified',tracks[2]['flags'])
+        self.assertGreater(tracks[2]['zoom'],1)
+        self.assertEqual((self.out/'observations.json').read_bytes(),original)

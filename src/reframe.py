@@ -606,8 +606,9 @@ def measurements(c, meta, observations):
     observations=sorted(obs.values(),key=lambda x:x['frame'])
     ix=np.array([r['frame'] for r in observations])
     from verification_policy import accepted_row
-    valid=np.array([accepted_row(r,confidence_threshold(c)) if r.get('box_verification',{}).get('version',0)>=7 else
-        r.get('bbox') is not None and r.get('confidence',0)>=confidence_threshold(c) and r.get('visibility') not in ('absent','uncertain') for r in observations])
+    from motion_render import motion_usable
+    valid=np.array([motion_usable(r) or (accepted_row(r,confidence_threshold(c)) if r.get('box_verification',{}).get('version',0)>=7 else
+        r.get('bbox') is not None and r.get('confidence',0)>=confidence_threshold(c) and r.get('visibility') not in ('absent','uncertain')) for r in observations])
     if not valid.any():
         raise RuntimeError('No reliable target observations. Use the review UI to supply a correction.')
     boxes=np.array([r['bbox'] for r,v in zip(observations,valid) if v])*[w/1000,h/1000,w/1000,h/1000]
@@ -752,6 +753,8 @@ def render(c):
     observations=json.loads(observation_path.read_text())
     if c.get('tracking_mode')=='dual':
         write_json(out/'observations.json',observations)
+    from motion_render import merge_motion
+    observations=merge_motion(observations,meta,out,confidence_threshold(c))
     boxes,supported,roll,flags=measurements(c,meta,observations)
     level_rows=None
     if c.get('leveling_source')=='gyro':

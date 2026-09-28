@@ -115,7 +115,8 @@ class TrackSelector:
 def frame_provenance(observations, count, supported, threshold=.5):
     """Label interpolated playback frames without claiming a new model decision."""
     rows=sorted(observations,key=lambda r:r['frame'])
-    valid=[r for r in rows if confident(r,threshold) and not r.get('error')]
+    from motion_render import motion_usable
+    valid=[r for r in rows if motion_usable(r) or (confident(r,threshold) and not r.get('error'))]
     indices=np.array([r['frame'] for r in rows]);vi=np.array([r['frame'] for r in valid])
     result=[]
     for index in range(count):

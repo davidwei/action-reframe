@@ -8,6 +8,7 @@
   function trackingMethod(row, fallback = null) {
     if(!row)return 'not recorded';
     if(row.manual)return 'human label';
+    if(row.analysis_source==='optical_unverified')return 'Optical motion used for framing; identity unverified';
     const source=row.analysis_source||fallback?.analysis_source;
     if(source==='flow_crop_validation')return 'Optical flow + crop validation (no Qwen localization)';
     if(source==='local_detection')return 'Qwen localization inside a search region';
@@ -34,7 +35,7 @@
     if(own(state.corrections?.[frame],'bbox'))return null;
     const row=state.observations?.find(r=>r.frame===frame)||state.tracking_comparison?.find(r=>r.frame===frame)?.selected;
     const box=row?.bbox,meta=state.meta||{};
-    return !row?.manual&&!row?.error&&Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]
+    return row?.analysis_source!=='optical_unverified'&&!row?.manual&&!row?.error&&Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]
       ?box.map((v,i)=>v*(i%2?meta.height:meta.width)/1000):null;
   }
   function verificationLines(row,label) {
@@ -92,13 +93,14 @@
     const optical=opticalPrediction(state,frame);
     let confidenceSource;
     if(human)confidenceSource=humanBox?'human label':'human label — target absent';
+    else if(observation?.analysis_source==='optical_unverified')confidenceSource='unverified optical motion — usable for framing, not verified identity';
     else if(flow)confidenceSource=`tracking with ${pathName} analysis (optical flow + crop validation)`;
     else if(observation)confidenceSource=`independent ${pathName} analysis${observation.analysis_source==='local_detection'?' (local search)':''}${!observation.bbox?' — no accepted box':''}`;
     else if(optical)confidenceSource='optical motion prediction — before crop validation';
     else if(track?.bbox)confidenceSource=`interpolated/held tracking from ${pathName} analysis — no analysis at this frame`;
     else confidenceSource='no analysis at this frame';
     const confidence=human?(humanBox?1:0):(Number.isFinite(observation?.confidence)?observation.confidence:null);
-    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?(observation.bbox&&confidence>=threshold&&acceptedEvidence(observation)?'Target located':'Lost / uncertain observation'):optical?(optical.reliable?'Optical prediction (unverified)':'Optical motion failed'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
+    let status=human?(humanBox?'Human-confirmed target':'Human-confirmed absence'):observation?.analysis_source==='optical_unverified'?'Optical framing (identity unverified)':observation?(observation.bbox&&confidence>=threshold&&acceptedEvidence(observation)?'Target located':'Lost / uncertain observation'):optical?(optical.reliable?'Optical prediction (unverified)':'Optical motion failed'):track?.bbox?'Interpolated/held tracking box':'No direct tracking analysis';
     const tone=human?(humanBox?'tracked':'lost'):confidence!==null?(confidence>=threshold&&acceptedEvidence(observation)?'tracked':'uncertain'):'neutral';
     const storedLevel=track?.level_source?track:state.level_comparison?.[frame];
     const directVisual=storedLevel?.qwen_level_frame===frame;

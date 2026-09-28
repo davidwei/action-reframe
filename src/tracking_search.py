@@ -14,7 +14,7 @@ from lookout.events import timed as lookout_timed,count as lookout_count
 from analysis_failures import path_failures,output_failure
 from visual_tracking import VisualTracker,relaxed_box,too_large
 
-VERSION=2
+VERSION=3
 
 class TrackingSearch:
     def __init__(self,config,meta,gyro,model,helpers,api):
@@ -118,6 +118,9 @@ class TrackingSearch:
                 polygon=transform_points(box_points(region),matrix)
                 cropbox=(np.r_[polygon.min(axis=0),polygon.max(axis=0)]/np.tile(size,2)*1000).tolist()
                 verification=verify_box(self.c,view,cropbox,None,self.model,folder/'reference.jpg',folder/path,self.api)
+                from verification_policy import verification_decision
+                verification.update(verification_context='optical_motion',motion_reliable=True)
+                verification['decision']=verification_decision(verification,confidence_threshold(self.c))
                 if self.progress:self.progress.verification(index,verification,path,localized=False)
                 if verification.get('error'):
                     if not output_failure(verification):raise RuntimeError(verification['error'])
@@ -128,7 +131,7 @@ class TrackingSearch:
                 predicted=(np.asarray(motion['box'])/[w,h,w,h]*1000).tolist()
                 candidates[path]=dict(frame=index,time=index/self.meta['fps'],bbox=predicted,confidence=score,visibility='visible',
                     confidence_source='blind_crop_text_match',box_verification=verification,path=path,direction=direction,
-                    source_polygon_px=box_points(motion['box']).tolist(),analysis_source='flow_crop_validation',localized=False,
+                    source_polygon_px=box_points(motion['box']).tolist(),analysis_source='flow_crop_validation',localized=False,motion_reliable=True,identity_verified=verification['decision']['accepted'],
                     search_region_px=region,motion_quality=motion['motion_quality'],motion_uncertainty_px=uncertainty,
                     last_localized_box=source.get('last_localized_box') or source['bbox'],last_localized_frame=source.get('last_localized_frame',source['frame']))
             from verification_policy import accepted_row
@@ -143,4 +146,15 @@ class TrackingSearch:
         result=self.localize(index,rows,direction,region)
         result['analysis_failures']=failures+result.get('analysis_failures',[])
         result.update(motion_quality=motion['motion_quality'],motion_reason=motion.get('reason'),propagation_validation=candidates)
+        from verification_policy import accepted_row
+        if motion['reliable'] and not accepted_row(result,confidence_threshold(self.c)):
+            return dict(frame=index,time=index/self.meta['fps'],bbox=(np.asarray(motion['box'])/[w,h,w,h]*1000).tolist(),
+                confidence=0,visibility='visible',motion_reliable=True,motion_quality=motion['motion_quality'],
+                motion_uncertainty_px=uncertainty,source_polygon_px=box_points(motion['box']).tolist(),
+                analysis_source='optical_unverified',selected_path='optical_unverified',identity_verified=False,localized=False,
+                last_localized_box=source.get('last_localized_box') or source['bbox'],
+                last_localized_frame=source.get('last_localized_frame',source['frame']),
+                candidates=result.get('candidates',{}),propagation_validation=candidates,analysis_failures=result['analysis_failures'],
+                direction=direction,search_region_px=region,independent_detection=result,
+                selection_flags=['optical_identity_unverified'],selection_reason='Reliable optical motion; identity verification did not pass')
         return result

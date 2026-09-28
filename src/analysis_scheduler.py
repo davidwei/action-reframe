@@ -2,6 +2,7 @@
 from collections import deque
 from analysis_failures import output_failure
 from tracking_evidence import reliable,resolve
+from motion_render import propagation_usable, motion_usable
 
 VERSION=1
 
@@ -63,7 +64,7 @@ class AnchorScheduler:
                 count=sum(t['target']==target for t in self.state['attempts'].values())
                 source=self.state['results'].get(str(task['source']))
                 if (task['key'] in self.state['attempts'] or count>=self.limit
-                    or (existing and existing.get('manual')) or not reliable(source,self.threshold)):
+                    or (existing and existing.get('manual')) or not propagation_usable(source,self.threshold)):
                     self.queue.popleft();continue
                 self._save('propagating')
                 candidate=self.propagate(source,target,task['direction'],self.state['results'])
@@ -71,11 +72,12 @@ class AnchorScheduler:
                 candidate=dict(candidate,origin_anchor=source.get('origin_anchor',source['frame']),parent_frame=source['frame'])
                 self.queue.popleft();self.state['attempts'][task['key']]=task
                 chosen,conflict=resolve(existing,candidate,self.threshold,self.settings.get('agreement_iou',.35))
+                if not conflict and not reliable(chosen,self.threshold) and motion_usable(candidate) and not (existing and existing.get('manual')):chosen=candidate
                 self.state['results'][key]=chosen
                 coverage=self.state['coverage'].setdefault(key,{})
                 coverage.update(propagation_attempted=True,reliably_covered=reliable(chosen,self.threshold))
                 self.state['events'].append(dict(kind='propagation',frame=target,direction=task['direction'],origin_anchor=candidate['origin_anchor'],candidate=candidate,conflict=conflict))
-                if reliable(candidate,self.threshold) and not conflict:
+                if propagation_usable(candidate,self.threshold) and not conflict:
                     if self.can_anchor(candidate):self._anchor(candidate)
                     # Keep propagation ancestry even when a verified localization is promoted.
                     self._enqueue(candidate,task['direction'])

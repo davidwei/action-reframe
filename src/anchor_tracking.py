@@ -13,7 +13,7 @@ from tracking_selection import confidence_threshold
 from dual_tracking import VERSION as DETECTION_VERSION
 from box_verification import VERSION as VERIFICATION_VERSION
 
-VERSION=1
+VERSION=2
 DEFAULTS=dict(discovery_fps=2.,anchor_confidence=.85,padding_fraction=.15,min_padding_px=8.,
               max_dimension_ratio=1.5,max_area_ratio=2.,max_propagation_attempts=4)
 
@@ -77,7 +77,7 @@ def run_anchors(c,meta,model,helpers,api,single=None):
             row=dict(row,selected_path=row.get('selected_path','manual' if row.get('manual') else 'neither'))
             rows.append(row)
             candidates=row.get('candidates')
-            if candidates:pairs.append(dict(frame=index,time=row['time'],raw_angle=candidates['raw_angle'],leveled=candidates['leveled'],selected={k:v for k,v in row.items() if k!='candidates'},box_iou=row.get('box_iou')))
+            if candidates and all(p in candidates for p in ('raw_angle','leveled')):pairs.append(dict(frame=index,time=row['time'],raw_angle=candidates['raw_angle'],leveled=candidates['leveled'],selected={k:v for k,v in row.items() if k!='candidates'},box_iou=row.get('box_iou')))
         save(out/'observations.json',rows);save(out/'tracking_selected.json',rows);save(out/'tracking_comparison.json',pairs)
         coverage=state['coverage'];counts=progress.publish(state)
         save(out/'analysis_progress.json',dict(stage='anchor_'+state['stage'],completed=len(coverage),total=len(indices),

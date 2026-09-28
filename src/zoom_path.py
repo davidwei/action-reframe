@@ -1,6 +1,7 @@
 """Piecewise-linear zoom between accepted observations, without gap widening."""
 import numpy as np
 from verification_policy import accepted_row
+from motion_render import motion_usable
 
 
 def confident_frames(observations, corrections, count, threshold):
@@ -12,10 +13,10 @@ def confident_frames(observations, corrections, count, threshold):
                                visibility='visible' if correction['bbox'] is not None else 'absent')
     return np.array(sorted(frame for frame, r in rows.items()
         if 0 <= frame < count and r.get('bbox') is not None
-        and r.get('confidence', 0) >= threshold
+        and (motion_usable(r) or r.get('confidence', 0) >= threshold)
         and r.get('visibility') not in ('absent', 'uncertain')
-        and not r.get('error') and not r.get('scene_cut')
-        and (r.get('box_verification',{}).get('version',0)<7 or accepted_row(r,threshold))), dtype=int)
+        and (motion_usable(r) or not r.get('error')) and not r.get('scene_cut')
+        and (motion_usable(r) or r.get('box_verification',{}).get('version',0)<7 or accepted_row(r,threshold))), dtype=int)
 
 
 def interpolate_zoom(crop_heights, source_height, anchors, endpoint_zoom):

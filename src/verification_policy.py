@@ -1,7 +1,7 @@
 """Shared identity/localization policy; completeness is diagnostic for schema v7+."""
 import math
 
-VERSION = 1
+VERSION = 2
 
 
 def target_description(config):
@@ -18,12 +18,15 @@ def verification_decision(result, threshold=.5):
         category, reason = 'identity_rejected', 'Target absent or identity confidence below threshold'
     elif comparison.get('exclusion_check') == 'contradicted':
         category, reason = 'identity_rejected', comparison.get('exclusion_reason') or 'Explicit identity requirement contradicted'
-    elif result.get('version', 0) >= 7 and comparison.get('localization_support') != 'supported':
+    elif result.get('version', 0) >= 7 and comparison.get('localization_support') != 'supported' and not (
+        result.get('verification_context')=='optical_motion' and result.get('motion_reliable') is True
+        and comparison.get('localization_support')=='ambiguous'):
         category, reason = 'localization_rejected', comparison.get('localization_reason') or 'Crop does not isolate the intended subject'
     elif result.get('version', 0) < 7 and comparison.get('target_complete') is not True:
         category, reason = 'localization_rejected', 'Legacy verification lacks supported localization/completeness'
     else:
-        category, reason = 'accepted', 'Identity and localization supported; partial visibility is allowed'
+        category, reason = 'accepted', ('Identity supported; ambiguous localization accepted for reliable optical motion'
+            if comparison.get('localization_support')=='ambiguous' else 'Identity and localization supported; partial visibility is allowed')
     return dict(accepted=category == 'accepted', category=category, reason=reason, threshold=threshold, policy_version=VERSION)
 
 
@@ -38,6 +41,7 @@ def accepted_row(row, threshold=.5):
              and row.get('visibility') in ('visible', 'partial'))
     if not valid: return False
     if row.get('manual'): return True
+    if row.get('identity_verified') is False or row.get('analysis_source')=='optical_unverified':return False
     verification = row.get('box_verification')
     # Preserve historical unverified rows for playback; new verified rows use the full policy.
     return not verification or verification.get('version',0)<7 or verification_decision(verification, threshold)['accepted']
@@ -45,6 +49,7 @@ def accepted_row(row, threshold=.5):
 
 def verification_anchor_eligible(result, threshold=.5, high=.85, localized=True):
     if not localized or not verification_decision(result,max(threshold,high))['accepted']:return False
+    if result.get('version',0)>=7 and result.get('comparison',{}).get('localization_support')!='supported':return False
     return (result.get('comparison',{}).get('exclusion_check')=='pass' if result.get('version',0)>=7
             else result.get('comparison',{}).get('target_complete') is True)
 
