@@ -254,6 +254,9 @@ class Handler(BaseHTTPRequestHandler):
                     if action=='discard':
                         result=batch.discard(data['project']);result['finishing']=result['finishing'] or legacy_project()==data['project'];return self.json_response(result)
                     if action=='restore':return self.json_response(batch.restore(data['project']))
+                    if action=='description-history':
+                        from description_history import history
+                        return self.json_response(history(batch,data['project']))
                     if action=='prepare':return self.json_response(batch.prepare(data['project'],data.get('description',''),data.get('ready',False)))
                     if action=='queue-rerender':
                         if legacy_project() in data.get('projects',[]):raise ValueError('Wait for this project’s running analysis to finish before queuing a rerender')

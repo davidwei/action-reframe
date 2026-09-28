@@ -1,6 +1,6 @@
 /* Shared blind observations and identity checks; human approval stays explicit. */
 window.DescriptionReview=(()=>{
- const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,review=null,lastPoll=0,polling=false;
+ const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,review=null,revisions=[],lastPoll=0,polling=false;
  async function request(action,body){const r=await fetch('/api/batch/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json();if(!r.ok){const error=Error(result.error||r.status);error.modelDetails=result.model_error;throw error;}return result}
  function status(text){$('descriptionStatus').textContent=text}
  function current(){return review?.description===$('descriptionText').value.trim()}
@@ -27,6 +27,26 @@ window.DescriptionReview=(()=>{
   $('checkDescription').disabled=busy||!project||readonly||!review?.references?.length||!$('descriptionText').value.trim();
   $('retryDescription').disabled ||= !current()||!review?.references?.some(r=>r.passed===false);
   $('saveDescription').disabled=busy||!project||readonly;
+  for(const id of ['restoreSavedDescription','restoreApprovedDescription','refreshDescriptionHistory','restoreDescriptionRevision','descriptionRevision'])$(id).disabled=busy||!project||readonly;
+  $('restoreSavedDescription').disabled ||= !revisions.length;
+  $('restoreApprovedDescription').disabled ||= !revisions.some(r=>r.kind==='approved');
+  $('restoreDescriptionRevision').disabled ||= !revisions.length;
+
+ }
+ function revisionPreview(){const r=revisions.find(r=>r.id===$('descriptionRevision').value);$('descriptionRevisionPreview').textContent=r?.description||''}
+ async function refreshHistory(){
+  if(!project||state?.config?.batch_input_revision)return;
+  const selected=project,active=token;const result=await request('description-history',{project:selected});
+  if(project!==selected||active!==token)return;
+  revisions=result.revisions||[];const select=$('descriptionRevision'),previous=select.value;select.replaceChildren();
+  for(const r of revisions){const option=document.createElement('option');option.value=r.id;option.textContent=`${new Date(r.created*1000).toLocaleString()} · ${r.kind==='approved'?'Approved':'Saved'}${r.source.startsWith('job:')?' (recovered run snapshot)':''}`;select.append(option)}
+  if(revisions.some(r=>r.id===previous))select.value=previous;
+  revisionPreview();controls();
+ }
+ function restoreRevision(revision){
+  if(!revision||busy||state?.config?.batch_input_revision)return;
+  $('descriptionText').value=revision.description;dirty=true;crops();controls();
+  status(`Restored ${revision.kind} revision from ${new Date(revision.created*1000).toLocaleString()} to the editor. Save or approve to keep it; no model call was made.`);
  }
  async function generate(action='draft'){
   if(busy||!project||(action!=='check-description'&&!state?.config?.reference_box))return;
@@ -51,6 +71,7 @@ window.DescriptionReview=(()=>{
     else{const response=await fetch('/api/batch');const data=await response.json();if(!response.ok)throw Error(data.error);if(active!==token)return;const p=data.projects.find(p=>p.project===project);$('descriptionText').value=p?.description||'';status(p?.ready?'Description approved for current inputs.':'Review or draft the identity description.')}
    }catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
    await refreshReview();
+   try{await refreshHistory()}catch(e){status(e.message)}
   }
   if(Date.now()-lastPoll>10000)await refreshReview();
   controls();
@@ -59,9 +80,14 @@ window.DescriptionReview=(()=>{
  $('draftDescription').onclick=()=>generate();$('checkDescription').onclick=()=>generate('check-description');$('retryDescription').onclick=()=>generate('retry-description');
  for(const [id,ready] of [['saveDescription',false],['approveDescription',true]])$(id).onclick=async()=>{
   if(busy)return;const active=++token;busy=true;controls();
-  try{await request('prepare',{project,description:$('descriptionText').value,ready});if(active!==token)return;dirty=false;status((ready?'Description approved. Project is Ready in the library.':'Draft saved.')+(!current()?' Crop scores have not been checked for this description.':review?.all_passed?'':' Some examples fail their expected confidence range.'))}
+  try{await request('prepare',{project,description:$('descriptionText').value,ready});if(active!==token)return;dirty=false;await refreshHistory();status((ready?'Description approved. Project is Ready in the library.':'Draft saved.')+(!current()?' Crop scores have not been checked for this description.':review?.all_passed?'':' Some examples fail their expected confidence range.'))}
   catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
  };
+ $('descriptionRevision').onchange=revisionPreview;
+ $('refreshDescriptionHistory').onclick=()=>refreshHistory().catch(e=>status(e.message));
+ $('restoreSavedDescription').onclick=()=>restoreRevision(revisions[0]);
+ $('restoreApprovedDescription').onclick=()=>restoreRevision(revisions.find(r=>r.kind==='approved'));
+ $('restoreDescriptionRevision').onclick=()=>restoreRevision(revisions.find(r=>r.id===$('descriptionRevision').value));
  window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue=''}});
  controls();return {update};
 })();

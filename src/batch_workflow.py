@@ -169,6 +169,9 @@ class Batch:
         payload = dict(description=description, ready=bool(ready), revision=revision,
                        approved_at=time.time() if ready else None,updated_at=time.time())
         with self.db() as db:
+            from description_history import backfill,append
+            db.execute('BEGIN IMMEDIATE');backfill(self,db,project)
+            payload['description_revision_id']=append(db,project,description,'approved' if ready else 'saved',payload['updated_at'],revision)
             db.execute('INSERT OR REPLACE INTO preparations VALUES (?,?)',(project,json.dumps(payload)))
         return payload
 

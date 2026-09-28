@@ -387,3 +387,20 @@ project is opened; unsaved text remains intact on label refresh. Draft from labe
 crops and Revise using feedback are the only generation actions; Check against
 crops validates the current text without rewriting it. Label changes can still
 invalidate approval and prior crop checks, requiring review before another run.
+
+### Description revision history
+
+Every explicit Save draft and Approve description appends an immutable description
+revision with its timestamp, saved/approved kind, and input revision. In Review
+descriptions, expand **Saved and approved description revisions** to restore the
+latest saved text (including approvals), latest approved text, or any selected
+revision into the editor. Restoration changes only the editor; Save or Approve
+creates a new revision. It never invokes Qwen, deletes later versions, or silently
+re-approves a description against changed labels. History reads preserve unsaved
+editor text. Saved-run snapshots remain read-only.
+
+The first history read/save preserves the existing preparation and recovers older
+approved text from surviving run manifests. Those entries are labeled recovered
+snapshots. Drafts overwritten before this feature and absent from persistent
+snapshots cannot be reconstructed. History is stored in the workspace batch
+database and must be included in backups; it is separate from Lookout telemetry.
