@@ -11,8 +11,8 @@
 <div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="0" style="width:90px"></label><button id="seek">Show frame</button></div>
 <div class="two"><div><p>Original source</p><canvas id="source" width="1920" height="1080"></canvas></div><div><p id="processedCaption">Leveled and zoomed preview</p><canvas id="processed" width="1280" height="720"></canvas></div></div>
 <input id="scrub" type="range" min="0" max="1901" value="0" aria-label="Frame">
-<div class="row"><button id="previous">Previous frame</button><button id="next">Next frame</button><span id="frameInfo"></span></div>
-<div id="frameNavigation" class="row" aria-label="Review and sample navigation"></div>
+<p id="frameInfo"></p>
+<div id="frameNavigation" class="row" aria-label="Frame navigation"><button id="previous">Previous frame</button><button id="next">Next frame</button></div>
 <div id="frameAnalysis"></div>
 <p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear automatically when available, including uncertain estimates; between samples they may be interpolated. The green rectangle is the current track; your selection is white.</p>
 <p>Save target box keeps this project and makes your selection a human-confirmed tracking anchor. It is eligible for the existing context quotas; saving does not start processing.</p>
