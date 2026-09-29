@@ -59,7 +59,8 @@ class TwoPathSearch(TrackingSearch):
             matrix,size=leveled_transform(w,h,np.asarray(pivot if pivot is not None else [w/2,h/2]),self.gyro['frames'][index]['roll'])
             c['_analysis_view']=dict(matrix=matrix.tolist(),size=list(size))
         result=observe_path(c,dict(self.meta,cache=str(folder)),self.gyro,index,self.model,history,path,direction,self.helpers,
-            verification_callback=(lambda result:self.progress.verification(index,result,path)) if self.progress else None)
+            verification_callback=(lambda result:self.progress.verification(index,result,path)) if self.progress else None,
+            activity_callback=self.progress.activity if self.progress else None)
         result.update(candidate_id=path+'_detection',path=path,analysis_source='full_frame_detection',localized=bool(result.get('bbox')),
                       confidence_measurement='measured',confidence_frame=index)
         self.detections[key]=result
@@ -107,6 +108,7 @@ class TwoPathSearch(TrackingSearch):
                     rebase_tracker(tracker,previous_image,old_matrix,previous_matrix,size)
                     matrix,size=leveled_transform(w,h,pivot,self.gyro['frames'][i]['roll'])
                 view=cv2.warpAffine(image,matrix,size)
+                if self.progress:self.progress.activity("optical")
                 motion=tracker.update(view)
                 if self.progress:self.progress.record('optical',i,'accepted' if motion['reliable'] else 'rejected')
                 from optical_diagnostics import record as optical_record
@@ -127,6 +129,7 @@ class TwoPathSearch(TrackingSearch):
                 if reliable and i==index:
                     history=self.branch_history(rows,i,direction,path);folder=self.namespace(i,'two_path_verify_'+path,history,None)
                     cropbox=(np.asarray(motion['box'])/np.tile(size,2)*1000).tolist()
+                    if self.progress:self.progress.activity("verification")
                     verification=verify_box(self.c,view,cropbox,None,self.model,folder/'reference.jpg',folder/path,self.api)
                     verification.update(verification_context='optical_motion',motion_reliable=True)
                     if not verification.get('error'):record_decision(self.c,verification,folder/path/'acceptance.json')

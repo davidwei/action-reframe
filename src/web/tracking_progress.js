@@ -1,5 +1,5 @@
 /* Coverage across three cadences, not a prediction of wall-time completion. */
-window.TrackingProgressView={render(element,progress){
+window.TrackingProgressView={render(element,progress,{running=false}={}){
  element.replaceChildren();
  const text=(tag,value,parent=element)=>{const node=document.createElement(tag);node.textContent=value;parent.append(node);return node};
  const labels={discovery:'Discovery',crop_description:'Crop descriptions',identity_comparison:'Identity comparisons',acceptance:'Acceptance decisions',optical_tracking:'Optical tracking',camera_path:'Camera path'};
@@ -17,7 +17,10 @@ window.TrackingProgressView={render(element,progress){
   ['verification','Crop verification','checked',progress.analysis_fps],
   ['optical','Optical tracking','visited',progress.source_fps]]){
   const group=coverage[kind],card=document.createElement('div');card.style.cssText='flex:1;min-width:170px;padding:10px;border:1px solid #526274;border-radius:6px';grid.append(card);
-  text('strong',title+(rate?` (${Number(rate).toLocaleString(undefined,{maximumFractionDigits:2})} FPS)`:(kind==='optical'?' (source FPS)':'')),card);
+  const heading=text('strong',title+(rate?` (${Number(rate).toLocaleString(undefined,{maximumFractionDigits:2})} FPS)`:(kind==='optical'?' (source FPS)':'')),card);
+  if(running&&coverage.stage!=='complete'&&progress.activity?.kind===kind){
+   heading.style.color='#fbbf24';heading.textContent+=' · Active';heading.title='Currently executing this processing stage';
+  }
   if(!group?.available){text('p',`Not recorded · ${number(group?.total)} possible positions`,card);continue}
   text('p',`${number(group.examined)} / ${number(group.total)} unique positions ${verb}`,card);
   if(kind==='discovery')text('p',`${number(group.resolved_without_scan)} resolved without scanning · ${number(group.remaining)} remaining`,card);

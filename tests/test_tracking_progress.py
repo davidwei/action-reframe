@@ -4,6 +4,21 @@ from tracking_progress import TrackingProgress,discovery_grid,progress_for_ui
 
 
 class ProgressTests(unittest.TestCase):
+    def test_activity_reports_transitions_without_per_frame_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p=TrackingProgress(directory,'a',[0], [0],0,10,.5)
+            p.publish({'stage':'propagating'})
+            p.activity('optical')
+            record=Path(directory)/'tracking_activity.json'
+            original=record.read_text()
+            p.activity('optical')
+            self.assertEqual(record.read_text(),original)
+            p.activity('verification')
+            result=progress_for_ui(directory,{},dict(stage='anchor_propagating'))
+            self.assertEqual(result['activity']['kind'],'verification')
+            p.publish({'stage':'complete'})
+            self.assertIsNone(json.loads(record.read_text())['kind'])
+
     def test_unique_positions_attempts_retries_and_resolved_discovery(self):
         with tempfile.TemporaryDirectory() as directory:
             p=TrackingProgress(directory,'a',[0,5,10],range(0,11,2),0,10,.5)

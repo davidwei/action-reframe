@@ -58,7 +58,7 @@ def box_iou(a, b):
     return float(intersection/union) if union>0 else None
 
 
-def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,verification_callback=None):
+def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,verification_callback=None,activity_callback=None):
     frame_loader, completion, save = helpers
     history=[r for r in history if not r.get('error') and not r.get('box_verification',{}).get('error')]
     angle=gyro['frames'][index]['roll']
@@ -113,6 +113,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
         attempt_cache.mkdir(parents=True,exist_ok=True)
         raw=None
         try:
+            if activity_callback:activity_callback("discovery")
             data,audit=structured_tracking(completion,detection_config,dict(meta,cache=str(attempt_cache)),index,direction,history,model,
                 images,prompt+feedback,650,validate_detection)
             raw=data['raw'];box=data['bbox'];score=data['confidence']
@@ -125,6 +126,7 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
                 from reframe import api
                 trusted_reference=next((Path(entry['path']) for entry in reversed(audit.get('images',[]))
                                         if entry.get('kind')=='human_target_crop'),cache/'reference.jpg')
+                if activity_callback:activity_callback("verification")
                 verification=verify_box(c,cv2.imread(str(current_path)),box,data.get('box_note'),model,
                                         trusted_reference,cache/'box_verification',api)
                 if verification_callback:verification_callback(verification)

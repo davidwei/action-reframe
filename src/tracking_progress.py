@@ -42,6 +42,13 @@ class TrackingProgress:
         if not matching:
             self.path.write_text(json.dumps({'fingerprint':fingerprint,'historical_incomplete':self.incomplete})+'\n')
 
+    def activity(self,kind):
+        """Publish stage transitions only, never one write per optical frame."""
+        with self.lock:
+            if getattr(self,"active_kind",None)==kind:return
+            self.active_kind=kind
+            save(self.out/"tracking_activity.json",dict(kind=kind,updated=time.time()))
+
     def _apply(self,event):
         kind=event['kind'];frame=str(event['frame'])
         if event.get('confidence_event'):
@@ -94,6 +101,7 @@ class TrackingProgress:
     def publish(self,state):
         with self.lock:
             self.state=state
+            if state.get("stage")=="complete":self.activity(None)
             groups={}
             for kind,positions in self.frames.items():
                 allowed=self.discovery if kind=='discovery' else self.checkpoints if kind=='verification' else None
@@ -139,7 +147,10 @@ def progress_for_ui(out,config,progress):
     if reuse:progress=dict(progress or {},stage_reuse=reuse)
     if not progress or not progress.get('stage','').startswith('anchor_'):return progress
     out=Path(out);latest=out/'coverage_progress.json'
-    if latest.exists():return dict(progress,coverage=json.loads(latest.read_text()))
+    if latest.exists():
+        activity_path=out/'tracking_activity.json'
+        activity=json.loads(activity_path.read_text()) if activity_path.exists() else {}
+        return dict(progress,coverage=json.loads(latest.read_text()),activity=activity)
     summary_path=out/'anchor_summary.json';meta_path=out/'meta.json'
     if not summary_path.exists() or not meta_path.exists():return progress
     summary=json.loads(summary_path.read_text());meta=json.loads(meta_path.read_text())
