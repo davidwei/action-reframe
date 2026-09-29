@@ -100,7 +100,7 @@ class BatchTests(unittest.TestCase):
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
             base=f'http://127.0.0.1:{server.server_port}'
-            good=dict(self.config,api_url=base+'/v1',tracking_mode='single',backward_recovery=False,
+            good=dict(self.config,api_url=base+'/v1',tracking_mode='single',backward_recovery=False,leveling_source='visual',
                       output_width=64,output_height=48,analysis_fps=10)
             write(self.root/'project.json',good)
             labels={str(i):{'bbox':[10,10,30,30]} for i in range(3)}

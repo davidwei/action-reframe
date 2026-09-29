@@ -7,13 +7,13 @@ from analysis_scheduler import AnchorScheduler
 from tracking_progress import TrackingProgress,discovery_grid
 from tracking_evidence import reliable
 from manual_tracking import manual_observations
-from tracking_search import TrackingSearch
+from two_path_tracking import TwoPathSearch as TrackingSearch
 from leveling import extract_gyro
 from tracking_selection import confidence_threshold
 from dual_tracking import VERSION as DETECTION_VERSION
 from box_verification import VERSION as VERIFICATION_VERSION
 
-VERSION=3
+VERSION=4
 DEFAULTS=dict(discovery_fps=2.,anchor_confidence=.85,padding_fraction=.15,min_padding_px=8.,
               max_dimension_ratio=1.5,max_area_ratio=2.,max_propagation_attempts=4)
 
@@ -27,6 +27,7 @@ def settings(config):
     if not confidence_threshold(config)<=result['anchor_confidence']<=1:raise ValueError('anchor_confidence must be between acceptance threshold and 1')
     if min(result['padding_fraction'],result['min_padding_px'])<0 or min(result['max_dimension_ratio'],result['max_area_ratio'])<1:raise ValueError('Invalid relaxation settings')
     if not 1<=result['max_propagation_attempts']<=20 or int(result['max_propagation_attempts'])!=result['max_propagation_attempts']:raise ValueError('Invalid propagation attempt limit')
+    result['discovery_fps']=min(2.,result['discovery_fps'])
     return result
 
 
@@ -42,10 +43,11 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     if reference not in manual:
         manual[reference]=dict(frame=reference,time=reference/meta['fps'],bbox=(np.asarray(c['reference_box'])/[meta['width'],meta['height'],meta['width'],meta['height']]*1000).tolist(),
                                confidence=1.,confidence_source='human',manual=True,visibility='visible',analysis_source='manual',direction='manual')
-    discovery=discovery_grid(start,stop,meta['fps'],options['discovery_fps'])
+    discovery=discovery_grid(start,stop,meta['fps'],min(2.,options['discovery_fps']))
     indices=sorted(set(i for i in meta['samples'] if start<=i<=stop)|set(discovery)|{i for i in manual if start<=i<=stop})
-    if c.get('leveling_source')=='gyro':gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
-    else:gyro={'frames':[{'roll':0} for _ in range(meta['frames'])]}
+    if c.get('leveling_source')!='gyro':
+        raise ValueError('Two-path optical analysis requires gyro leveling. Set leveling_source to gyro in the source project and queue a new run; visual mode cannot silently substitute zero rotation.')
+    gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
     from verification_policy import VERSION as POLICY_VERSION
     from crop_description import VERSION as DESCRIPTION_VERSION
     from description_comparison import VERSION as COMPARISON_VERSION
@@ -54,10 +56,13 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     if checkpoint.exists():
         previous=json.loads(checkpoint.read_text())
         if previous.get('fingerprint')==fingerprint:prior=previous
-    if prior is None:(out/'optical_motion.jsonl').write_text('')
+    if prior is None:
+        (out/'optical_motion.jsonl').write_text('')
+        (out/'path_candidates.jsonl').write_text('')
     search=TrackingSearch(config,meta,gyro,model,helpers,api)
     progress=TrackingProgress(out,fingerprint,discovery,indices,start,stop,confidence_threshold(c),resuming=prior is not None,anchor_threshold=options['anchor_confidence'])
     search.progress=progress
+    search.discovery=set(discovery)
     def discover(index,rows):
         try:row=search.localize(index,rows)
         except Exception:
@@ -82,6 +87,8 @@ def run_anchors(c,meta,model,helpers,api,single=None):
             candidates=row.get('candidates')
             if candidates and all(p in candidates for p in ('raw_angle','leveled')):pairs.append(dict(frame=index,time=row['time'],raw_angle=candidates['raw_angle'],leveled=candidates['leveled'],selected={k:v for k,v in row.items() if k!='candidates'},box_iou=row.get('box_iou')))
         save(out/'observations.json',rows);save(out/'tracking_selected.json',rows);save(out/'tracking_comparison.json',pairs)
+        for path in ('raw_angle','leveled'):
+            save(out/f'tracking_{path}.json',[r if r.get('manual') else r.get('candidates',{}).get(path,dict(frame=r['frame'],time=r['time'],bbox=None,confidence=0,visibility='uncertain')) for r in rows])
         coverage=state['coverage'];counts=progress.publish(state)
         save(out/'analysis_progress.json',dict(stage='anchor_'+state['stage'],completed=len(coverage),total=len(indices),
             source_fps=meta['fps'],analysis_fps=c['analysis_fps'],discovery_fps=options['discovery_fps'],anchors=len(state['anchors']),
@@ -91,7 +98,7 @@ def run_anchors(c,meta,model,helpers,api,single=None):
             unresolved_frames=[r['frame'] for r in rows if not r.get('bbox')],analysis_interval=[start,stop]))
         print(f"Anchor {state['stage']}: discovery {counts['discovery']['examined']}/{counts['discovery']['total']} scanned + {counts['discovery']['resolved_without_scan']} resolved without scan; crop verification {counts['verification']['examined']}/{counts['verification']['total']} checked; optical {counts['optical']['examined']}/{counts['optical']['total']} visited; {len(state['anchors'])} anchors; {len(state['queue'])} propagation tasks",flush=True)
     scheduler=AnchorScheduler(indices,discovery,[r for i,r in manual.items() if start<=i<=stop],search.propagate,
-        discover,publish,dict(options,confidence_threshold=confidence_threshold(c),agreement_iou=c.get('tracking_selection',{}).get('agreement_iou',.35)),prior)
+        discover,publish,dict(options,two_path_tracking=True,confidence_threshold=confidence_threshold(c),agreement_iou=c.get('tracking_selection',{}).get('agreement_iou',.35)),prior)
     try:scheduler.run()
     finally:progress.publish(scheduler.state)
     return json.loads((out/'observations.json').read_text())

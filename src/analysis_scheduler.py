@@ -71,7 +71,11 @@ class AnchorScheduler:
                 candidate=self._review_failures(candidate,target)
                 candidate=dict(candidate,origin_anchor=source.get('origin_anchor',source['frame']),parent_frame=source['frame'])
                 self.queue.popleft();self.state['attempts'][task['key']]=task
-                chosen,conflict=resolve(existing,candidate,self.threshold,self.settings.get('agreement_iou',.35))
+                if self.settings.get('two_path_tracking'):
+                    from path_candidates import combine
+                    chosen,conflict=combine(existing,candidate,self.threshold),False
+                else:
+                    chosen,conflict=resolve(existing,candidate,self.threshold,self.settings.get('agreement_iou',.35))
                 if not conflict and not reliable(chosen,self.threshold) and motion_usable(candidate) and not (existing and existing.get('manual')):chosen=candidate
                 self.state['results'][key]=chosen
                 coverage=self.state['coverage'].setdefault(key,{})
@@ -93,10 +97,15 @@ class AnchorScheduler:
             row=self.discover(index,self.state['results'])
             row=self._review_failures(row,index)
             row=dict(row,origin_anchor=index,parent_frame=None,anchor_kind='discovery')
+            if self.settings.get('two_path_tracking'):
+                from path_candidates import combine
+                row=combine(self.state['results'].get(str(index)),row,self.threshold)
             self.state['results'][str(index)]=row
             self.state['coverage'].setdefault(str(index),{}).update(independent_scanned=True,reliably_covered=reliable(row,self.threshold))
             self.state['events'].append(dict(kind='discovery',frame=index,candidate=row))
             if self.can_anchor(row):self._anchor(row)
+            elif self.settings.get('two_path_tracking') and propagation_usable(row,self.threshold):
+                self._enqueue(row,-1);self._enqueue(row,1)
             self._save('discovering')
         self._save('complete')
         return [self.state['results'][k] for k in sorted(self.state['results'],key=int)]

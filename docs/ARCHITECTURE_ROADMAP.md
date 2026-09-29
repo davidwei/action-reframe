@@ -200,3 +200,7 @@ behavior from proposed work and gives acceptance checks for each delivery step.
 ## Independent process records
 
 The evidence/reuse layer now separates discovery, blind crop description, identity comparison, acceptance policy, optical motion state and camera paths. See [Stage records and efficient reruns](STAGE_RECORDS.md) for dependency rules, implemented behavior, validation and remaining optimization. Existing analysis and rerender queue actions use this layer; verification-only queue actions remain follow-up work.
+
+## Independent optical branches
+
+New dual/anchor analysis now uses [two-path tracking](TWO_PATH_TRACKING.md): separate raw and gyro-leveled feature states, four candidate records, confidence-based seed/render selection, and image-centered recovery when tracking is lost. Analysis is rotation-only; rendering zoom remains downstream. Legacy visual-leveling configurations must be explicitly updated before new two-path analysis.

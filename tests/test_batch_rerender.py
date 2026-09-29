@@ -19,7 +19,7 @@ class RerenderTests(unittest.TestCase):
         for _ in range(5):writer.write(np.full((48,64,3),100,np.uint8))
         writer.release()
         self.config=dict(video='clip.avi',output_dir='outputs/source',target='boat',reference_box=[10,10,30,30],
-                         reference_time=0,analysis_fps=2,output_width=64,output_height=48,api_url='http://127.0.0.1:9/v1')
+                         reference_time=0,analysis_fps=2,leveling_source='visual',output_width=64,output_height=48,api_url='http://127.0.0.1:9/v1')
         write(self.root/'project.json',self.config)
         c=load_config(self.root/'project.json');prepare(c)
         self.out=self.root/'outputs/source'

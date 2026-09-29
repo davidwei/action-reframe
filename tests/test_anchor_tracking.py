@@ -78,10 +78,10 @@ class IntegrationTests(unittest.TestCase):
         from anchor_tracking import run_anchors
         with tempfile.TemporaryDirectory() as folder:
             c={'output_dir':folder,'video':'unused','reference_time':.5,'reference_box':[10,10,20,20],
-               'analysis_fps':2,'leveling_source':'visual','anchor_tracking':{},'tracking_selection':{'confidence_threshold':.5}}
+               'analysis_fps':2,'leveling_source':'gyro','anchor_tracking':{},'tracking_selection':{'confidence_threshold':.5}}
             meta={'cache':folder,'signature':'test','frames':5,'fps':2,'width':100,'height':100,'samples':[0,1,2,3,4]}
             def save(path,value):Path(path).write_text(json.dumps(value))
-            with patch('anchor_tracking.TrackingSearch') as search:
+            with patch('anchor_tracking.extract_gyro',return_value={'frames':[{'roll':0}]*5}), patch('anchor_tracking.TrackingSearch') as search:
                 search.return_value.propagate.side_effect=lambda source,index,step,rows:row(index,localized=False)
                 search.return_value.localize.side_effect=lambda index,rows:row(index,0)
                 result=run_anchors(c,meta,'model',(None,None,save),None)

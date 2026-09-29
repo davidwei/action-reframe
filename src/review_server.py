@@ -29,6 +29,9 @@ def project_defaults():
 
 def set_anchor_options(config,data):
     saved={}
+    if 'leveling_source' in data:
+        if data['leveling_source'] not in ('gyro','visual'):raise ValueError('Invalid leveling source')
+        config['leveling_source']=data['leveling_source'];saved['leveling_source']=data['leveling_source']
     if 'tracking_mode' in data:
         if data['tracking_mode'] not in ('single','dual','anchor'):raise ValueError('Invalid tracking mode')
         config['tracking_mode']=data['tracking_mode'];saved['tracking_mode']=data['tracking_mode']
@@ -168,6 +171,8 @@ class Handler(BaseHTTPRequestHandler):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 from optical_diagnostics import load as load_optical
                 state['optical_motion']=load_optical(out)
+                from path_candidates import load as load_path_candidates
+                state['path_candidates']=load_path_candidates(out)
                 from tracking_progress import progress_for_ui
                 state['analysis_progress']=progress_for_ui(out,config,state['analysis_progress'])
                 if config.get('batch_input_revision') and (out/'review_corrections.json').exists():

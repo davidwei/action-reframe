@@ -76,7 +76,7 @@ class SelectedRenderTests(unittest.TestCase):
                               'reference_box':[10,10,20,20],'target':'test','analysis_fps':2,
                               'tracking_mode':'dual','tracking_render_path':'selected',
                               'output_width':64,'output_height':48})
-            c=load_config(config);meta=prepare(c);out=Path(c['output_dir'])
+            c=load_config(config);c['leveling_source']='visual';meta=prepare(c);out=Path(c['output_dir'])
             selected=[dict(row(0),selected_path='raw_angle',shoreline=[0,500,1000,500],level_confidence=.9),
                       dict(row(4,box=[200,100,300,200]),selected_path='leveled',shoreline=[0,500,1000,500],level_confidence=.9)]
             write_json(out/'tracking_selected.json',selected)

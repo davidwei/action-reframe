@@ -64,7 +64,7 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
     signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,target_description(c),
-        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
+        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('_analysis_view'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=cache/f'{signature}.json'
     if result_path.exists() and not c.get('stage_store_dir'):
         result=json.loads(result_path.read_text())
@@ -78,6 +78,8 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
     matrix,size=(expanded_rotation(x2-x1,y2-y1,angle) if path=='leveled' else
                  (np.array([[1.,0,0],[0,1.,0]]),(int(x2-x1),int(y2-y1))))
     matrix[:,2]-=matrix[:,:2]@np.array([x1,y1])
+    if path=='leveled' and c.get('_analysis_view'):
+        matrix=np.asarray(c['_analysis_view']['matrix'],float);size=tuple(c['_analysis_view']['size'])
     view=cv2.warpAffine(image,matrix,size,borderMode=cv2.BORDER_CONSTANT)
     current_path=cache/f'{index:07d}_{path}_view.jpg'
     cv2.imwrite(str(current_path),view)

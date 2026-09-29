@@ -35,7 +35,7 @@
   "smoothing_seconds": 0.45,
   "border": "blurred_extension",
   "feather_pixels": 40,
-  "leveling_source": "visual",
+  "leveling_source": "gyro",
   "level_divergence_degrees": 5,
   "level_workers": 2,
   "anchor_tracking": {

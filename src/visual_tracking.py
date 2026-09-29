@@ -16,6 +16,7 @@ class VisualTracker:
         x1,y1=np.floor(self.box[:2]).astype(int);x2,y2=np.ceil(self.box[2:]).astype(int)
         mask[max(0,y1):max(0,y2),max(0,x1):max(0,x2)]=255
         if polygon:
+            self.corners=np.asarray(polygon,dtype=float)
             mask[:]=0;cv2.fillConvexPoly(mask,np.rint(polygon).astype(np.int32),255)
         self.points=cv2.goodFeaturesToTrack(self.gray,80,.01,3,mask=mask,blockSize=3)
         self.uncertainty=0.
@@ -31,7 +32,7 @@ class VisualTracker:
             result=self._update(image)
             return dict(motion=result,box=self.box.tolist(),corners=self.corners.tolist(),
                         points=None if self.points is None else self.points.tolist(),uncertainty=self.uncertainty)
-        value,record=self.store.run('optical_tracking',1,inputs,compute)
+        value,record=self.store.run('optical_tracking',2,inputs,compute)
         motion=value['motion']
         if motion['reliable']:
             self.gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
@@ -57,7 +58,7 @@ class VisualTracker:
         if matrix is None or inliers is None:return self._lost('No consistent target motion')
         good=inliers.ravel().astype(bool);scale=float(np.hypot(matrix[0,0],matrix[0,1]))
         if good.sum()<4 or not .8<=scale<=1.25:return self._lost('Unreliable scale or motion')
-        moved=np.c_[self.corners,np.ones(4)]@matrix.T
+        moved=np.c_[self.corners,np.ones(len(self.corners))]@matrix.T
         h,w=gray.shape
         box=np.r_[np.maximum(moved.min(axis=0),0),np.minimum(moved.max(axis=0),[w,h])]
         if np.any(box[2:]<=box[:2]):return self._lost('Target left the image')

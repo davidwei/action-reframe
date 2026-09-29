@@ -1,0 +1,104 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+import cv2
+import numpy as np
+from two_path_tracking import TwoPathSearch,leveled_transform,rebase_tracker
+from visual_tracking import VisualTracker
+from path_candidates import combine,choose,load,apply_to_render
+from analysis_scheduler import AnchorScheduler
+
+
+def row(frame,path,method,score,box=None):
+    optical=method=='optical'
+    return dict(frame=frame,time=frame/30,path=path,candidate_id=path+'_'+method,bbox=box or [200,200,400,500],
+        confidence=score,visibility='visible',localized=not optical,motion_reliable=optical,
+        identity_verified=True,analysis_source='flow_crop_validation' if optical else 'full_frame_detection')
+
+class TwoPathTests(unittest.TestCase):
+    def test_separate_winners_and_render_selection(self):
+        records={r['candidate_id']:r for r in [row(1,'raw_angle','detection',.6),row(1,'raw_angle','optical',.8),row(1,'leveled','detection',.9),row(1,'leveled','optical',.7)]}
+        result=combine(None,dict(frame=1,four_candidates=records))
+        self.assertEqual(result['path_results']['raw_angle']['candidate_id'],'raw_angle_optical')
+        self.assertEqual(result['path_results']['leveled']['candidate_id'],'leveled_detection')
+        self.assertEqual(result['candidate_id'],'leveled_detection')
+        failed=dict(frame=1,bbox=None,confidence=0,four_candidates={'raw_angle_detection':dict(row(1,'raw_angle','detection',0),bbox=None)})
+        merged=combine(result,failed)
+        self.assertEqual(len(merged['four_candidates']),4)
+        self.assertEqual(merged['candidate_id'],'leveled_detection')
+        with tempfile.TemporaryDirectory() as folder:
+            from path_candidates import record
+            record(folder,1,records)
+            self.assertEqual(apply_to_render([],folder,.5)[0]['candidate_id'],'leveled_detection')
+            human=dict(frame=1,bbox=None,manual=True)
+            self.assertIsNone(apply_to_render([human],folder,.5)[0]['bbox'])
+
+    def test_accepted_discovery_seeds_both_directions_below_high_threshold(self):
+        calls=[]
+        def discover(i,rows):return combine(None,dict(frame=i,four_candidates={'raw_angle_detection':row(i,'raw_angle','detection',.7)}))
+        def propagate(source,i,step,rows):
+            calls.append((source['frame'],i));return dict(frame=i,time=i,bbox=None,confidence=0,visibility='uncertain',four_candidates={})
+        scheduler=AnchorScheduler([0,1,2],[1],[],propagate,discover,lambda s:None,dict(two_path_tracking=True,anchor_confidence=.85))
+        scheduler.run();self.assertEqual(set(calls),{(1,0),(1,2)});self.assertEqual(scheduler.state['anchors'],[])
+
+    def test_pivot_rebase_preserves_raw_feature_positions_without_zoom(self):
+        image=np.random.default_rng(5).integers(0,255,(100,160,3),dtype=np.uint8)
+        a,size=leveled_transform(160,100,np.array([50,50]),12)
+        b,newsize=leveled_transform(160,100,np.array([80,35]),12)
+        self.assertEqual(size,newsize);self.assertAlmostEqual(np.linalg.det(a[:,:2]),1.)
+        raw=np.array([[30,20],[80,20],[80,70],[30,70]])
+        from dual_tracking import transform_points
+        poly=transform_points(raw,a)
+        tracker=VisualTracker().initialize(cv2.warpAffine(image,a,size),np.r_[poly.min(axis=0),poly.max(axis=0)],poly.tolist())
+        np.testing.assert_allclose(transform_points(tracker.corners,cv2.invertAffineTransform(a)),raw,atol=1e-6)
+        before=transform_points(tracker.points.reshape(-1,2),cv2.invertAffineTransform(a))
+        rebase_tracker(tracker,image,a,b,size)
+        after=transform_points(tracker.points.reshape(-1,2),cv2.invertAffineTransform(b))
+        np.testing.assert_allclose(before,after,atol=1e-4)
+
+    def test_each_branch_tracks_own_seed_and_records_intermediate_frames(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);cache=out/'cache';cache.mkdir()
+            image=np.random.default_rng(6).integers(0,255,(100,160,3),dtype=np.uint8)
+            cv2.imwrite(str(cache/'reference.jpg'),image[20:60,20:60])
+            images=[np.roll(image,i,axis=1) for i in range(4)]
+            c=dict(output_dir=str(out),target='object',api_url='test',anchor_tracking=dict(discovery_fps=2),tracking_selection=dict(confidence_threshold=.5))
+            meta=dict(width=160,height=100,frames=4,fps=30,cache=str(cache))
+            helpers=(lambda c,m,i:images[i],None,lambda p,v:p.write_text(json.dumps(v)))
+            search=TwoPathSearch(c,meta,dict(frames=[dict(roll=0) for _ in images]),'test',helpers,None)
+            source=combine(None,dict(frame=0,four_candidates={r['candidate_id']:r for r in [row(0,'raw_angle','detection',.8,[100,100,400,600]),row(0,'leveled','detection',.9,[500,200,850,700])]}))
+            def verify(*args):return dict(version=7,comparison=dict(match_score=.8,target_present=True,target_complete=True,localization_support='supported',exclusion_check='pass'),description={})
+            with patch('two_path_tracking.verify_box',side_effect=verify),patch.object(search,'detect',side_effect=AssertionError('Reliable tracking must not trigger recovery')):
+                result=search.propagate(source,3,1,{'0':source})
+            self.assertEqual(len(result['path_results']),2)
+            records=load(out)
+            self.assertEqual(set(records),{'1','2','3'})
+            self.assertEqual(records['1']['raw_angle_optical']['confidence_measurement'],'inherited')
+            self.assertEqual(records['3']['leveled_optical']['confidence_measurement'],'measured')
+            self.assertLess(result['path_results']['raw_angle']['bbox'][0],result['path_results']['leveled']['bbox'][0])
+            self.assertEqual(records['3']['leveled_optical']['rotation_applied'],0)
+
+    def test_discovery_grid_is_capped_at_two_fps(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cache=Path(folder)/'cache';cache.mkdir()
+            search=TwoPathSearch(dict(output_dir=folder,anchor_tracking=dict(discovery_fps=10)),dict(cache=str(cache),frames=61,fps=30),{},'model',(None,None,None),None)
+            self.assertEqual(sorted(search.discovery),[0,15,30,45,60])
+            self.assertIsNone(search.detect(1,{},'forward','raw_angle'))
+
+    def test_recovery_without_box_uses_image_center_not_historical_box(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);cache=root/'cache';cache.mkdir()
+            cv2.imwrite(str(cache/'reference.jpg'),np.zeros((10,10,3),np.uint8))
+            c=dict(output_dir=folder,target='object',anchor_tracking={})
+            meta=dict(cache=str(cache),frames=31,fps=30,width=160,height=100)
+            search=TwoPathSearch(c,meta,dict(frames=[dict(roll=20)]*31),'model',(None,None,None),None)
+            rows={'0':combine(None,dict(frame=0,four_candidates={'leveled_detection':row(0,'leveled','detection',.9)}))}
+            captured=[]
+            def observe(c,*args,**kwargs):
+                captured.append(c['_analysis_view']);return dict(frame=15,bbox=None,confidence=0)
+            with patch('two_path_tracking.observe_path',side_effect=observe):search.detect(15,rows,'forward','leveled')
+            matrix=np.asarray(captured[0]['matrix']);size=captured[0]['size']
+            np.testing.assert_allclose(matrix[:,:2]@np.array([80,50])+matrix[:,2],np.array(size)/2)
+            self.assertAlmostEqual(np.linalg.det(matrix[:,:2]),1.)

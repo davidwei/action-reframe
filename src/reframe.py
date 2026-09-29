@@ -279,12 +279,9 @@ def analyze(c, single=None):
     out = Path(c['output_dir'])
     meta = prepare(c,max_time=single)
     served=api(c['api_url'] + '/models')['data'][0];model=served['id'];c['_model_max_len']=served.get('max_model_len',32768)
-    if c.get('tracking_mode')=='anchor':
+    if c.get('tracking_mode') in ('anchor','dual'):
         from anchor_tracking import run_anchors
         return run_anchors(c,meta,model,(cached_frame,contextual_completion,write_json),api,single)
-    if c.get('tracking_mode')=='dual':
-        from dual_tracking import run_dual
-        return run_dual(c,meta,model,(cached_frame,contextual_completion,write_json),single)
     from manual_tracking import manual_observations
     manual=manual_observations(c,meta)
     samples=sorted(set(meta['samples']) | set(manual))
@@ -782,6 +779,8 @@ def render(c):
         write_json(out/'observations.json',observations)
     from motion_render import merge_motion
     observations=merge_motion(observations,meta,out,confidence_threshold(c))
+    from path_candidates import apply_to_render
+    observations=apply_to_render(observations,out,confidence_threshold(c))
     boxes,supported,roll,flags=measurements(c,meta,observations)
     level_rows=None
     if c.get('leveling_source')=='gyro':

@@ -111,6 +111,9 @@
       `Frame: ${frame} (zero-based) | Time: ${number(fps?frame/fps:null,3)} s`,
       `Result: ${state.config?.output_dir||'not available'}`,
       `Tracking confidence: ${percent(confidence)} — ${confidenceSource}`,
+      ...Object.entries(state.path_candidates?.[frame]||{}).flatMap(([key,r])=>[
+        `${key}: crop identity ${percent(r.confidence)} (${r.confidence_measurement||'measured'}${r.confidence_measurement==='inherited'?' from frame '+r.confidence_frame:''}); motion quality ${percent(r.motion_quality)}`,
+        `${key} source-normalized box: ${vector(r.bbox)} | ${r.box_verification?.decision?.reason||r.motion_reason||'No fresh verification at this frame'}`]),
       ...(optical?[`Optical prediction before crop validation: ${optical.reliable?'available (magenta dotted box)':'motion failed; no prediction box'}`,
         `Optical box [left, top, right, bottom] in raw pixels: ${vector(optical.bbox_px)}`,
         `Optical source: frame ${optical.source_frame??'not recorded'} | ${optical.direction||'unknown'} | motion quality ${percent(optical.motion_quality)} (not identity confidence)`,
@@ -172,7 +175,7 @@
     return {status,tone,confidence,confidenceSource,level,text:lines.join('\n'),data:{
       frame,time_seconds:fps?frame/fps:null,rendered_track:track,tracking_comparison:dual,
       frame_observation:observation,nearest_observation:observation,observation_is_exact_frame:!!observation,
-      saved_manual_correction:correction,level_comparison:level
+      four_path_candidates:state.path_candidates?.[frame]||null,saved_manual_correction:correction,level_comparison:level
     }};
   }
 
@@ -280,6 +283,8 @@
     element.querySelector('.analysis-json').value = JSON.stringify(result.data, null, 2);
   }
   function opticalPrediction(state, frame) {
+    const opticalCandidates=Object.values(state.path_candidates?.[frame]||{}).filter(r=>r.candidate_id?.endsWith('_optical')&&r.motion_reliable&&r.bbox).sort((a,b)=>b.confidence-a.confidence);
+    if(opticalCandidates.length&&state.meta){const r=opticalCandidates[0];return {...r,reliable:true,bbox_px:r.bbox.map((v,i)=>v*(i%2?state.meta.height:state.meta.width)/1000),origin:r.path+' optical branch'}}
     const direct=state.optical_motion?.[frame];
     if(direct)return direct;
     // Historical runs retained checkpoint predictions inside propagation validation.
@@ -302,7 +307,10 @@
     return [{path:'optical',polygon:[[x1,y1],[x2,y1],[x2,y2],[x1,y2]],interpolated:false,sampleFrame:frame}];
   }
   function playbackBoxes(state, frame) {
-    const row=state.tracking_comparison?.find(r=>r.frame===frame),meta=state.meta||{};
+    let row=state.tracking_comparison?.find(r=>r.frame===frame);const meta=state.meta||{};
+    const saved=state.path_candidates?.[frame];
+    if(saved){row={};for(const path of ['raw_angle','leveled'])row[path]=Object.values(saved).filter(r=>r.path===path&&r.bbox&&!r.error).sort((a,b)=>b.confidence-a.confidence)[0]}
+
     if(!row||!meta.width||!meta.height)return [];
     return ['raw_angle','leveled'].flatMap(path=>{
       const r=row[path],box=r?.bbox;

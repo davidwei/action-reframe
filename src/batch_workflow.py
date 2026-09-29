@@ -365,7 +365,7 @@ class Batch:
                 write(out/'code_version.json',dict(analysis=read(source_out/'code_version.json',{}).get('analysis')))
                 write(out/'meta.json',dict(meta,cache=str(cache)))
                 for name in {observations,'observations.json','tracking_raw_angle.json','tracking_leveled.json',
-                             'tracking_selected.json','tracking_comparison.json','level_observations.json','optical_motion.jsonl'}:
+                             'tracking_selected.json','tracking_comparison.json','level_observations.json','optical_motion.jsonl','path_candidates.jsonl'}:
                     if (source_out/name).is_file():shutil.copy2(source_out/name,out/name)
                 revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
                 snapshot.update(video=str(self.path(current['video'])),output_dir=str(out),batch_stage='render',
