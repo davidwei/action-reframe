@@ -58,7 +58,12 @@ function renderJobs(){
  for(const j of [...state.jobs].sort((a,b)=>rank(a)-rank(b)||(rank(a)===1?(b.priority||0)-(a.priority||0)||a.created-b.created:b.created-a.created))){
   const row=document.createElement('tr'),identity=document.createElement('td');identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · '+(j.stage==='render'?'Rerender only · priority':'Analyze + render')+' · attempt '+j.attempts));
   identity.append(document.createElement('br'),codeBadge(j.code_version));if(j.stage==='render')identity.append(document.createElement('br'),codeBadge(j.analysis_code_version,'Reused analysis'));
-  const status=document.createElement('td');status.append(text('span',j.status));if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
+  const status=document.createElement('td');status.append(text('span',j.status==='succeeded'?'success':j.status));
+  if(Number.isFinite(j.updated)){
+   const date=new Date(j.updated*1000),stamp=document.createElement('time');
+   stamp.dateTime=date.toISOString();stamp.title='Status updated: '+date.toLocaleString(undefined,{timeZoneName:'long'});
+   stamp.textContent=' ('+date.toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'})+' '+date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(/\s+/g,'').toLowerCase()+')';status.append(stamp);
+  }if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
   const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
   if(p.coverage||p.stage_reuse)TrackingProgressView.render(progress,p);
   const actions=document.createElement('td');actions.append(link('Open video focus','/?config='+encodeURIComponent(j.config)));
