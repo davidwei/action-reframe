@@ -1,5 +1,7 @@
 # Lookout — project plan
 
+> Product planning document, not a current completion ledger. Use the [documentation guide](README.md) and [architecture roadmap](ARCHITECTURE_ROADMAP.md) for implemented behavior and remaining work.
+
 Status: first release implemented; see [operating guide](LOOKOUT.md) for shipped capabilities, validation, and remaining measurement limits. Automatic retention is deferred by user decision.
 Date: 2026-09-28.
 

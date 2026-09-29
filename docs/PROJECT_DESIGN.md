@@ -1,5 +1,7 @@
 # Action video reframing: project design
 
+> Product planning document, not a current completion ledger. Use the [documentation guide](README.md) and [architecture roadmap](ARCHITECTURE_ROADMAP.md) for implemented behavior and remaining work.
+
 The [architecture and next steps](ARCHITECTURE_ROADMAP.md) define the agreed four core components, video-level scheduling, folder-level workflow, and separate feature-building and optimization tracks.
 
 See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.

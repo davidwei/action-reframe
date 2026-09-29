@@ -1,5 +1,7 @@
 # Video focus prototype
 
+> Historical prototype reference: algorithms and defaults below include superseded behavior. Use [current approach](CURRENT_APPROACH.md) and [video processing paths](TWO_PATH_TRACKING.md) for new runs.
+
 See [current approach](CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
 
 Offline object-focused reframing with a local Qwen3-VL endpoint, reviewable observations, per-frame crop/roll data, and a synchronized original/processed comparison.

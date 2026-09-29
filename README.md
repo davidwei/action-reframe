@@ -1,12 +1,8 @@
 # Action Reframe
 
-The [architecture and next steps](docs/ARCHITECTURE_ROADMAP.md) define the agreed four core components, video-level scheduling, folder-level workflow, and separate feature-building and optimization tracks.
-
-See [current approach](docs/CURRENT_APPROACH.md) for the implemented tracking/review behavior, agreed tradeoffs, and the boundary between current functionality and planned work.
-
 Offline subject tracking, camera leveling, smooth reframing, and review for action footage.
 
-The current prototype supports frame analysis, backward recovery, rendering, synchronized comparison, and corrections. The proposed three-part workflow—design plans, validate offline trials, then process approved videos—is described in [the design](docs/PROJECT_DESIGN.md) and [implementation plan](docs/PROJECT_PLAN.md).
+Start with the [documentation guide](docs/README.md), [current approach](docs/CURRENT_APPROACH.md), and [video processing paths](docs/TWO_PATH_TRACKING.md). The [architecture roadmap](docs/ARCHITECTURE_ROADMAP.md) separates built features from future work. The library supports approved inputs and offline analysis/rerender queues; the broader planner/trial/production experience remains planned.
 
 Open `/lookout` for daily UX and operational improvement suggestions. See the [Lookout operating guide](docs/LOOKOUT.md) for collection controls, service setup and measurement limits.
 
@@ -60,7 +56,7 @@ On Windows, use the Python entry points directly with `.venv\Scripts\python.exe`
 | Review workspace | Repository `data/` | `--workspace PATH`, then `LONGVIDEO_WORKSPACE` environment variable |
 | Review port | 8765, loopback only | `--port NUMBER` |
 | Qwen endpoint | `http://127.0.0.1:8000/v1` | `QWEN_API_URL`, or project `api_url` |
-| Analysis cadence | 10 FPS | UI, project `analysis_fps`, or CLI `--analysis-fps` |
+| Crop Verification FPS | 10 FPS | UI, project `analysis_fps`, or CLI `--analysis-fps` |
 | Processing defaults | `configs/defaults.json` | Individual project fields |
 
 Environment variables are inherited by analysis workers. `QWEN_API_URL` takes precedence over the project's endpoint. The current client expects the model-list, chat-completions, and vLLM-compatible `/tokenize` endpoints, accepts image inputs, and has no API-key authentication integration yet. Arbitrary hosted providers are not interchangeable without an adapter.

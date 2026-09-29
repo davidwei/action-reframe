@@ -17,7 +17,7 @@ that folder; recursive subfolder import is not yet implemented.
    use Review descriptions to jump to the description section of Video focus. New projects default
    to anchor tracking. You can save additional polygon labels before analysis.
    Existing projects are listed separately, including multiple targets per video.
-2. **Prepare inputs.** Open labels/settings to set analysis FPS, tracking mode and
+2. **Prepare inputs.** Open labels/settings to set Crop Verification FPS, tracking mode and
    confidence thresholds. Use Review descriptions to open the description editor in Video focus. With
    labeled crops and no saved text, Qwen prepopulates a draft using all
    ground-truth crops; without crops the editor starts empty. Saved text is
@@ -296,7 +296,7 @@ visits can increase attempts without increasing unique coverage. Cached results
 establish coverage but count as reuses rather than fresh attempts.
 
 Verification position outcomes use the latest result for each path: accepted if
-any path meets the confidence threshold and completeness check, otherwise rejected
+any path meets the current identity/localization acceptance policy, otherwise rejected
 if a completed rejection exists, otherwise errored. These are crop-verification
 outcomes, not a guarantee the final path selector accepted that frame. Optical
 positions are usable if any recorded update produced a usable prediction; failed
@@ -319,7 +319,7 @@ new-run logs report the three coverage totals, anchors and propagation tasks.
 Progress cards also show unique frames with **medium or higher** object confidence
 (at least the configured acceptance threshold), and the **high / anchor-eligible**
 subset (at least the configured anchor threshold, independently localized,
-complete, and without a conflict). High counts are included in medium-or-higher
+with resolved exclusions and without a conflict). High counts are included in medium-or-higher
 counts; they are eligible results, not the number of anchors actually scheduled.
 For discovery these describe the selected detection. Crop verification counts
 use the latest result per path, counting a frame once if either path qualifies.
@@ -406,3 +406,7 @@ snapshots cannot be reconstructed. History is stored in the workspace batch
 database and must be included in backups; it is separate from Lookout telemetry.
 
 Description drafting, crop checks, and description retries have per-project server-side job status. Returning to a project shows any running description work and disables duplicate actions until polling observes completion/failure. Separate projects may still run these checks concurrently outside the overnight queue. A per-project file lock also rejects duplicate requests from other tabs; status and errors are retained under `.batch/description_jobs`. If the server stops, the released lock makes unfinished work appear interrupted and retryable rather than permanently busy.
+
+## Active processing stage
+
+For newly started analyses, the running job's Discovery, Crop verification or Optical tracking title turns amber and shows “Active” while that operation executes. This is worker-reported activity, separate from coverage counts and broad scheduler phases. Polling can miss very brief optical operations. Old workers without activity records and non-running jobs do not show an active highlight.

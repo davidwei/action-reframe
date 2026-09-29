@@ -26,3 +26,33 @@ Gyro is now the default leveling source. New dual/anchor analysis requires it an
 ## Verification
 
 Tests cover independent branch seeds and frame records, confidence selection, preservation after failed discovery, medium-confidence propagation, unit-scale coordinate rebasing, the 2 FPS grid, image-center recovery even when historical boxes exist, and rendering/human-label precedence. A short real DJI interval (human frame 1148 through 1151) is used as an additional smoke check without changing the original project's outputs.
+
+## Processing cadences
+
+| Operation | Default cadence | What it means |
+| --- | --- | --- |
+| Optical motion | Source FPS, in either direction | Update raw and leveled feature tracks through adjacent frames |
+| Crop verification | 10 FPS checkpoints | Describe the predicted crop and compare with approved identity text; scheduler/reference positions can add checkpoints |
+| Independent discovery/recovery | At most 2 FPS per path on a fixed grid | Localize with Qwen when motion is unavailable or unverified, and scan unresolved regions |
+
+The UI calls the second setting **Crop Verification FPS**; its configuration/CLI keys remain `analysis_fps` / `--analysis-fps`. These are scheduling cadences, not processing speed. Optical frames can be revisited, and independent recovery can invoke crop verification too.
+
+## Per-frame decisions
+
+1. Respect human boxes or explicit absence. Otherwise load each branch's usable preceding winner in the current traversal direction.
+2. Run raw optical flow in source coordinates. Run leveled optical flow in rotation-only coordinates, rebasing around that branch's preceding winner as described above.
+3. At a verification checkpoint, crop and independently describe the proposal, compare against the approved identity, and record a measured confidence. Between checkpoints record inherited confidence and its source frame.
+4. On a discovery-grid position, independently recover any unavailable/unverified branch. Keep its detection and optical proposal separately; neither overwrites the other merely because it ran later.
+5. Within each branch choose the highest crop-identity-confidence eligible candidate as the next seed. An accepted independent detection can replace the motion prediction; the other branch keeps its own state.
+6. Later, rendering chooses the highest-confidence eligible candidate across all four, with prior-choice tie preference and authoritative human corrections. A rejected independent estimate is not automatically eligible merely because its numeric score is high. Reliable unverified optical motion remains eligible as an explicitly uncertain fallback.
+
+| Stored candidate | Image used | May seed |
+| --- | --- | --- |
+| `raw_angle_detection` | Raw frame plus rotation/context | Raw optical branch |
+| `raw_angle_optical` | Adjacent raw frames | Raw optical branch |
+| `leveled_detection` | Gyro-rotated, unzoomed frame | Leveled optical branch |
+| `leveled_optical` | Adjacent gyro-rotated, unzoomed frames | Leveled optical branch |
+
+All proposals return to canonical raw coordinates. The output camera's zoom or chosen render box does not feed back into analysis. Paths are logically independent but the current worker executes their operations sequentially; this design does not imply simultaneous Qwen requests.
+
+See [scheduler](ANCHOR_TRACKING.md) for video-wide traversal, [verification policy](VERIFICATION_POLICY.md) for eligibility, and [stage records](STAGE_RECORDS.md) for selective reuse. Implementations: [branch execution](../src/two_path_tracking.py), [candidate selection](../src/path_candidates.py), [rendering](../src/reframe.py).
