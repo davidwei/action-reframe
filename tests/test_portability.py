@@ -45,9 +45,16 @@ class PortabilityTests(unittest.TestCase):
         state = self.request('/api/state')
         self.assertIsNone(state['project'])
         self.assertEqual(state['config']['video'], '')
-        for path in ['/', '/compare', '/files/frame_analysis.js']:
+        for path in ['/', '/compare', '/files/frame_analysis.js', '/files/configuration_review.js']:
             with urllib.request.urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
+        import re
+        for page in ('/', '/compare'):
+            with urllib.request.urlopen(self.base+page) as response:html=response.read().decode()
+            for script in re.findall(r'<script src="([^"]+)"',html):
+                with urllib.request.urlopen(self.base+script) as response:
+                    self.assertEqual(response.status,200,script)
+                    self.assertIn('javascript',response.headers['Content-Type'],script)
         self.assertEqual(list(self.root.iterdir()), [])
 
     def test_create_project_from_synthetic_video_and_relocate(self):

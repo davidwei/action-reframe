@@ -207,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html','/lookout':'lookout.html'}[parsed.path]) if parsed.path in ('/','/compare','/library','/lookout') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js','/files/lookout.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
+            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html','/lookout':'lookout.html'}[parsed.path]) if parsed.path in ('/','/compare','/library','/lookout') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/configuration_review.js','/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js','/files/lookout.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
             if parsed.path not in ('/','/compare','/library','/lookout') and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
             if not path.is_file():return self.json_response({'error':'Not found'},404)
