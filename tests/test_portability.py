@@ -130,6 +130,13 @@ class PortabilityTests(unittest.TestCase):
         saved=json.loads((out/'corrections.json').read_text())['1']
         np.testing.assert_allclose(saved['bbox'],[6.4,4.8,25.6,19.2],atol=.001)
         self.assertEqual(saved['approved_path'],'leveled')
+        (out/'optical_motion.jsonl').write_text(json.dumps(dict(frame=1,reliable=True,bbox_px=[8,6,30,22]))+'\n')
+        self.request('/api/correct',{'config':'labels.json','frame':1,'approve_path':'optical'})
+        saved=json.loads((out/'corrections.json').read_text())['1']
+        self.assertEqual(saved['approved_path'],'optical')
+        self.assertEqual(saved['confidence_source'],'human')
+        np.testing.assert_allclose(saved['bbox'],[8,6,30,22])
+        self.assertEqual(self.request('/api/state?config=labels.json')['project_name'],'labels')
         self.request('/api/correct',{'config':'labels.json','frame':1,'bbox':None})
         saved=json.loads((out/'corrections.json').read_text())['1']
         self.assertIsNone(saved['bbox']);self.assertIsNone(saved['source_polygon_px'])

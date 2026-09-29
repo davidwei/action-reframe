@@ -111,7 +111,7 @@
       `Frame: ${frame} (zero-based) | Time: ${number(fps?frame/fps:null,3)} s`,
       `Result: ${state.config?.output_dir||'not available'}`,
       `Tracking confidence: ${percent(confidence)} — ${confidenceSource}`,
-      ...(optical?[`Optical prediction before crop validation: ${optical.reliable?'available (purple dotted box)':'motion failed; no prediction box'}`,
+      ...(optical?[`Optical prediction before crop validation: ${optical.reliable?'available (magenta dotted box)':'motion failed; no prediction box'}`,
         `Optical box [left, top, right, bottom] in raw pixels: ${vector(optical.bbox_px)}`,
         `Optical source: frame ${optical.source_frame??'not recorded'} | ${optical.direction||'unknown'} | motion quality ${percent(optical.motion_quality)} (not identity confidence)`,
         `Optical features: ${optical.feature_count??'not recorded'} | ${optical.reason||'Crop acceptance is separate; this overlay does not imply verified identity.'}`]:[]),
@@ -232,10 +232,10 @@
     if (!element) return;
     if (!element.dataset.mounted) {
       element.classList.add('frame-analysis'); element.dataset.mounted = 'true';
-      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><div class="analysis-approval" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><button type="button" data-approve="raw_angle">Approve Cyan (raw path)</button><button type="button" data-approve="leveled">Approve Orange (leveled path)</button><span class="analysis-approval-status" role="status"></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
+      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><div class="analysis-approval" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><button type="button" data-approve="raw_angle">Approve Cyan (raw path)</button><button type="button" data-approve="leveled">Approve Orange (leveled path)</button><button type="button" data-approve="optical">Approve Magenta (tracking path)</button><span class="analysis-approval-status" role="status"></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
     }
     const result = describe(state, frame, options.sourceMatches !== false);
-    const displayed=playbackBoxes(state,frame);
+    const displayed=[...playbackBoxes(state,frame),...opticalPlaybackBoxes(state,frame)];
     for(const button of element.querySelectorAll('[data-approve]')){
       const path=button.dataset.approve,candidate=displayed.find(box=>box.path===path);
       button.disabled=options.sourceMatches===false||!candidate?.polygon;
@@ -283,6 +283,11 @@
   function opticalBox(state, frame) {
     const prediction=opticalPrediction(state,frame),box=prediction?.bbox_px;
     return prediction?.reliable&&Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1]?box:null;
+  }
+  function opticalPlaybackBoxes(state,frame) {
+    const box=opticalBox(state,frame);if(!box)return [];
+    const [x1,y1,x2,y2]=box;
+    return [{path:'optical',polygon:[[x1,y1],[x2,y1],[x2,y2],[x1,y2]],interpolated:false,sampleFrame:frame}];
   }
   function playbackBoxes(state, frame) {
     const row=state.tracking_comparison?.find(r=>r.frame===frame),meta=state.meta||{};
@@ -339,5 +344,5 @@
       button.onclick=()=>{if(enabled&&target!==null)seek(target);};
     }
   }
-  window.FrameAnalysis = {describe, update, boxForLine, opticalPrediction, opticalBox, playbackBoxes, navigationTargets, updateNavigation, renderedBox, humanLabel, trackingMethod};
+  window.FrameAnalysis = {describe, update, boxForLine, opticalPrediction, opticalBox, opticalPlaybackBoxes, playbackBoxes, navigationTargets, updateNavigation, renderedBox, humanLabel, trackingMethod};
 })();

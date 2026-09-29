@@ -36,3 +36,10 @@ const historical={meta:opticalState.meta,observations:[{frame:5,parent_frame:2,p
 assert.deepEqual(Array.from(sandbox.window.FrameAnalysis.opticalBox(historical,5)),[192,216,576,432]);
 assert.equal(sandbox.window.FrameAnalysis.opticalBox(historical,6),null);
 console.log('Optical overlay: exact-frame raw pixels, rejected verification retained, failed/neighbor frames suppressed.');
+
+const opticalBoxes=sandbox.window.FrameAnalysis.opticalPlaybackBoxes(opticalState,2);
+assert.equal(opticalBoxes[0].path,'optical');
+assert.deepEqual(JSON.parse(JSON.stringify(opticalBoxes[0].polygon)),[[100,200],[300,200],[300,400],[100,400]]);
+assert.equal(sandbox.window.FrameAnalysis.opticalPlaybackBoxes(opticalState,3).length,0);
+assert.equal(sandbox.window.FrameAnalysis.opticalPlaybackBoxes(opticalState,4).length,0);
+console.log('Magenta approval/overlay uses exact-frame raw-pixel polygon, including unverified motion.');

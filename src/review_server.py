@@ -151,6 +151,11 @@ class Handler(BaseHTTPRequestHandler):
                 state={'project':config_name,'config':config,'running':project_running(config_name),
                        'execution_busy':(JOB is not None and JOB.poll() is None) or batch_active(),
                        'exit_code':None if JOB is None else JOB.poll()}
+                source_project=config_name
+                if config_name and config.get('batch_input_revision'):
+                    manifest=local_path(config_name).parent/'inputs.json'
+                    if manifest.exists():source_project=json.loads(manifest.read_text()).get('project',config_name)
+                state['project_name']=config.get('project_name') or (Path(source_project).stem if source_project else None)
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 from optical_diagnostics import load as load_optical
@@ -319,10 +324,15 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError('Preview changed; reload the frame before saving the selection')
                         if 'approve_path' in data:
                             selected_path=data['approve_path']
-                            if selected_path not in ('raw_angle','leveled'):raise ValueError('Invalid path')
-                            # The shared UI submits the exact displayed outline, including
-                            # interpolated/held estimates. Human approval needs no model score.
+                            if selected_path not in ('raw_angle','leveled','optical'):raise ValueError('Invalid path')
+                            # Approve the exact displayed source-space outline, regardless of identity score.
                             points=data.get('polygon')
+                            if points is None and selected_path=='optical':
+                                from optical_diagnostics import load as load_optical
+                                prediction=load_optical(out).get(str(i))
+                                if not prediction or not prediction.get('reliable') or not prediction.get('bbox_px'):
+                                    raise ValueError('No optical prediction supplied for this frame')
+                                points=box_polygon(prediction['bbox_px'])
                             if points is None:
                                 comparisons=json.loads((out/'tracking_comparison.json').read_text())
                                 row=next((r for r in comparisons if r['frame']==i),None)

@@ -6,7 +6,7 @@
 </style>
 <p><a href="/library">← Folder library and batch queue</a></p><p><a href="/lookout">Lookout · daily improvements and collection controls</a></p>
 <h1>Original / processed</h1><p>Both views share one timeline. Left: original framing. Right: leveled and reframed output.</p>
-<p id="resultIdentity" role="status">Loading result identity…</p><p id="playbackLegend" class="hint" hidden>Original-view candidates: <span style="color:#00e5ff">cyan polygon = raw + angle</span>; <span style="color:#ff9f32">orange rectangle = leveled → source</span>; <span style="color:#5dff9d">green = selected observation at this frame</span>; <span style="color:#ffffff">solid white = human label</span>. All estimation outlines are dotted. Includes uncertain candidates. Boxes appear only for recorded results at this exact frame; interpolation and held positions are not overlaid.</p>
+<p id="resultIdentity" role="status">Loading result identity…</p><p id="playbackLegend" class="hint" hidden>Original-view candidates: <span style="color:#00e5ff">cyan polygon = raw + angle</span>; <span style="color:#ff9f32">orange rectangle = leveled → source</span>; <span style="color:#5dff9d">green = selected observation at this frame</span>; <span style="color:#c878ff">magenta = optical tracking before verification</span>; <span style="color:#ffffff">solid white = human label</span>. All estimation outlines are dotted. Includes uncertain candidates. Boxes appear only for recorded results at this exact frame; interpolation and held positions are not overlaid.</p>
 <div id="stage"><div class="labels"><span>Original</span><span>Processed</span></div><div style="position:relative"><video id="video" playsinline preload="metadata"></video><svg id="playbackBoxes" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg><svg id="inspectedBox" viewBox="0 0 1920 540" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg></div></div>
 <div class="controls"><button id="play" disabled>Play both</button><button id="back" disabled>−1 frame</button><button id="forward" disabled>+1 frame</button><button id="minus" disabled>−5 seconds</button><button id="plus" disabled>+5 seconds</button><label>Speed <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button id="mute">Mute</button><button id="fullscreen">Fullscreen</button><span id="readout">Loading…</span></div>
 <input id="seek" type="range" min="0" max="1" step="1" value="0" disabled aria-label="Shared video frame">
@@ -17,22 +17,22 @@
 <div class="controls"><a id="review">Edit target and review flags</a><a id="download" hidden>Download comparison video</a><button id="reload">Reload latest render</button></div>
 <p id="levelSummary"></p><div id="levelFlags"></div><div id="selectionFlags"></div><div id="flags"></div>
 <script src="/files/lookout.js?v=1"></script>
-<script src="/files/frame_analysis.js?v=optical-framing-2"></script>
+<script src="/files/frame_analysis.js?v=magenta-approval-1"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
 let trackingSample=null,inspectedBox=null;
 function drawPlaybackBoxes(){
  const svg=$('playbackBoxes');svg.replaceChildren();
- $('playbackLegend').hidden=!(analysisState.tracking_comparison?.length||analysisState.tracks?.length);
+ $('playbackLegend').hidden=!(analysisState.tracking_comparison?.length||analysisState.tracks?.length||Object.keys(analysisState.optical_motion||{}).length);
  const meta=analysisState.meta;if(!meta)return;
  const scale=Math.min(960/meta.width,540/meta.height),dx=(960-meta.width*scale)/2,dy=(540-meta.height*scale)/2;
- for(const box of FrameAnalysis.playbackBoxes(analysisState,currentFrame)){
+ for(const box of [...FrameAnalysis.playbackBoxes(analysisState,currentFrame),...FrameAnalysis.opticalPlaybackBoxes(analysisState,currentFrame)]){
   const points=box.polygon.map(([x,y])=>[dx+x*scale,dy+y*scale]);
   const shape=document.createElementNS('http://www.w3.org/2000/svg',box.path==='raw_angle'?'polygon':'rect');
   if(box.path==='raw_angle')shape.setAttribute('points',points.map(p=>p.join(',')).join(' '));
   else {const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);for(const [key,value] of Object.entries({x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)}))shape.setAttribute(key,value);}
-  shape.setAttribute('fill','none');shape.setAttribute('stroke',box.path==='raw_angle'?'#00e5ff':'#ff9f32');shape.setAttribute('stroke-width','3');shape.setAttribute('stroke-dasharray','7 4');shape.dataset.path=box.path;shape.dataset.interpolated=box.interpolated;
+  shape.setAttribute('fill','none');shape.setAttribute('stroke',box.path==='optical'?'#c878ff':box.path==='raw_angle'?'#00e5ff':'#ff9f32');shape.setAttribute('stroke-width','3');shape.setAttribute('stroke-dasharray','7 4');shape.dataset.path=box.path;shape.dataset.interpolated=box.interpolated;
   svg.append(shape);
  }
  const finalBox=FrameAnalysis.renderedBox(analysisState,currentFrame);
