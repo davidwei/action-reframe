@@ -50,7 +50,7 @@
   "minimum_crop_short_side": 180,
   "preserve_source_aspect": true,
   "adaptive_verification": {
-    "mode": "evaluation",
+    "mode": "adaptive",
     "tiny_box_ratio": 0.5,
     "stable_seconds": 0.5,
     "intermediate_seconds": 0.25

@@ -38,7 +38,7 @@ Description changes are explicit user actions. Positive crop checks should reach
 
 ## Adaptive verification and crop limits
 
-New projects record adaptive decisions in evaluation mode while retaining actual checks. Opt-in adaptive mode skips tiny optical crops below half the minimum rendering short side (90 px by default) and spaces checks on reliable, well-localized motion. Rendering enforces a 180-source-pixel minimum short side and preserves the source aspect ratio; this hard zoom limit takes priority over edge coverage when they conflict. See [implementation and validation](ADAPTIVE_VERIFICATION.md).
+New projects default to Adaptive at the user’s request. Evaluation-only mode remains available for comparisons. Adaptive mode skips tiny optical crops below half the minimum rendering short side (90 px by default) and spaces checks on reliable, well-localized motion. Rendering enforces a 180-source-pixel minimum short side and preserves the source aspect ratio; this hard zoom limit takes priority over edge coverage when they conflict. See [implementation and validation](ADAPTIVE_VERIFICATION.md).
 
 ## Current limitations
 

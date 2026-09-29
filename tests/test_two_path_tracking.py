@@ -64,7 +64,7 @@ class TwoPathTests(unittest.TestCase):
             image=np.random.default_rng(6).integers(0,255,(100,160,3),dtype=np.uint8)
             cv2.imwrite(str(cache/'reference.jpg'),image[20:60,20:60])
             images=[np.roll(image,i,axis=1) for i in range(4)]
-            c=dict(output_dir=str(out),target='object',api_url='test',anchor_tracking=dict(discovery_fps=2),tracking_selection=dict(confidence_threshold=.5))
+            c=dict(output_dir=str(out),target='object',api_url='test',adaptive_verification=dict(mode='off'),anchor_tracking=dict(discovery_fps=2),tracking_selection=dict(confidence_threshold=.5))
             meta=dict(width=160,height=100,frames=4,fps=30,cache=str(cache))
             helpers=(lambda c,m,i:images[i],None,lambda p,v:p.write_text(json.dumps(v)))
             search=TwoPathSearch(c,meta,dict(frames=[dict(roll=0) for _ in images]),'test',helpers,None)

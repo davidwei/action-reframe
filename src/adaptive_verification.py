@@ -3,7 +3,7 @@ import copy
 import math
 
 VERSION=1
-DEFAULTS=dict(mode='evaluation',tiny_box_ratio=.5,stable_seconds=.5,intermediate_seconds=.25)
+DEFAULTS=dict(mode='adaptive',tiny_box_ratio=.5,stable_seconds=.5,intermediate_seconds=.25)
 
 
 def settings(config):

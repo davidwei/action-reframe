@@ -29,7 +29,7 @@ Tests cover independent branch seeds and frame records, confidence selection, pr
 
 ## Adaptive cadence and rendering floor
 
-See [adaptive verification](ADAPTIVE_VERIFICATION.md) for the new evaluation/opt-in scheduling policy. In adaptive mode, crop checkpoints are opportunities rather than unconditional model calls. Tiny optical crops remain unverified, and independent recovery uses wider context. Rendering now enforces a configurable 180-pixel minimum short side; the limit wins over edge coverage if they conflict.
+See [adaptive verification](ADAPTIVE_VERIFICATION.md) for the adaptive-default scheduling policy and optional evaluation-only mode. In adaptive mode, crop checkpoints are opportunities rather than unconditional model calls. Tiny optical crops remain unverified, and independent recovery uses wider context. Rendering now enforces a configurable 180-pixel minimum short side; the limit wins over edge coverage if they conflict.
 
 ## Processing cadences
 

@@ -1,6 +1,6 @@
 # Adaptive verification and minimum rendering crop
 
-New projects default to **evaluation** mode: the scheduler records its proposed decisions while keeping the original crop-verification checks. **Adaptive** mode is opt-in in Video focus → Output → Verification scheduling. **Fixed cadence** disables skipping. These settings do not change a currently running process or queued input snapshots.
+New projects default to **Adaptive**, as explicitly requested on 2026-09-29. **Evaluate only** remains available in Video focus → Output → Verification scheduling and keeps actual verification while recording proposed decisions. **Fixed cadence** disables skipping. Running processes retain their loaded policy. Existing queued snapshots retain explicit settings unless deliberately migrated; the waiting analyses were migrated to Adaptive at the user’s request with their previous inputs archived.
 
 ## Output settings
 
@@ -42,6 +42,6 @@ New optical records expose flow error and scale (stage version 3). Camera-path r
 
 ## Validation
 
-Regression tests cover threshold boundaries, invalid settings, forward/backward timing, state persistence, ambiguous/rejected evidence, tiny-box skipping versus evaluation-mode checks, portrait/square crops and rotation conflicts. A six-frame saved sailing interval after human frame 1004 produced twelve retained optical proposals across the two branches with zero Qwen calls in adaptive mode; its camera path respected the minimum crop height. This is a smoke check, not a full-video quality benchmark. Use an opt-in new analysis and inspect drift/recovery before adopting adaptive skipping broadly.
+Regression tests cover threshold boundaries, invalid settings, forward/backward timing, state persistence, ambiguous/rejected evidence, tiny-box skipping versus evaluation-mode checks, portrait/square crops and rotation conflicts. A six-frame saved sailing interval after human frame 1004 produced twelve retained optical proposals across the two branches with zero Qwen calls in adaptive mode; its camera path respected the minimum crop height. This is a smoke check, not a full-video quality benchmark. Inspect drift/recovery in new adaptive analyses; the smoke check does not establish whole-video accuracy.
 
 The earlier [saved-evidence replay](experiments/ADAPTIVE_VERIFICATION_2026-09-29.md) used the earlier tiny-target assumptions and informs the localization gate; it does not establish the accuracy of the new 90-pixel tiny-target policy.
