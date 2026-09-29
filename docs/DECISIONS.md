@@ -10,7 +10,7 @@
 - Maintain independent raw and gyro-leveled optical branches. Use each branch's preceding selected box center as its rotation pivot; without a usable previous box, use the raw image center.
 - Discover/recover at no more than 2 FPS per branch; verify crops at configurable cadence; propagate optical motion through source frames in both directions.
 - Keep all four candidate types. Select branch seeds by eligible crop confidence and select the final render candidate across branches. No rendering zoom during analysis.
-- Interpolate output zoom between framing boxes, with nominal 1× endpoints. Rotation-aware edge coverage constrains zoom; infeasible subject-fit conflicts remain visible.
+- Interpolate output zoom between framing boxes, with nominal 1× endpoints. Rotation-aware edge coverage constrains zoom; the minimum crop short side (180 source pixels by default) takes priority when constraints conflict, using blurred fill.
 - Organize the product as four components, video scheduling and folder workflow. Prepare inputs, process offline and review outputs; a separate planner/trial approval experience remains planned.
 
 ## Adjustable new-project defaults

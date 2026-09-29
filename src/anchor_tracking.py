@@ -13,7 +13,7 @@ from tracking_selection import confidence_threshold
 from dual_tracking import VERSION as DETECTION_VERSION
 from box_verification import VERSION as VERIFICATION_VERSION
 
-VERSION=4
+VERSION=5
 DEFAULTS=dict(discovery_fps=2.,anchor_confidence=.85,padding_fraction=.15,min_padding_px=8.,
               max_dimension_ratio=1.5,max_area_ratio=2.,max_propagation_attempts=4)
 

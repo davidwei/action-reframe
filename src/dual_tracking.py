@@ -64,7 +64,7 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
     angle=gyro['frames'][index]['roll']
     cache=Path(meta['cache'])
     signature=hashlib.sha256(json.dumps([VERSION,path,direction,index,angle,model,target_description(c),
-        c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('_analysis_view'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
+        c.get('adaptive_verification'),c.get('minimum_crop_short_side',180),c.get('temporal_context'),c.get('reference_frames',[]),c.get('verify_boxes',True),c.get('_search_region'),c.get('_analysis_view'),c.get('box_verification_retries',2),c.get('tracking_selection',{}).get('confidence_threshold',.5),history],sort_keys=True).encode()).hexdigest()[:24]
     result_path=cache/f'{signature}.json'
     if result_path.exists() and not c.get('stage_store_dir'):
         result=json.loads(result_path.read_text())
@@ -127,7 +127,19 @@ Output bbox normalized 0..1000 relative to IMAGE 2, NOT source pixels or history
                 trusted_reference=next((Path(entry['path']) for entry in reversed(audit.get('images',[]))
                                         if entry.get('kind')=='human_target_crop'),cache/'reference.jpg')
                 if activity_callback:activity_callback("verification")
-                verification=verify_box(c,cv2.imread(str(current_path)),box,data.get('box_note'),model,
+                # Tiny independent proposals are verified with surrounding image context,
+                # never by repeatedly asking for an unreadably small crop alone.
+                from adaptive_verification import settings as adaptive_settings
+                adaptive=adaptive_settings(c);verification_box=box
+                pixels=np.array(box)*np.tile(size,2)/1000
+                threshold=c.get('minimum_crop_short_side',180)*adaptive['tiny_box_ratio']
+                if adaptive['mode']=='adaptive' and min(pixels[2:]-pixels[:2])<threshold:
+                    center=(pixels[:2]+pixels[2:])/2
+                    half=np.maximum((pixels[2:]-pixels[:2])/2,c.get('minimum_crop_short_side',180)/2)
+                    expanded=np.r_[np.maximum(0,center-half),np.minimum(size,center+half)]
+                    verification_box=(expanded/np.tile(size,2)*1000).tolist()
+                    data['verification_region']=dict(kind='expanded_context',box=verification_box,view_size=list(size))
+                verification=verify_box(c,cv2.imread(str(current_path)),verification_box,data.get('box_note'),model,
                                         trusted_reference,cache/'box_verification',api)
                 if verification_callback:verification_callback(verification)
                 data['box_verification']=verification

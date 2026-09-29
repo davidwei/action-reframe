@@ -36,6 +36,10 @@ Video focus and synchronized comparison expose exact-frame evidence, confidence 
 
 Description changes are explicit user actions. Positive crop checks should reach 80%; marked-absent examples should stay at or below 20%. Draft/check requests persist their status across navigation and prevent duplicate work for the same project; different projects may run concurrently. These requests run in the review server, so a server restart interrupts them.
 
+## Adaptive verification and crop limits
+
+New projects record adaptive decisions in evaluation mode while retaining actual checks. Opt-in adaptive mode skips tiny optical crops below half the minimum rendering short side (90 px by default) and spaces checks on reliable, well-localized motion. Rendering enforces a 180-source-pixel minimum short side and preserves the source aspect ratio; this hard zoom limit takes priority over edge coverage when they conflict. See [implementation and validation](ADAPTIVE_VERIFICATION.md).
+
 ## Current limitations
 
 New two-path analysis requires supported gyro telemetry. The inspected DJI attitude adapter is not a general adapter for all cameras; its axis mapping remains provisional. Gyro-free skiing or ocean footage needs a validated visual-leveling path/adaptor before the same workflow can be promised. Qwen visual roll is an independent comparison, not an override of gyro rotation.

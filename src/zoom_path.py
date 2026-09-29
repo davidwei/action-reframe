@@ -36,7 +36,20 @@ def interpolate_zoom(crop_heights, source_height, anchors, endpoint_zoom):
     return source_height / np.interp(np.arange(len(heights)), frames, zooms)
 
 
-def constrain_zoom(extent,centers,roll,source_size,output_size,subject_minimum):
+def minimum_crop_size(aspect, short_side=180):
+    if isinstance(short_side,bool) or not isinstance(short_side,(int,float)) or not np.isfinite(short_side) or short_side <= 0:raise ValueError('Minimum crop short side must be positive')
+    if not np.isfinite(aspect) or aspect <= 0:raise ValueError('Invalid crop aspect ratio')
+    return short_side*max(aspect,1),short_side*max(1/aspect,1)
+
+
+def output_dimensions(config, meta):
+    if not config.get('preserve_source_aspect',True):return config['output_width'],config['output_height']
+    aspect=meta['width']/meta['height'];long=max(config['output_width'],config['output_height'])
+    w,h=(long,long/aspect) if aspect>=1 else (long*aspect,long)
+    return max(2,round(w/2)*2),max(2,round(h/2)*2)
+
+
+def constrain_zoom(extent,centers,roll,source_size,output_size,subject_minimum,minimum_short_side=0):
     """Keep at least one complete output edge inside the source, with a diagnostic when subject fit conflicts.
 
     Extent is the output viewport height in source pixels. Larger means zooming out.
@@ -58,4 +71,10 @@ def constrain_zoom(extent,centers,roll,source_size,output_size,subject_minimum):
     conflict=minimum>maximum
     # Edge coverage takes priority when the subject-fit range is infeasible.
     constrained=np.minimum(np.maximum(minimum,extent),np.maximum(maximum,1.))
+    if minimum_short_side:
+        _,floor=minimum_crop_size(ow/oh,minimum_short_side)
+        minimum=np.maximum(minimum,floor)
+        conflict=minimum>maximum
+        # Hard zoom cap takes precedence over edge coverage; fill missing borders.
+        constrained=np.maximum(constrained,floor)
     return constrained,minimum,maximum,conflict

@@ -85,6 +85,8 @@ def load_config(path):
     from stage_records import configure
     configure(c)
     set_analysis_fps(c)
+    from adaptive_verification import settings as adaptive_settings
+    adaptive_settings(c)
     if c.get('tracking_mode') not in ('single','dual','anchor'):
         raise ValueError('tracking_mode must be single, dual or anchor')
     if c.get('tracking_mode') in ('dual','anchor'):
@@ -741,7 +743,7 @@ def camera_path(c,meta,boxes,supported,roll,zoom_anchors=None):
         zoom_anchors=np.flatnonzero(supported)
     extent=interpolate_zoom(np.maximum(desired,minimum),h,zoom_anchors,endpoint_zoom=1.)
     from zoom_path import constrain_zoom
-    extent,_,_,_=constrain_zoom(extent,centers,roll,(w,h),(ow,oh),minimum)
+    extent,_,_,_=constrain_zoom(extent,centers,roll,(w,h),(ow,oh),minimum,c.get('minimum_crop_short_side',180))
     return centers,extent
 
 
@@ -771,6 +773,8 @@ def render(c):
     out=Path(c['output_dir'])
     meta=json.loads((out/'meta.json').read_text())
     c=dict(c)
+    from zoom_path import output_dimensions
+    c['output_width'],c['output_height']=output_dimensions(c,meta)
     # Render with the observations' cadence, even if the next run's setting changed.
     set_analysis_fps(c,meta.get('analysis_fps',1/meta.get('sample_interval',.5)))
     observation_path=out/(f"tracking_{c['tracking_render_path']}.json" if c.get('tracking_mode')=='dual' else 'observations.json')
@@ -805,7 +809,8 @@ def render(c):
     def compute_camera(folder):
         centers,extent=camera_path(c,meta,boxes,supported,roll,zoom_anchors)
         return dict(centers=centers.tolist(),extent=extent.tolist())
-    camera,camera_record=store.run('camera_path',2,inputs,compute_camera)
+    inputs['settings']['minimum_crop_short_side']=c.get('minimum_crop_short_side',180)
+    camera,camera_record=store.run('camera_path',3,inputs,compute_camera)
     centers,extent=np.asarray(camera['centers']),np.asarray(camera['extent'])
     write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='pending'))
     from zoom_path import constrain_zoom
@@ -816,7 +821,7 @@ def render(c):
             points=(corners(boxes[i])-centers[i])@rotation.T
             subject_minimum[i]=max(2*np.abs(points[:,1]).max(),2*np.abs(points[:,0]).max()*c['output_height']/c['output_width'])/(1-2*c['margin_fraction'])
     _,minimum_extent,maximum_extent,zoom_conflicts=constrain_zoom(extent,centers,roll,
-        (meta['width'],meta['height']),(c['output_width'],c['output_height']),subject_minimum)
+        (meta['width'],meta['height']),(c['output_width'],c['output_height']),subject_minimum,c.get('minimum_crop_short_side',180))
     for i in np.flatnonzero(zoom_conflicts):flags[i].append('zoom_constraints_conflict')
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
@@ -854,7 +859,8 @@ def render(c):
             result=composite(frame,m,(ow,oh),c['feather_pixels'],boxes[i] if supported[i] else None)
             encoder.stdin.write(result.tobytes())
             tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
-                'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),
+                'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
+                'minimum_crop_short_side':c.get('minimum_crop_short_side',180),'render_size':[ow,oh],
                 'zoom':float(h/extent[i]),'flags':flags[i],
                 'zoom_min':float(h/maximum_extent[i]) if maximum_extent[i]>0 else None,
                 'zoom_max':float(h/minimum_extent[i]),'zoom_constraints_conflict':bool(zoom_conflicts[i]),

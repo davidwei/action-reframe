@@ -4,6 +4,8 @@ Start with [Current approach](CURRENT_APPROACH.md) for the goal, tradeoffs and i
 
 ## Current implementation
 
+- [Adaptive verification and crop limits](ADAPTIVE_VERIFICATION.md): evaluation/opt-in modes, tiny crops, linked thresholds and rendering constraints.
+
 - [Video processing paths](TWO_PATH_TRACKING.md): independent raw/leveled branches, coordinates, three processing cadences, seed selection and rendering selection.
 - [Video scheduler](ANCHOR_TRACKING.md): bidirectional propagation, discovery, failures and progress.
 - [Verification policy](VERIFICATION_POLICY.md): identity, localization and human authority.

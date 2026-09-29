@@ -32,7 +32,7 @@ class VisualTracker:
             result=self._update(image)
             return dict(motion=result,box=self.box.tolist(),corners=self.corners.tolist(),
                         points=None if self.points is None else self.points.tolist(),uncertainty=self.uncertainty)
-        value,record=self.store.run('optical_tracking',2,inputs,compute)
+        value,record=self.store.run('optical_tracking',3,inputs,compute)
         motion=value['motion']
         if motion['reliable']:
             self.gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
@@ -68,7 +68,8 @@ class VisualTracker:
         self.uncertainty+=float(np.median(residual[valid][good]))+.15
         self.box=box;self.gray=gray;self.points=new[good].reshape(-1,1,2)
         return dict(box=box.tolist(),motion_quality=quality,uncertainty_px=self.uncertainty,
-                    feature_count=int(good.sum()),reliable=True)
+                    feature_count=int(good.sum()),reliable=True,scale=scale,
+                    flow_error_px=float(np.median(residual[valid][good])))
 
     def _lost(self,reason):
         return dict(box=self.box.tolist(),motion_quality=0.,uncertainty_px=self.uncertainty,

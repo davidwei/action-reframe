@@ -79,7 +79,7 @@ class AnchorScheduler:
                 if not conflict and not reliable(chosen,self.threshold) and motion_usable(candidate) and not (existing and existing.get('manual')):chosen=candidate
                 self.state['results'][key]=chosen
                 coverage=self.state['coverage'].setdefault(key,{})
-                coverage.update(propagation_attempted=True,reliably_covered=reliable(chosen,self.threshold))
+                coverage.update(propagation_attempted=True,reliably_covered=(reliable(chosen,self.threshold) or bool(chosen.get('adaptive_coverage'))))
                 self.state['events'].append(dict(kind='propagation',frame=target,direction=task['direction'],origin_anchor=candidate['origin_anchor'],candidate=candidate,conflict=conflict))
                 if propagation_usable(candidate,self.threshold) and not conflict:
                     if self.can_anchor(candidate):self._anchor(candidate)

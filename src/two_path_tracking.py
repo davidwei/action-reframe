@@ -62,7 +62,7 @@ class TwoPathSearch(TrackingSearch):
             verification_callback=(lambda result:self.progress.verification(index,result,path)) if self.progress else None,
             activity_callback=self.progress.activity if self.progress else None)
         result.update(candidate_id=path+'_detection',path=path,analysis_source='full_frame_detection',localized=bool(result.get('bbox')),
-                      confidence_measurement='measured',confidence_frame=index)
+                      confidence_measurement='measured',confidence_frame=index,identity_verified=accepted_row(result,self.threshold))
         self.detections[key]=result
         return result
 
@@ -99,6 +99,8 @@ class TwoPathSearch(TrackingSearch):
             polygon=transform_points(seed.get('source_polygon_px') or box_points(raw_box),matrix)
             view=cv2.warpAffine(previous_image,matrix,size)
             tracker=VisualTracker(configure(self.c)).initialize(view,np.r_[polygon.min(axis=0),polygon.max(axis=0)],polygon.tolist())
+            from adaptive_verification import Schedule
+            schedule=Schedule(self.c,seed,direction,self.meta['fps'])
             last=seed
             for i in range(source['frame']+step,index+step,step):
                 image=self.frame(i);old_matrix=matrix
@@ -126,7 +128,12 @@ class TwoPathSearch(TrackingSearch):
                 optical_record(self.c['output_dir'],dict(frame=i,path=path,source_frame=source['frame'],direction=direction,
                     bbox_px=box.tolist() if reliable else None,reliable=reliable,motion_quality=motion['motion_quality'],
                     feature_count=motion.get('feature_count'),uncertainty_px=motion['uncertainty_px'],reason=motion.get('reason')))
-                if reliable and i==index:
+                decision=None
+                if reliable:
+                    decision=schedule.decide(i,motion,motion['box'],((box[:2]+box[2:])/2).tolist())
+                    candidate['verification_schedule']=decision
+                performed=bool(reliable and i==index and (schedule.mode!='adaptive' or decision['proposed_verify']))
+                if performed:
                     history=self.branch_history(rows,i,direction,path);folder=self.namespace(i,'two_path_verify_'+path,history,None)
                     cropbox=(np.asarray(motion['box'])/np.tile(size,2)*1000).tolist()
                     if self.progress:self.progress.activity("verification")
@@ -138,10 +145,17 @@ class TwoPathSearch(TrackingSearch):
                     if accepted_row(dict(candidate,identity_verified=True,analysis_source='flow_crop_validation'),self.threshold):
                         candidate.update(identity_verified=True,analysis_source='flow_crop_validation',selection_flags=[])
                     if self.progress:self.progress.verification(i,verification,path,localized=False)
+                    decision['performed']=True
+                    if schedule.mode!='evaluation' or decision['proposed_verify']:
+                        schedule.result(i,verification,candidate['identity_verified'])
+                candidate['verification_schedule_state']=schedule.snapshot()
+                if schedule.mode=='adaptive' and decision and not performed:
+                    candidate['selection_flags']=['crop_too_small' if decision['tiny'] else 'verification_deferred']
+                    candidate['adaptive_coverage']=bool(not decision['tiny'] and decision['reason']=='recent_verified_tracking')
                 records=all_records.setdefault(i,{})
                 records[candidate['candidate_id']]=candidate
                 # Recovery only on the <=2 FPS grid. Both hypotheses remain recorded.
-                if not reliable or (i==index and not candidate.get('identity_verified')):
+                if not reliable or (i==index and ((performed and not candidate.get('identity_verified')) or (schedule.mode=='adaptive' and decision['tiny']))):
                     detection=self.detect(i,rows,direction,path,pivot if reliable else None)
                     if detection:records[detection['candidate_id']]=detection
                 winner=choose([v for v in records.values() if v.get('path')==path],self.threshold,last.get('candidate_id'))
@@ -150,6 +164,7 @@ class TwoPathSearch(TrackingSearch):
                     raw_box=np.asarray(winner['bbox'])*[w,h,w,h]/1000
                     poly=transform_points(winner.get('source_polygon_px') or box_points(raw_box),matrix)
                     tracker.initialize(view,np.r_[poly.min(axis=0),poly.max(axis=0)],poly.tolist())
+                    schedule=Schedule(self.c,winner,direction,self.meta['fps'])
                 last=winner;previous_image=image
                 if i==index:branch_outputs[path]=winner
         # A lost branch can recover at a discovery checkpoint even if the other survives.

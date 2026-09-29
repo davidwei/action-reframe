@@ -29,6 +29,13 @@ def project_defaults():
 
 def set_anchor_options(config,data):
     saved={}
+    if 'minimum_crop_short_side' in data:
+        config['minimum_crop_short_side']=data['minimum_crop_short_side'];saved['minimum_crop_short_side']=data['minimum_crop_short_side']
+    if 'adaptive_verification' in data:
+        config['adaptive_verification']=dict(config.get('adaptive_verification',{}),**data['adaptive_verification'])
+        saved['adaptive_verification']=config['adaptive_verification']
+    from adaptive_verification import settings as adaptive_settings
+    adaptive_settings(config)
     if 'leveling_source' in data:
         if data['leveling_source'] not in ('gyro','visual'):raise ValueError('Invalid leveling source')
         config['leveling_source']=data['leveling_source'];saved['leveling_source']=data['leveling_source']

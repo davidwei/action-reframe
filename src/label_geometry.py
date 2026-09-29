@@ -18,7 +18,7 @@ def transform(points,matrix):
 def preview_geometry(config,meta,track=None,roll=None):
     from dual_tracking import expanded_rotation
     if track and track.get('center') is not None and track.get('crop_height',0)>0:
-        width,height=int(config.get('output_width',1280)),int(config.get('output_height',720))
+        width,height=track.get('render_size',[int(config.get('output_width',1280)),int(config.get('output_height',720))])
         center=np.asarray(track['center'],float)
         matrix=cv2.getRotationMatrix2D(tuple(center),float(track.get('roll',0)),height/track['crop_height'])
         matrix[:,2]+=np.array([width/2,height/2])-center

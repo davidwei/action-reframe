@@ -113,6 +113,9 @@
       `Tracking confidence: ${percent(confidence)} — ${confidenceSource}`,
       ...Object.entries(state.path_candidates?.[frame]||{}).flatMap(([key,r])=>[
         `${key}: crop identity ${percent(r.confidence)} (${r.confidence_measurement||'measured'}${r.confidence_measurement==='inherited'?' from frame '+r.confidence_frame:''}); motion quality ${percent(r.motion_quality)}`,
+        ...(r.verification_region?[`${key} verification evidence: expanded image context; detection box retained separately`]:[]),
+        ...(r.verification_schedule?[`${key} verification: ${r.verification_schedule.performed?'performed':'not performed'}; ${r.verification_schedule.reason}; mode ${r.verification_schedule.mode}; proposed check ${r.verification_schedule.proposed_verify?'yes':'no'}`,
+          `${key} box size: ${vector(r.verification_schedule.box_pixels)} px; tiny: ${r.verification_schedule.tiny?'yes':'no'} (<${r.verification_schedule.tiny_threshold_px} px); last passed identity frame ${r.verification_schedule.last_pass_frame??'unknown'}, age ${number(r.verification_schedule.identity_age_seconds)} s`]:[]),
         `${key} source-normalized box: ${vector(r.bbox)} | ${r.box_verification?.decision?.reason||r.motion_reason||'No fresh verification at this frame'}`]),
       ...(optical?[`Optical prediction before crop validation: ${optical.reliable?'available (magenta dotted box)':'motion failed; no prediction box'}`,
         `Optical box [left, top, right, bottom] in raw pixels: ${vector(optical.bbox_px)}`,
@@ -166,7 +169,7 @@
         `Visual cue: ${level.qwen_level_cue||'not recorded'} | confidence: ${percent(level.qwen_level_confidence)}`,
         `Visual evidence: ${level.qwen_level_note||'none'}`
       ]:[]),
-      ...(track?[`Render crop center: ${vector(track.center)} | crop height: ${number(track.crop_height)} px | zoom: ${number(track.zoom)}×`,`Zoom limits: ${number(track.zoom_min)}× minimum for edge coverage / ${number(track.zoom_max)}× maximum for subject fit${track.zoom_constraints_conflict?" — CONFLICT: edge coverage takes priority":""}`,`Render flags: ${track.flags?.join(', ')||'none'}`]:[]),
+      ...(track?[`Render crop center: ${vector(track.center)} | crop size: ${number(track.crop_width)} × ${number(track.crop_height)} px; minimum short side ${number(track.minimum_crop_short_side)} px | zoom: ${number(track.zoom)}×`,`Zoom limits: ${number(track.zoom_min)}× minimum for edge coverage / ${number(track.zoom_max)}× maximum for subject fit${track.zoom_constraints_conflict?" — CONFLICT: minimum crop size takes priority when recorded; missing borders are filled":""}`,`Render flags: ${track.flags?.join(', ')||'none'}`]:[]),
       ...(correction?['','Saved manual correction at this frame (rerender to apply):',
         ...(own(correction,'bbox')?[`  Object: ${correction.bbox===null?'marked absent':vector(correction.bbox)+' px'}`]:[]),
         ...(correction.source_polygon_px?[`  Source polygon (pixels): ${JSON.stringify(correction.source_polygon_px)}`]:[]),

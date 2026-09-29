@@ -27,6 +27,10 @@ Gyro is now the default leveling source. New dual/anchor analysis requires it an
 
 Tests cover independent branch seeds and frame records, confidence selection, preservation after failed discovery, medium-confidence propagation, unit-scale coordinate rebasing, the 2 FPS grid, image-center recovery even when historical boxes exist, and rendering/human-label precedence. A short real DJI interval (human frame 1148 through 1151) is used as an additional smoke check without changing the original project's outputs.
 
+## Adaptive cadence and rendering floor
+
+See [adaptive verification](ADAPTIVE_VERIFICATION.md) for the new evaluation/opt-in scheduling policy. In adaptive mode, crop checkpoints are opportunities rather than unconditional model calls. Tiny optical crops remain unverified, and independent recovery uses wider context. Rendering now enforces a configurable 180-pixel minimum short side; the limit wins over edge coverage if they conflict.
+
 ## Processing cadences
 
 | Operation | Default cadence | What it means |

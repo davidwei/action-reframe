@@ -46,5 +46,13 @@
     "max_dimension_ratio": 1.5,
     "max_area_ratio": 2,
     "max_propagation_attempts": 4
+  },
+  "minimum_crop_short_side": 180,
+  "preserve_source_aspect": true,
+  "adaptive_verification": {
+    "mode": "evaluation",
+    "tiny_box_ratio": 0.5,
+    "stable_seconds": 0.5,
+    "intermediate_seconds": 0.25
   }
 }

@@ -80,6 +80,33 @@ class TwoPathTests(unittest.TestCase):
             self.assertLess(result['path_results']['raw_angle']['bbox'][0],result['path_results']['leveled']['bbox'][0])
             self.assertEqual(records['3']['leveled_optical']['rotation_applied'],0)
 
+    def test_tiny_adaptive_skips_but_evaluation_keeps_actual_checks(self):
+        for mode,expected_calls in [('adaptive',0),('evaluation',4)]:
+            with tempfile.TemporaryDirectory() as folder:
+                out=Path(folder);cache=out/'cache';cache.mkdir()
+                image=np.random.default_rng(66).integers(0,255,(100,160,3),dtype=np.uint8)
+                cv2.imwrite(str(cache/'reference.jpg'),image[20:60,20:60])
+                images=[np.roll(image,i,axis=1) for i in range(7)]
+                c=dict(output_dir=folder,target='object',api_url='test',analysis_fps=10,
+                    adaptive_verification=dict(mode=mode),minimum_crop_short_side=180,
+                    tracking_selection=dict(confidence_threshold=.5))
+                meta=dict(width=160,height=100,frames=7,fps=30,cache=str(cache))
+                helpers=(lambda c,m,i:images[i],None,lambda p,v:p.write_text(json.dumps(v)))
+                search=TwoPathSearch(c,meta,dict(frames=[dict(roll=0) for _ in images]),'test',helpers,None)
+                source=dict(frame=0,manual=True,bbox=[125,200,375,600],confidence=1,visibility='visible')
+                result=dict(version=7,comparison=dict(match_score=.8,target_present=True,localization_support='supported',exclusion_check='pass'),description=dict(composition='isolated_subject'))
+                with patch('two_path_tracking.verify_box',return_value=result) as verify,patch.object(search,'detect',return_value=None):
+                    first=search.propagate(source,3,1,{'0':source})
+                    second=search.propagate(first,6,1,{'0':source,'3':first})
+                self.assertEqual(verify.call_count,expected_calls)
+                for r in second['four_candidates'].values():
+                    self.assertTrue(r['verification_schedule']['tiny'])
+                    self.assertFalse(r['verification_schedule']['proposed_verify'])
+                    self.assertEqual(r['verification_schedule_state']['last_pass'],0)
+                    self.assertEqual(r['verification_schedule']['performed'],mode=='evaluation')
+                    if mode=='adaptive':
+                        self.assertFalse(r['identity_verified']);self.assertEqual(r['confidence_frame'],0)
+
     def test_discovery_grid_is_capped_at_two_fps(self):
         with tempfile.TemporaryDirectory() as folder:
             cache=Path(folder)/'cache';cache.mkdir()
