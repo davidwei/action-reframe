@@ -75,6 +75,12 @@ def write(path,value):
 
 
 def review(batch,project,action='status',description=None):
+    from description_jobs import run,status
+    if action=='status':return dict(_review(batch,project,action,description),job=status(batch,project))
+    return run(batch,project,action,lambda:_review(batch,project,action,description))
+
+
+def _review(batch,project,action='status',description=None):
     import cv2
     from reframe import api
     from label_geometry import human_crop

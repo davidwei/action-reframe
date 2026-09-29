@@ -404,3 +404,5 @@ approved text from surviving run manifests. Those entries are labeled recovered
 snapshots. Drafts overwritten before this feature and absent from persistent
 snapshots cannot be reconstructed. History is stored in the workspace batch
 database and must be included in backups; it is separate from Lookout telemetry.
+
+Description drafting, crop checks, and description retries have per-project server-side job status. Returning to a project shows any running description work and disables duplicate actions until polling observes completion/failure. Separate projects may still run these checks concurrently outside the overnight queue. A per-project file lock also rejects duplicate requests from other tabs; status and errors are retained under `.batch/description_jobs`. If the server stops, the released lock makes unfinished work appear interrupted and retryable rather than permanently busy.

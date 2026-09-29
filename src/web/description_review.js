@@ -1,6 +1,6 @@
 /* Shared blind observations and identity checks; human approval stays explicit. */
 window.DescriptionReview=(()=>{
- const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,review=null,revisions=[],lastPoll=0,polling=false;
+ const $=id=>document.getElementById(id);let project=null,state=null,busy=false,dirty=false,token=0,review=null,remoteJob=null,revisions=[],lastPoll=0,polling=false;
  async function request(action,body){const r=await fetch('/api/batch/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json();if(!r.ok){const error=Error(result.error||r.status);error.modelDetails=result.model_error;throw error;}return result}
  function status(text){$('descriptionStatus').textContent=text}
  function current(){return review?.description===$('descriptionText').value.trim()}
@@ -21,13 +21,13 @@ window.DescriptionReview=(()=>{
    parent.append(card);
   }
  }
- function controls(){const readonly=!!state?.config?.batch_input_revision,hasBox=!!state?.config?.reference_box;
-  $('descriptionText').disabled=busy||!project||readonly;
-  for(const id of ['draftDescription','checkDescription','retryDescription','approveDescription'])$(id).disabled=busy||!project||!hasBox||readonly;
-  $('checkDescription').disabled=busy||!project||readonly||!review?.references?.length||!$('descriptionText').value.trim();
+ function controls(){const blocked=busy||remoteJob?.status==='running',readonly=!!state?.config?.batch_input_revision,hasBox=!!state?.config?.reference_box;
+  $('descriptionText').disabled=blocked||!project||readonly;
+  for(const id of ['draftDescription','checkDescription','retryDescription','approveDescription'])$(id).disabled=blocked||!project||!hasBox||readonly;
+  $('checkDescription').disabled=blocked||!project||readonly||!review?.references?.length||!$('descriptionText').value.trim();
   $('retryDescription').disabled ||= !current()||!review?.references?.some(r=>r.passed===false);
-  $('saveDescription').disabled=busy||!project||readonly;
-  for(const id of ['restoreSavedDescription','restoreApprovedDescription','refreshDescriptionHistory','restoreDescriptionRevision','descriptionRevision'])$(id).disabled=busy||!project||readonly;
+  $('saveDescription').disabled=blocked||!project||readonly;
+  for(const id of ['restoreSavedDescription','restoreApprovedDescription','refreshDescriptionHistory','restoreDescriptionRevision','descriptionRevision'])$(id).disabled=blocked||!project||readonly;
   $('restoreSavedDescription').disabled ||= !revisions.length;
   $('restoreApprovedDescription').disabled ||= !revisions.some(r=>r.kind==='approved');
   $('restoreDescriptionRevision').disabled ||= !revisions.length;
@@ -44,32 +44,38 @@ window.DescriptionReview=(()=>{
   revisionPreview();controls();
  }
  function restoreRevision(revision){
-  if(!revision||busy||state?.config?.batch_input_revision)return;
+  if(!revision||busy||remoteJob?.status==='running'||state?.config?.batch_input_revision)return;
   $('descriptionText').value=revision.description;dirty=true;crops();controls();
   status(`Restored ${revision.kind} revision from ${new Date(revision.created*1000).toLocaleString()} to the editor. Save or approve to keep it; no model call was made.`);
  }
  async function generate(action='draft'){
-  if(busy||!project||(action!=='check-description'&&!state?.config?.reference_box))return;
+  if(busy||remoteJob?.status==='running'||!project||(action!=='check-description'&&!state?.config?.reference_box))return;
   $('descriptionErrorDetails').hidden=true;$('descriptionErrorText').textContent='';
   const active=++token;busy=true;controls();status(action==='draft'?'Qwen is describing all labeled crops, summarizing, and checking each crop…':action==='retry-description'?'Qwen is revising the summary using feedback, then rechecking each crop…':'Comparing each crop description with your edited description…');
-  try{const result=await request(action,{project,description:$('descriptionText').value.trim()});if(active!==token)return;review=result;if(action!=='check-description'){$('descriptionText').value=result.description;dirty=true}crops();status(result.all_passed?'All positive and absent checks pass. Review and approve when satisfied.':'Some examples fail their expected confidence range. Review the scores, feedback and labels.');}
+  try{const result=await request(action,{project,description:$('descriptionText').value.trim()});if(active!==token)return;review=result;remoteJob=result.job||null;if(action!=='check-description'){$('descriptionText').value=result.description;dirty=true}crops();status(result.all_passed?'All positive and absent checks pass. Review and approve when satisfied.':'Some examples fail their expected confidence range. Review the scores, feedback and labels.');}
   catch(e){if(active===token){status(e.message);if(e.modelDetails){$('descriptionErrorDetails').hidden=false;$('descriptionErrorText').textContent=JSON.stringify(e.modelDetails,null,2)}}}
   finally{if(active===token){busy=false;controls()}}
  }
  async function refreshReview(){
   if(polling||busy||!project)return;const active=token,selected=project;polling=true;lastPoll=Date.now();
-  try{const result=await request('description-status',{project:selected});if(active===token&&project===selected){review=result;crops();controls()}}
+  try{const result=await request('description-status',{project:selected});if(active===token&&project===selected){
+   const wasRunning=remoteJob?.status==='running';review=result;remoteJob=result.job||null;
+   if(remoteJob?.status==='running')status(`Description ${remoteJob.action||'check'} is running for this project${remoteJob.started?' (started '+new Date(remoteJob.started*1000).toLocaleTimeString()+')':''}. Results will appear here when it finishes.`);
+   else if(['failed','interrupted'].includes(remoteJob?.status)){status(remoteJob.error||'Description work failed. You can retry.');if(remoteJob.model_error){$('descriptionErrorDetails').hidden=false;$('descriptionErrorText').textContent=JSON.stringify(remoteJob.model_error,null,2)}}
+   else if(wasRunning)status('Description work completed. Review the crop results below.');
+   crops();controls()
+  }}
   catch(e){if(active===token)status(e.message)}finally{polling=false}
  }
  async function update(next){
   state=next;
   if(project!==next.project){
-   project=next.project;const active=++token;dirty=false;busy=true;review=null;crops();controls();
+   project=next.project;const active=++token;dirty=false;busy=true;review=null;remoteJob=null;crops();controls();
    if(!project){$('descriptionText').value='';status('Create a project to save a description.');busy=false;controls();return}
    try{
     if(next.config.batch_input_revision){$('descriptionText').value=next.config.approved_target_description||'';status('Approved description for this saved run. Edit its source project to prepare a new revision.')}
     else{const response=await fetch('/api/batch');const data=await response.json();if(!response.ok)throw Error(data.error);if(active!==token)return;const p=data.projects.find(p=>p.project===project);$('descriptionText').value=p?.description||'';status(p?.ready?'Description approved for current inputs.':'Review or draft the identity description.')}
-   }catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
+   }catch(e){if(active===token)status(e.message)}finally{if(active===token)busy=false}
    await refreshReview();
    try{await refreshHistory()}catch(e){status(e.message)}
   }
@@ -79,7 +85,7 @@ window.DescriptionReview=(()=>{
  $('descriptionText').oninput=()=>{dirty=true;crops();controls();status('Unsaved changes — check against crops, then save or approve.')};
  $('draftDescription').onclick=()=>generate();$('checkDescription').onclick=()=>generate('check-description');$('retryDescription').onclick=()=>generate('retry-description');
  for(const [id,ready] of [['saveDescription',false],['approveDescription',true]])$(id).onclick=async()=>{
-  if(busy)return;const active=++token;busy=true;controls();
+  if(busy||remoteJob?.status==='running')return;const active=++token;busy=true;controls();
   try{await request('prepare',{project,description:$('descriptionText').value,ready});if(active!==token)return;dirty=false;await refreshHistory();status((ready?'Description approved. Project is Ready in the library.':'Draft saved.')+(!current()?' Crop scores have not been checked for this description.':review?.all_passed?'':' Some examples fail their expected confidence range.'))}
   catch(e){if(active===token)status(e.message)}finally{if(active===token){busy=false;controls()}}
  };
