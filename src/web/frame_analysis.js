@@ -232,7 +232,7 @@
     if (!element) return;
     if (!element.dataset.mounted) {
       element.classList.add('frame-analysis'); element.dataset.mounted = 'true';
-      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><div class="analysis-approval" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><button type="button" data-approve="raw_angle">Approve Cyan (raw path)</button><button type="button" data-approve="leveled">Approve Orange (leveled path)</button><button type="button" data-approve="optical">Approve Magenta (tracking path)</button><span class="analysis-approval-status" role="status"></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
+      element.innerHTML = `<h2>Frame analysis</h2><div class="analysis-indicators"><span class="analysis-badge"></span><span class="analysis-level analysis-badge"></span><span class="analysis-confidence"><span class="analysis-score"></span><meter min="0" max="1" low="0.65" high="0.85" optimum="1" aria-label="Tracking confidence at this frame"></meter></span></div><div class="analysis-approval" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><button type="button" data-approve="raw_angle">Approve Cyan (raw path)</button><button type="button" data-approve="leveled">Approve Orange (leveled path)</button><button type="button" data-approve="optical">Approve Magenta (tracking path)</button><button type="button" class="analysis-mark-absent">Mark target absent</button><span class="analysis-approval-status" role="status"></span></div><label>Analysis for the displayed frame<textarea class="analysis-text" readonly spellcheck="false" aria-label="Frame analysis results"></textarea></label><p class="analysis-box-hint">Available Raw (cyan) and Leveled (orange) boxes appear automatically on the source view. Click a box-coordinate line for an additional inspection. Keyboard: place the caret on the line and press Enter.</p><div class="analysis-box-preview" hidden><p class="analysis-box-caption" role="status"></p><div class="analysis-box-picture"><img class="analysis-box-image" alt="Original frame with the inspected bounding box"><svg class="analysis-box-overlay"></svg></div><button type="button" class="analysis-box-clear">Clear highlight</button></div><details><summary>All stored values (JSON)</summary><textarea class="analysis-json" readonly spellcheck="false" aria-label="Complete frame analysis JSON"></textarea></details>`;
     }
     const result = describe(state, frame, options.sourceMatches !== false);
     const displayed=[...playbackBoxes(state,frame),...opticalPlaybackBoxes(state,frame)];
@@ -250,6 +250,18 @@
         }catch(error){message.textContent=error.message;}finally{button.disabled=options.sourceMatches===false||!candidate?.polygon;}
       };
     }
+
+    const absent=element.querySelector('.analysis-mark-absent');
+    absent.disabled=options.sourceMatches===false||!state.project||!state.meta||!Number.isInteger(frame)||frame<0||frame>=state.meta.frames;
+    absent.onclick=async()=>{
+      const message=element.querySelector('.analysis-approval-status');absent.disabled=true;message.textContent='Saving absence…';
+      try{
+        const response=await fetch('/api/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:state.project,frame,bbox:null})});
+        const value=await response.json();if(!response.ok)throw Error(value.error||response.status);
+        message.textContent='Human-confirmed absence saved. Reanalyze or render to apply.';
+        element.dispatchEvent(new CustomEvent('analysis-approved',{bubbles:true,detail:{frame,absent:true}}));
+      }catch(error){message.textContent=error.message;}finally{absent.disabled=options.sourceMatches===false||!state.project;}
+    };
 
     const badge = element.querySelector('.analysis-badge'); badge.textContent = result.status; badge.dataset.tone = result.tone;
     const levelBadge=element.querySelector('.analysis-level');

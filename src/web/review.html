@@ -40,7 +40,7 @@
 <script src="/files/tracking_progress.js?v=3"></script>
 <script src="/files/description_review.js?v=6"></script>
 <script src="/files/configuration_review.js?v=1"></script>
-<script src="/files/frame_analysis.js?v=zoom-constraints-1"></script>
+<script src="/files/frame_analysis.js?v=absence-approval-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
 let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw';
@@ -54,7 +54,7 @@ $('frameAnalysis').addEventListener('analysis-box',async event=>{
 function notice(s){$('notice').textContent=s}
 function showAnalysis(){FrameAnalysis.updateNavigation($('frameNavigation'),state,frame,i=>safe(async()=>{frame=i;await showFrame()})(),sourceVideo===state.config?.video);FrameAnalysis.update($('frameAnalysis'),state,frame,{sourceMatches:sourceVideo===state.config?.video})}
 async function request(url,body){const r=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,config:project})}:{});const d=await r.json();if(!r.ok)throw Error(d.error||r.status);return d}
-function safe(fn){return async()=>{try{await fn()}catch(e){notice(e.message)}}}
+function safe(fn){return async(...args)=>{try{await fn(...args)}catch(e){notice(e.message)}}}
 function rectangle(box){return [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]]}
 function mapped(points,matrix){return points.map(([x,y])=>[matrix[0][0]*x+matrix[0][1]*y+matrix[0][2],matrix[1][0]*x+matrix[1][1]*y+matrix[1][2]])}
 function outline(context,points,color){if(!points?.length)return;context.strokeStyle=color;context.lineWidth=3;context.setLineDash(color==='#ffffff'?[]:[7,4]);context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();context.stroke()}
@@ -92,7 +92,7 @@ for(const [id,space] of [['source','raw'],['processed','processed']]){
  const move=e=>{if(!drag||selectionSpace!==space)return;const p=point(e,canvas);const box=[Math.min(drag[0],p[0]),Math.min(drag[1],p[1]),Math.max(drag[0],p[0]),Math.max(drag[1],p[1])];selectionPolygon=rectangle(box);const raw=space==='processed'?mapped(selectionPolygon,geometry.view_to_source):selectionPolygon;selection=[Math.min(...raw.map(p=>p[0])),Math.min(...raw.map(p=>p[1])),Math.max(...raw.map(p=>p[0])),Math.max(...raw.map(p=>p[1]))];draw()};
  canvas.onpointermove=move;canvas.onpointerup=e=>{move(e);drag=null};canvas.onpointercancel=()=>{drag=null};
 }
-$('frameAnalysis').addEventListener('analysis-approved',safe(async()=>{await refresh();await showFrame();notice('Candidate approved as a human label (100%). Reanalyze or render to apply.')}));
+$('frameAnalysis').addEventListener('analysis-approved',safe(async(event)=>{await refresh();await showFrame();notice(event.detail?.absent?'Human-confirmed absence saved. Reanalyze or render to apply.':'Candidate approved as a human label (100%). Reanalyze or render to apply.')}));
 async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));ConfigurationReview.update($('configurationReview'),state);project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Video focus — '+state.project_name:'Video focus';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
  if(!$('confidenceThreshold').dataset.initialized){$('confidenceThreshold').value=100*(state.config.tracking_selection?.confidence_threshold??.5);$('confidenceThreshold').dataset.initialized='true'}
