@@ -410,3 +410,29 @@ Description drafting, crop checks, and description retries have per-project serv
 ## Active processing stage
 
 For newly started analyses, the running job's Discovery, Crop verification or Optical tracking title turns amber and shows “Active” while that operation executes. This is worker-reported activity, separate from coverage counts and broad scheduler phases. Polling can miss very brief optical operations. Old workers without activity records and non-running jobs do not show an active highlight.
+
+## Minute-by-minute queue watch
+
+Run a separate monitor process when supervising a batch:
+
+```bash
+python scripts/monitor_queue.py --workspace ./data --url http://127.0.0.1:8765 --recover-all-failed
+```
+
+It polls every 60 seconds, checks worker/runner locks, scans new job-log content,
+records frame failures and warns after 15 minutes without observable progress.
+A slow model request can produce that warning without being stuck. Reports live
+under workspace `.batch/monitor/`: `latest.json`, `checks.jsonl`, and
+`alerts.jsonl`. The monitor finishes after two checks find no active/queued jobs.
+Launch it under a process supervisor or detached process to survive the terminal.
+It does not send chat notifications or remain running across a machine restart.
+
+With `--recover-all-failed`, if every job observed in this watch has failed and the
+queue is not paused, it makes one retry attempt for recognizable transient
+connection/HTTP/timeout/truncation failures, preserving saved inputs and caches.
+It records its recovery attempt before mutating the queue; the persisted
+`automatic-recovery.json` prevents repeat loops across monitor restarts. User
+stops/cancellations are never automatically retried. Code/configuration errors
+are flagged for investigation; the monitor does not generate code patches or
+claim that retrying fixes deterministic errors. Normal monitoring is read-only
+without this flag. This utility is separate from the queue worker itself.
