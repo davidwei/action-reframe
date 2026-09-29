@@ -21,3 +21,19 @@ class ZoomPathTests(unittest.TestCase):
         rows[-1]['error']='invalid response'
         corrections={'0':{'bbox':None},'3':{'bbox':[0,0,1,1]}}
         np.testing.assert_array_equal(confident_frames(rows,corrections,10,.5),[3,4])
+
+    def test_rotation_limits_preserve_one_full_edge_and_subject(self):
+        from zoom_path import constrain_zoom
+        centers=np.array([[960,540],[1501.363233,219.04262]])
+        heights,minimum,maximum,conflicts=constrain_zoom([3000,992.493743],centers,[0,9.875842],(1920,1080),(1280,720),[100,100])
+        self.assertAlmostEqual(heights[0],1080)
+        self.assertLess(heights[1],992.493743)
+        self.assertFalse(conflicts.any())
+        import cv2
+        for i in range(2):
+            r=cv2.getRotationMatrix2D((0,0),[0,9.875842][i],1)[:,:2]
+            points=np.array([[-16/9/2,-.5],[16/9/2,-.5],[16/9/2,.5],[-16/9/2,.5]])*heights[i]@r+centers[i]
+            inside=((points>=-1e-6)&(points<=np.array([1920,1080])+1e-6)).all(axis=1)
+            self.assertTrue(any(inside[j] and inside[(j+1)%4] for j in range(4)))
+        heights,_,_,conflicts=constrain_zoom([3000],centers[:1],[0],(1920,1080),(1280,720),[1500])
+        self.assertEqual(heights[0],1080);self.assertTrue(conflicts[0])

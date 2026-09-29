@@ -34,3 +34,28 @@ def interpolate_zoom(crop_heights, source_height, anchors, endpoint_zoom):
     frames = np.r_[0, anchors, len(heights)-1]
     zooms = np.r_[endpoint_zoom, values, endpoint_zoom]
     return source_height / np.interp(np.arange(len(heights)), frames, zooms)
+
+
+def constrain_zoom(extent,centers,roll,source_size,output_size,subject_minimum):
+    """Keep at least one complete output edge inside the source, with a diagnostic when subject fit conflicts.
+
+    Extent is the output viewport height in source pixels. Larger means zooming out.
+    A rectangle edge lies inside the source iff both inverse-mapped endpoints do.
+    """
+    w,h=source_size;ow,oh=output_size
+    centers=np.asarray(centers,float);angle=np.deg2rad(roll)
+    vertices=np.array([[-ow/oh/2,-.5],[ow/oh/2,-.5],[ow/oh/2,.5],[-ow/oh/2,.5]])
+    cosine,sine=np.cos(angle),np.sin(angle)
+    rays=np.empty((len(centers),4,2))
+    rays[:,:,0]=cosine[:,None]*vertices[:,0]-sine[:,None]*vertices[:,1]
+    rays[:,:,1]=sine[:,None]*vertices[:,0]+cosine[:,None]*vertices[:,1]
+    distance=np.where(rays>0,np.array([w,h])-centers[:,None,:],centers[:,None,:])
+    limits=np.full_like(rays,np.inf)
+    np.divide(distance,np.abs(rays),out=limits,where=np.abs(rays)>1e-12)
+    corner_limits=limits.min(axis=2)
+    maximum=np.maximum(0,np.minimum(corner_limits,np.roll(corner_limits,-1,axis=1)).max(axis=1))
+    minimum=np.maximum(np.asarray(subject_minimum,float),1.)
+    conflict=minimum>maximum
+    # Edge coverage takes priority when the subject-fit range is infeasible.
+    constrained=np.minimum(np.maximum(minimum,extent),np.maximum(maximum,1.))
+    return constrained,minimum,maximum,conflict

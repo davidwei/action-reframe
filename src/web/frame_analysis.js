@@ -163,7 +163,7 @@
         `Visual cue: ${level.qwen_level_cue||'not recorded'} | confidence: ${percent(level.qwen_level_confidence)}`,
         `Visual evidence: ${level.qwen_level_note||'none'}`
       ]:[]),
-      ...(track?[`Render crop center: ${vector(track.center)} | crop height: ${number(track.crop_height)} px | zoom: ${number(track.zoom)}×`,`Render flags: ${track.flags?.join(', ')||'none'}`]:[]),
+      ...(track?[`Render crop center: ${vector(track.center)} | crop height: ${number(track.crop_height)} px | zoom: ${number(track.zoom)}×`,`Zoom limits: ${number(track.zoom_min)}× minimum for edge coverage / ${number(track.zoom_max)}× maximum for subject fit${track.zoom_constraints_conflict?" — CONFLICT: edge coverage takes priority":""}`,`Render flags: ${track.flags?.join(', ')||'none'}`]:[]),
       ...(correction?['','Saved manual correction at this frame (rerender to apply):',
         ...(own(correction,'bbox')?[`  Object: ${correction.bbox===null?'marked absent':vector(correction.bbox)+' px'}`]:[]),
         ...(correction.source_polygon_px?[`  Source polygon (pixels): ${JSON.stringify(correction.source_polygon_px)}`]:[]),

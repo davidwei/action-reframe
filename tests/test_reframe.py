@@ -5,7 +5,7 @@ from reframe import camera_path, composite, corners, refine_level
 
 
 class GeometryTests(unittest.TestCase):
-    def test_rotated_target_remains_inside_output(self):
+    def test_rotated_edge_target_keeps_a_complete_output_edge_covered(self):
         n=120
         meta={'frames':n,'width':1920,'height':1080,'fps':30}
         c={'output_width':1280,'output_height':720,'subject_height_fraction':.55,
@@ -17,9 +17,10 @@ class GeometryTests(unittest.TestCase):
         for i in range(n):
             m=cv2.getRotationMatrix2D(tuple(centers[i]),float(roll[i]),720/ext[i])
             m[:,2]+=np.array([640,360])-centers[i]
-            p=corners(b[i])@m[:,:2].T+m[:,2]
-            self.assertTrue((p.min(axis=0)>=-1e-6).all())
-            self.assertTrue((p.max(axis=0)<=[1280,720]).all())
+            inverse=cv2.invertAffineTransform(m)
+            p=corners([0,0,1280,720])@inverse[:,:2].T+inverse[:,2]
+            inside=((p>=-1e-3)&(p<=np.array([1920,1080])+1e-3)).all(axis=1)
+            self.assertTrue(any(inside[j] and inside[(j+1)%4] for j in range(4)))
 
     def test_missing_target_widens_and_starts_full_view(self):
         n=240;meta={'frames':n,'width':1920,'height':1080,'fps':30}
