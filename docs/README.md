@@ -19,3 +19,7 @@ Start with [Current approach](CURRENT_APPROACH.md) for the goal, tradeoffs and i
 [Project design](PROJECT_DESIGN.md) and [original implementation plan](PROJECT_PLAN.md) describe the broader planner/trial/production product vision. They are not a completion checklist for today's implementation. [Lookout plan](LOOKOUT_PLAN.md) preserves its original delivery plan; use the operating guide for current operation. [Prototype guide](PROTOTYPE.md) preserves earlier commands and algorithms, including legacy modes and historical experiments.
 
 When older descriptions differ, the current implementation guides above take precedence. Saved runs retain their original settings and evidence; documentation or code changes do not upgrade existing analysis.
+
+## Measured experiments
+
+- [Adaptive verification replay (2026-09-29)](experiments/ADAPTIVE_VERIFICATION_2026-09-29.md): saved sailing evidence, call savings, missed rejection checks and limits of motion-only scheduling. Experimental findings, not production defaults.
