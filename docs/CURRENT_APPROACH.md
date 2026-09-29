@@ -5,7 +5,7 @@ Build an offline tool that follows a user-selected subject in action footage, le
 ## Agreed tradeoffs
 
 - Strong digital zoom and blur are acceptable. Preserve uncertain footage for review rather than automatically discarding it.
-- Prefer smooth framing over immediate camera reactions. Rendering interpolates zoom between framing boxes, with nominal 1× endpoints and rotation-aware constraints. These constraints can override the nominal endpoints.
+- Prefer smooth framing over immediate camera reactions. Rendering uses log-zoom smoothing, a per-frame speed limit and offline look-ahead after interpolating the desired framing path, with nominal 1× endpoints. These constraints can override the nominal endpoints.
 - Preserve visible subject content where feasible. Extend missing borders with a feathered, blurred background. This is decorative fill, not reconstructed scene content.
 - Reliable optical predictions may guide framing without passing identity verification. Keep motion quality, measured identity confidence and inherited confidence distinct.
 - Human labels and explicit absence override automatic results. Flag uncertainty and model-output failures for review.

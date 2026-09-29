@@ -141,6 +141,8 @@ class Batch:
     def validate(self, config):
         from adaptive_verification import settings as adaptive_settings
         adaptive_settings(config)
+        from zoom_path import smoothing_settings
+        smoothing_settings(config)
         import cv2
         video = self.path(config['video'])
         cap = cv2.VideoCapture(str(video))
@@ -351,7 +353,7 @@ class Batch:
             snapshot=dict(source_config)
             for key in ('output_width','output_height','subject_height_fraction','margin_fraction',
                         'hold_seconds','widen_seconds','smoothing_seconds','feather_pixels','border',
-                        'minimum_crop_short_side','preserve_source_aspect',
+                        'minimum_crop_short_side','preserve_source_aspect','zoom_seconds_per_doubling','zoom_smoothing_seconds',
                         'tracking_selection','leveling_source','level_divergence_degrees'):
                 if key in current:snapshot[key]=current[key]
             prepared.append((project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat))

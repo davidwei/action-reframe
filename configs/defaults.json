@@ -54,5 +54,7 @@
     "tiny_box_ratio": 0.5,
     "stable_seconds": 0.5,
     "intermediate_seconds": 0.25
-  }
+  },
+  "zoom_seconds_per_doubling": 0.5,
+  "zoom_smoothing_seconds": 0.15
 }

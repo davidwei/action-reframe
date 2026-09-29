@@ -37,3 +37,27 @@ class ZoomPathTests(unittest.TestCase):
             self.assertTrue(any(inside[j] and inside[(j+1)%4] for j in range(4)))
         heights,_,_,conflicts=constrain_zoom([3000],centers[:1],[0],(1920,1080),(1280,720),[1500])
         self.assertEqual(heights[0],1080);self.assertTrue(conflicts[0])
+
+    def test_log_zoom_bound_lookahead_and_subject_fit(self):
+        from zoom_path import smooth_zoom
+        fps=30;extent=np.r_[np.full(30,210.6),np.full(30,331.6)]
+        minimum=np.r_[np.full(30,180.),np.full(30,300.)]
+        result=smooth_zoom(extent,minimum,fps,.5,.15)
+        self.assertTrue(np.all(result>=minimum-1e-8))
+        self.assertLessEqual(np.max(np.abs(np.diff(np.log(result)))),np.log(2)/15+1e-10)
+        self.assertGreater(result[29],extent[29])  # Widen before the larger box arrives.
+        self.assertLess(result[30]/result[29],1.05)
+        # Reversing the clip preserves the symmetric speed/fit contract.
+        reverse=smooth_zoom(extent[::-1],minimum[::-1],fps,.5,.15)
+        np.testing.assert_allclose(reverse,result[::-1])
+
+    def test_single_frame_peak_and_aspect_independent_speed_bound(self):
+        from zoom_path import smooth_zoom
+        desired=np.full(101,180.);minimum=desired.copy();minimum[50]=720
+        result=smooth_zoom(desired,minimum,60,.5,0)
+        self.assertGreaterEqual(result[50],720-1e-8)
+        self.assertGreater(result[49],180);self.assertGreater(result[51],180)
+        self.assertLessEqual(np.max(np.abs(np.diff(np.log(result)))),np.log(2)/30+1e-10)
+        np.testing.assert_allclose(smooth_zoom([180],[180],30),[180])
+        for value in [0,-1,float('nan')]:
+            with self.assertRaises(ValueError):smooth_zoom([180],[180],30,value)

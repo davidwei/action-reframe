@@ -5,7 +5,7 @@ from reframe import camera_path, composite, corners, refine_level
 
 
 class GeometryTests(unittest.TestCase):
-    def test_rotated_edge_target_keeps_a_complete_output_edge_covered(self):
+    def test_rotated_edge_target_prioritizes_subject_fit_and_smooth_zoom(self):
         n=120
         meta={'frames':n,'width':1920,'height':1080,'fps':30}
         c={'output_width':1280,'output_height':720,'subject_height_fraction':.55,
@@ -14,13 +14,13 @@ class GeometryTests(unittest.TestCase):
         b[:,[0,2]]+=np.linspace(0,1500,n)[:,None]
         roll=np.linspace(-65,65,n)
         centers,ext=camera_path(c,meta,b,np.ones(n,bool),roll)
+        self.assertLessEqual(np.max(np.abs(np.diff(np.log(ext)))),np.log(2)/(30*.5)+1e-9)
+        self.assertGreaterEqual(ext.min(),180-1e-8)
         for i in range(n):
             m=cv2.getRotationMatrix2D(tuple(centers[i]),float(roll[i]),720/ext[i])
             m[:,2]+=np.array([640,360])-centers[i]
-            inverse=cv2.invertAffineTransform(m)
-            p=corners([0,0,1280,720])@inverse[:,:2].T+inverse[:,2]
-            inside=((p>=-1e-3)&(p<=np.array([1920,1080])+1e-3)).all(axis=1)
-            self.assertTrue(any(inside[j] and inside[(j+1)%4] for j in range(4)))
+            subject=corners(b[i])@m[:,:2].T+m[:,2]
+            self.assertTrue(((subject>=-1e-6)&(subject<=np.array([1280,720])+1e-6)).all())
 
     def test_missing_target_widens_and_starts_full_view(self):
         n=240;meta={'frames':n,'width':1920,'height':1080,'fps':30}

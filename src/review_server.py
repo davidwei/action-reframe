@@ -29,6 +29,10 @@ def project_defaults():
 
 def set_anchor_options(config,data):
     saved={}
+    for key in ('zoom_seconds_per_doubling','zoom_smoothing_seconds'):
+        if key in data:config[key]=data[key];saved[key]=data[key]
+    from zoom_path import smoothing_settings
+    smoothing_settings(config)
     if 'minimum_crop_short_side' in data:
         config['minimum_crop_short_side']=data['minimum_crop_short_side'];saved['minimum_crop_short_side']=data['minimum_crop_short_side']
     if 'adaptive_verification' in data:

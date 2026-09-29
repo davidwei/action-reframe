@@ -4,6 +4,8 @@ Start with [Current approach](CURRENT_APPROACH.md) for the goal, tradeoffs and i
 
 ## Current implementation
 
+- [Offline zoom smoothing](ZOOM_SMOOTHING.md): per-frame log-zoom speed limit, look-ahead and saved-run validation.
+
 - [Adaptive verification and crop limits](ADAPTIVE_VERIFICATION.md): evaluation/opt-in modes, tiny crops, linked thresholds and rendering constraints.
 
 - [Video processing paths](TWO_PATH_TRACKING.md): independent raw/leveled branches, coordinates, three processing cadences, seed selection and rendering selection.

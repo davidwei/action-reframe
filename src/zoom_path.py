@@ -78,3 +78,39 @@ def constrain_zoom(extent,centers,roll,source_size,output_size,subject_minimum,m
         # Hard zoom cap takes precedence over edge coverage; fill missing borders.
         constrained=np.maximum(constrained,floor)
     return constrained,minimum,maximum,conflict
+
+
+def smoothing_settings(config):
+    result=dict(zoom_seconds_per_doubling=config.get('zoom_seconds_per_doubling',.5),
+                zoom_smoothing_seconds=config.get('zoom_smoothing_seconds',.15))
+    for key,value in result.items():
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not np.isfinite(value) or value<0 or (key=='zoom_seconds_per_doubling' and value==0):
+            raise ValueError('Invalid zoom smoothing setting: '+key)
+    return result
+
+
+def smooth_zoom(extent, minimum_extent, fps, seconds_per_doubling=.5, smoothing_seconds=.15):
+    """Offline log-zoom smoothing with a hard speed bound and look-ahead.
+
+    Smooth log crop height (the negative of log zoom, up to a constant), then
+    construct its least slope-bounded upper envelope in two linear passes.
+    Raising crop height widens the view. Future fit requirements widen earlier
+    frames; past requirements prevent snapping back in. Never clip this result
+    to an edge-coverage limit afterward: use background fill instead.
+    """
+    from scipy.ndimage import gaussian_filter1d
+    smoothing_settings(dict(zoom_seconds_per_doubling=seconds_per_doubling,zoom_smoothing_seconds=smoothing_seconds))
+    values=np.asarray(extent,float);minimum=np.broadcast_to(np.asarray(minimum_extent,float),values.shape)
+    if not np.isfinite(fps) or fps<=0:raise ValueError('FPS must be positive')
+    if not np.isfinite(values).all() or not np.isfinite(minimum).all() or np.any(values<=0) or np.any(minimum<=0):
+        raise ValueError('Crop extents must be positive and finite')
+    if not len(values):return values.copy()
+    log=np.log(values)
+    if smoothing_seconds:log=gaussian_filter1d(log,smoothing_seconds*fps,mode='nearest')
+    # Nominal endpoint framing is also a lower bound; transitions start/end wider if needed.
+    bounds=np.log(minimum).copy();bounds[0]=max(bounds[0],np.log(values[0]));bounds[-1]=max(bounds[-1],np.log(values[-1]))
+    log=np.maximum(log,bounds)
+    step=np.log(2)/(fps*seconds_per_doubling)
+    for i in range(1,len(log)):log[i]=max(log[i],log[i-1]-step)
+    for i in range(len(log)-2,-1,-1):log[i]=max(log[i],log[i+1]-step)
+    return np.exp(log)

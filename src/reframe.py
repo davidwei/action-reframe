@@ -88,6 +88,8 @@ def load_config(path):
     set_analysis_fps(c)
     from adaptive_verification import settings as adaptive_settings
     c['adaptive_verification']=adaptive_settings(c)
+    from zoom_path import smoothing_settings
+    c.update(smoothing_settings(c))
     from anchor_tracking import settings as anchor_settings
     c['anchor_tracking']=anchor_settings(c)
     if c.get('tracking_mode') not in ('single','dual','anchor'):
@@ -746,7 +748,10 @@ def camera_path(c,meta,boxes,supported,roll,zoom_anchors=None):
         zoom_anchors=np.flatnonzero(supported)
     extent=interpolate_zoom(np.maximum(desired,minimum),h,zoom_anchors,endpoint_zoom=1.)
     from zoom_path import constrain_zoom
-    extent,_,_,_=constrain_zoom(extent,centers,roll,(w,h),(ow,oh),minimum,c.get('minimum_crop_short_side',180))
+    extent,required,_,_=constrain_zoom(extent,centers,roll,(w,h),(ow,oh),minimum,c.get('minimum_crop_short_side',180))
+    from zoom_path import smooth_zoom,smoothing_settings
+    options=smoothing_settings(c)
+    extent=smooth_zoom(extent,required,fps,options['zoom_seconds_per_doubling'],options['zoom_smoothing_seconds'])
     return centers,extent
 
 
@@ -815,7 +820,9 @@ def render(c):
         centers,extent=camera_path(c,meta,boxes,supported,roll,zoom_anchors)
         return dict(centers=centers.tolist(),extent=extent.tolist())
     inputs['settings']['minimum_crop_short_side']=c.get('minimum_crop_short_side',180)
-    camera,camera_record=store.run('camera_path',3,inputs,compute_camera)
+    from zoom_path import smoothing_settings
+    inputs['settings'].update(smoothing_settings(c))
+    camera,camera_record=store.run('camera_path',4,inputs,compute_camera)
     centers,extent=np.asarray(camera['centers']),np.asarray(camera['extent'])
     write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='pending'))
     from zoom_path import constrain_zoom
@@ -827,7 +834,9 @@ def render(c):
             subject_minimum[i]=max(2*np.abs(points[:,1]).max(),2*np.abs(points[:,0]).max()*c['output_height']/c['output_width'])/(1-2*c['margin_fraction'])
     _,minimum_extent,maximum_extent,zoom_conflicts=constrain_zoom(extent,centers,roll,
         (meta['width'],meta['height']),(c['output_width'],c['output_height']),subject_minimum,c.get('minimum_crop_short_side',180))
+    edge_relaxed=extent>maximum_extent+1e-6
     for i in np.flatnonzero(zoom_conflicts):flags[i].append('zoom_constraints_conflict')
+    for i in np.flatnonzero(edge_relaxed):flags[i].append('zoom_edge_coverage_relaxed')
     n,w,h,fps=meta['frames'],meta['width'],meta['height'],meta['fps']
     ow,oh=c['output_width'],c['output_height']
     tracks=[]
@@ -866,6 +875,9 @@ def render(c):
             tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
                 'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
                 'minimum_crop_short_side':c.get('minimum_crop_short_side',180),'render_size':[ow,oh],
+                'zoom_seconds_per_doubling':c.get('zoom_seconds_per_doubling',.5),
+                'zoom_smoothing_seconds':c.get('zoom_smoothing_seconds',.15),
+                'zoom_edge_coverage_relaxed':bool(edge_relaxed[i]),
                 'zoom':float(h/extent[i]),'flags':flags[i],
                 'zoom_min':float(h/maximum_extent[i]) if maximum_extent[i]>0 else None,
                 'zoom_max':float(h/minimum_extent[i]),'zoom_constraints_conflict':bool(zoom_conflicts[i]),

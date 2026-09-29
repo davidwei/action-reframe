@@ -38,7 +38,7 @@ Stable and intermediate intervals can be configured through `adaptive_verificati
 
 Frame Analysis in both review views shows actual/proposed verification, reason, mode, box pixel dimensions, tiny threshold/status, last passed identity frame/age, and render crop dimensions/minimum. Raw and leveled branch results remain separate. Measurements use the unit-scale analysis view, not an enlarged presentation image or the rotation-inflated raw enclosing rectangle.
 
-New optical records expose flow error and scale (stage version 3). Camera-path records use version 3 and include the minimum crop size in their dependency key. Anchor checkpoint version 5 prevents incompatible old schedules from resuming with new state semantics. Heavy model evidence remains reusable when its exact dependencies match.
+New optical records expose flow error and scale (stage version 3). Camera-path records use version 4 and include the minimum crop size and [zoom smoothing settings](ZOOM_SMOOTHING.md) in their dependency key. Anchor checkpoint version 5 prevents incompatible old schedules from resuming with new state semantics. Heavy model evidence remains reusable when its exact dependencies match.
 
 ## Validation
 
