@@ -22,8 +22,8 @@ window.TrackingProgressView={render(element,progress,{running=false}={}){
    heading.style.color='#fbbf24';heading.textContent+=' · Active';heading.title='Currently executing this processing stage';
   }
   if(!group?.available){text('p',`Not recorded · ${number(group?.total)} possible positions`,card);continue}
-  text('p',`${number(group.examined)} / ${number(group.total)} unique positions ${verb}`,card);
-  if(kind==='discovery')text('p',`${number(group.resolved_without_scan)} resolved without scanning · ${number(group.remaining)} remaining`,card);
+  if(kind==='discovery')text('p',`${number(group.resolved_without_scan)}/${number(group.total)} resolved without scanning · ${number(group.remaining)}/${number(group.total)} remaining`,card);
+  else text('p',`${number(group.examined)} / ${number(group.total)} unique positions ${verb}`,card);
   if(group.accepted!==undefined)text('p',`${number(group.accepted)} ${kind==='optical'?'usable':'accepted'} · ${number(group.rejected)} ${kind==='optical'?'unusable':'rejected'} · ${number(group.errored)} errored positions`,card);
   if(group.rejection_reasons){const r=group.rejection_reasons;text('p',`${number(r.identity_rejected)} identity rejected · ${number(r.localization_rejected)} localization rejected · ${number(r.request_error)} request errors${r.unclassified?` · ${number(r.unclassified)} other/unclassified`:''}`,card)}
   const confidence=group.confidence;
