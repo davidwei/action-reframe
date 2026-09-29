@@ -15,7 +15,9 @@ def flatten(value,prefix=''):
 
 def report(config,out,source=None):
     defaults=json.loads((Path(__file__).resolve().parent.parent/'configs/defaults.json').read_text())
-    baseline=flatten(defaults);saved=flatten(config);latest=flatten(source or config)
+    executed=Path(out)/'effective_config.json'
+    displayed=json.loads(executed.read_text()) if config.get('batch_input_revision') and executed.exists() else config
+    baseline=flatten(defaults);saved=flatten(displayed);latest=flatten(source or config)
     keys=set(baseline)|set(saved)|set(latest)
     excluded={'api_url','output_dir','video','ffmpeg','stage_store_dir','batch_input_revision','batch_stage'}
     rows=[]
@@ -39,5 +41,5 @@ def report(config,out,source=None):
         rows.append(dict(key=key,group=group,value=value,current=wanted,default=baseline.get(key),status=status,reason=reason))
     p=Path(out)/'code_version.json';versions=json.loads(p.read_text()) if p.exists() else {}
     code={stage:comparison(versions.get(stage),current()) for stage in ('analysis','render')}
-    return dict(rows=rows,code=code,scope='Saved batch configuration' if config.get('batch_input_revision') else 'Project configuration (may differ from an earlier rendered output)',
+    return dict(rows=rows,code=code,scope=('Executed configuration (includes settings for stages not run)' if executed.exists() else 'Saved batch configuration') if config.get('batch_input_revision') else 'Project configuration (may differ from an earlier rendered output)',
                 outdated=sum(r['status']=='outdated' for r in rows),attention=sum(r['status']=='attention' for r in rows))

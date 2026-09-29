@@ -75,7 +75,8 @@ def image_message(path):
 
 def load_config(path):
     c = json.loads((Path(__file__).resolve().parent.parent/'configs/defaults.json').read_text())
-    c.update(json.loads(Path(path).read_text()))
+    from effective_config import merge
+    c=merge(c,json.loads(Path(path).read_text()))
     c['api_url'] = os.environ.get('QWEN_API_URL',c['api_url']).rstrip('/')
     c['_config_path'] = str(Path(path).resolve())
     c['video'] = str((Path(path).resolve().parent / c['video']).resolve())
@@ -86,7 +87,9 @@ def load_config(path):
     configure(c)
     set_analysis_fps(c)
     from adaptive_verification import settings as adaptive_settings
-    adaptive_settings(c)
+    c['adaptive_verification']=adaptive_settings(c)
+    from anchor_tracking import settings as anchor_settings
+    c['anchor_tracking']=anchor_settings(c)
     if c.get('tracking_mode') not in ('single','dual','anchor'):
         raise ValueError('tracking_mode must be single, dual or anchor')
     if c.get('tracking_mode') in ('dual','anchor'):
@@ -777,6 +780,8 @@ def render(c):
     c['output_width'],c['output_height']=output_dimensions(c,meta)
     # Render with the observations' cadence, even if the next run's setting changed.
     set_analysis_fps(c,meta.get('analysis_fps',1/meta.get('sample_interval',.5)))
+    from effective_config import save as save_effective_config
+    save_effective_config(c,'render')
     observation_path=out/(f"tracking_{c['tracking_render_path']}.json" if c.get('tracking_mode')=='dual' else 'observations.json')
     observations=json.loads(observation_path.read_text())
     if c.get('tracking_mode')=='dual':
@@ -926,8 +931,8 @@ def main():
     if args.analysis_fps is not None:set_analysis_fps(c,args.analysis_fps)
     if args.output_dir:
         c['output_dir']=str(Path(args.output_dir).resolve());Path(c['output_dir']).mkdir(parents=True,exist_ok=True)
-    if args.stage in ('analyze','all'):
-        write_json(Path(c['output_dir'])/'run_config.json',{k:v for k,v in c.items() if not k.startswith('_') and k!='ffmpeg'})
+    from effective_config import save as save_effective_config
+    save_effective_config(c,args.stage)
     if args.stage in ('analyze', 'all'):
         analyze(c, args.single)
     if args.stage == 'backward':
