@@ -98,7 +98,7 @@ async function load(){try{const r=await fetch('/api/state?config='+encodeURIComp
 }catch(e){$('status').textContent=e.message}}
 function renderLevelFlags(s){
  const renderedSource=s.tracks?.find(t=>t.level_source)?.level_source;
- $('resultIdentity').textContent=`Result: ${s.config?.output_dir||'unconfigured'} · Analysis: ${s.meta?.analysis_fps??'not recorded'} FPS · Rendered leveling: ${renderedSource==='gyro'?'GYRO (DJI fused attitude)':'VISUAL (no gyro leveling in this result)'}`;
+ $('resultIdentity').textContent=`Result: ${s.config?.output_dir||'unconfigured'} · Crop Verification: ${s.meta?.analysis_fps??'not recorded'} FPS · Rendered leveling: ${renderedSource==='gyro'?'GYRO (DJI fused attitude)':'VISUAL (no gyro leveling in this result)'}`;
  const switches=$('selectionFlags');switches.replaceChildren();
  for(const row of s.tracking_comparison||[]){if(!row.selected?.path_switched&&!row.selected?.selection_flags?.length)continue;
   const button=document.createElement('button');button.style.margin='4px';button.textContent=`${row.selected.path_switched?'Path switch':'Tracking review'} ${format(row.time)} → ${row.selected.selected_path}`;button.onclick=()=>stepTo(row.frame);switches.append(button);

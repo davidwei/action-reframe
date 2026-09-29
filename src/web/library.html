@@ -29,7 +29,7 @@ function renderProjects(){
   const card=document.createElement('article'),row=document.createElement('div');row.className='row';
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selected.has(p.project);checkbox.disabled=!p.ready||p.status==='Processing'||p.discard_pending||drafts.has(p.project);checkbox.setAttribute('aria-label','Queue '+p.project);checkbox.onchange=()=>checkbox.checked?selected.add(p.project):selected.delete(p.project);
   row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at),document.createElement('br'),codeBadge(p.code_version),document.createElement('br'),codeBadge(p.analysis_code_version,'Analysis'),document.createElement('br'),codeBadge(p.render_code_version,'Render'));
-  card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} analysis FPS · ${p.labels} additional labels`));
+  card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} Crop Verification FPS · ${p.labels} additional labels`));
   card.append(text('p','Actions: '+p.actions.join(' · ')));
   if(p.result_is_previous)card.append(text('p','Video focus and side-by-side playback open the last successful result. It may use earlier inputs or code; the latest attempt is listed in the queue below.'));
   if(p.stale)card.append(text('p','Inputs changed — review and approve again.'));

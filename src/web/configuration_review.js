@@ -19,7 +19,7 @@ window.ConfigurationReview={update(element,state){
   const line=add(details,'div','');line.style.cssText='padding:8px 0;border-bottom:1px solid #43505e;overflow-wrap:anywhere';
   if(['outdated','attention'].includes(row.status)){line.style.color='#ff8585';line.style.borderLeft='3px solid #ff8585';line.style.paddingLeft='10px'}
   const format=value=>value===undefined?'Not recorded':typeof value==='string'?value:JSON.stringify(value);
-  add(line,'strong',row.key+' ');add(line,'span',format(row.value)+' · '+row.status);
+  add(line,'strong',(row.key==='analysis_fps'?'Crop Verification FPS':row.key)+' ');add(line,'span',format(row.value)+' · '+row.status);
   if(row.status==='outdated')add(line,'p','Current project: '+format(row.current));
   if(row.status==='override')add(line,'p','System default: '+format(row.default));
   if(row.reason)add(line,'p',row.reason);
