@@ -13,7 +13,7 @@
 <input id="scrub" type="range" min="0" max="1901" value="0" aria-label="Frame">
 <p id="frameInfo"></p>
 <div id="frameNavigation" class="row" aria-label="Frame navigation"><button id="previous">Previous frame</button><button id="next">Next frame</button></div>
-<div id="frameAnalysis"></div>
+<div id="frameAnalysis"></div><section id="configurationReview"></section>
 <p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear only for results recorded at this frame, including uncertain estimates. No interpolated or held boxes are overlaid. The green rectangle is the selected observation; your selection is white. Magenta dotted boxes show optical predictions before crop validation. Reliable optical predictions can drive framing even when identity verification fails; they do not imply verified identity.</p>
 <label><input id="showOptical" type="checkbox" checked> Show optical predictions (magenta)</label>
 <p>Save target box keeps this project and makes your selection a human-confirmed tracking anchor. It is eligible for the existing context quotas; saving does not start processing.</p>
@@ -39,6 +39,7 @@
 <script src="/files/lookout.js?v=1"></script>
 <script src="/files/tracking_progress.js?v=3"></script>
 <script src="/files/description_review.js?v=6"></script>
+<script src="/files/configuration_review.js?v=1"></script>
 <script src="/files/frame_analysis.js?v=magenta-approval-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
@@ -92,7 +93,7 @@ for(const [id,space] of [['source','raw'],['processed','processed']]){
  canvas.onpointermove=move;canvas.onpointerup=e=>{move(e);drag=null};canvas.onpointercancel=()=>{drag=null};
 }
 $('frameAnalysis').addEventListener('analysis-approved',safe(async()=>{await refresh();await showFrame();notice('Candidate approved as a human label (100%). Reanalyze or render to apply.')}));
-async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Video focus — '+state.project_name:'Video focus';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
+async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));ConfigurationReview.update($('configurationReview'),state);project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Video focus — '+state.project_name:'Video focus';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
  if(!$('confidenceThreshold').dataset.initialized){$('confidenceThreshold').value=100*(state.config.tracking_selection?.confidence_threshold??.5);$('confidenceThreshold').dataset.initialized='true'}
  $('confidenceThreshold').disabled=$('saveThreshold').disabled=state.running||!project||!!state.config.batch_input_revision;

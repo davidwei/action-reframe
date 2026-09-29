@@ -156,6 +156,14 @@ class Handler(BaseHTTPRequestHandler):
                     manifest=local_path(config_name).parent/'inputs.json'
                     if manifest.exists():source_project=json.loads(manifest.read_text()).get('project',config_name)
                 state['project_name']=config.get('project_name') or (Path(source_project).stem if source_project else None)
+                from configuration_review import report as configuration_report
+                source_config=None
+                if source_project and source_project!=config_name and local_path(source_project).exists():
+                    source_config=json.loads(local_path(source_project).read_text())
+                    from batch_workflow import Batch
+                    preparation=Batch(ROOT).preparation(source_project)
+                    if preparation.get('description'):source_config['approved_target_description']=preparation['description']
+                state['configuration_review']=configuration_report(config,out,source_config)
                 for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures'):
                     p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 from optical_diagnostics import load as load_optical
