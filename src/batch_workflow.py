@@ -111,7 +111,7 @@ class Batch:
         config['analysis_fps']=min(config['analysis_fps'],fps)
         name='project_'+uuid.uuid4().hex[:8]+'.json'
         config.update(video=str(source.relative_to(self.root)),output_dir='outputs/'+name[:-5],
-                      reference_time=0,reference_box=None,target='',tracking_mode='anchor')
+                      reference_time=0,reference_box=None,target='')
         write(self.root/name,config)
         return {'project':name}
 

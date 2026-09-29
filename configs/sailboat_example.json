@@ -8,29 +8,5 @@
     1165,
     405
   ],
-  "target": "The OTHER small sailing dinghy with a lime-green triangular sail, its hull and sailor. It is separate from the camera boat. The camera boat's large lime-green sail, foreground white deck, mast and rigging are NOT the target. Do not confuse distant white-sailed boats or windsurfers with the target.",
-  "api_url": "http://127.0.0.1:8000/v1",
-  "analysis_fps": 10,
-  "temporal_context": {
-    "recent_images": 3,
-    "history_visual_frames": 128,
-    "history_char_budget": 64000,
-    "context_limit": 32768
-  },
-  "workers": 4,
-  "color_refinement": true,
-  "target_hue": 43,
-  "backward_recovery": true,
-  "output_width": 1280,
-  "output_height": 720,
-  "subject_height_fraction": 0.55,
-  "margin_fraction": 0.12,
-  "hold_seconds": 0.75,
-  "widen_seconds": 2.0,
-  "smoothing_seconds": 0.45,
-  "border": "blurred_extension",
-  "feather_pixels": 40,
-  "leveling_source": "gyro",
-  "level_divergence_degrees": 5,
-  "level_workers": 2
+  "target": "The OTHER small sailing dinghy with a lime-green triangular sail, its hull and sailor. It is separate from the camera boat. The camera boat's large lime-green sail, foreground white deck, mast and rigging are NOT the target. Do not confuse distant white-sailed boats or windsurfers with the target."
 }

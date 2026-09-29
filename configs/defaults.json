@@ -1,10 +1,10 @@
 {
   "api_url": "http://127.0.0.1:8000/v1",
   "analysis_fps": 10,
-  "tracking_mode": "single",
+  "tracking_mode": "anchor",
   "tracking_render_path": "selected",
   "verify_boxes": true,
-  "box_verification_retries": 2,
+  "box_verification_retries": 0,
   "tracking_selection": {
     "confidence_threshold": 0.5,
     "agreement_iou": 0.35,

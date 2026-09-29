@@ -302,7 +302,7 @@ class Handler(BaseHTTPRequestHandler):
                     import uuid
                     name='project_'+uuid.uuid4().hex[:8]
                     c.update(video=str(video.relative_to(ROOT)),output_dir='outputs/'+name,reference_time=float(data['time']),
-                             reference_box=data['bbox'],target=str(data['target']),color_refinement=False,tracking_mode='anchor')
+                             reference_box=data['bbox'],target=str(data['target']))
                     from batch_workflow import Batch
                     Batch(ROOT).validate(c)
                     write_json(ROOT/(name+'.json'),c)
