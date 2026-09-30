@@ -5,7 +5,7 @@ from scipy.ndimage import gaussian_filter1d, maximum_filter1d
 from scipy.spatial.transform import Rotation
 from zoom_path import minimum_crop_size
 
-VERSION=1
+VERSION=2
 DEFAULTS=dict(enabled=True,center_seconds=.5,zoom_seconds=.7,seconds_per_doubling=1.5,
               zoom_acceleration=.45,center_speed=.6,center_acceleration=1.2,gap_seconds=1.,motion_width=640)
 
@@ -23,12 +23,16 @@ def polygons(observations,corrections,boxes,supported,meta):
     for i in range(n):
         row=by.get(i,{});label=corrections.get(str(i),{})
         if 'bbox' in label and label['bbox'] is None:absent.append(i);result.append(None);continue
-        poly=label.get('source_polygon_px') or row.get('source_polygon_px')
+        poly=label.get('source_polygon_px') or (row.get('source_polygon_px') if supported[i] else None)
         if poly is None and supported[i]:
             x1,y1,x2,y2=boxes[i];poly=[[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
         if poly is not None:
             poly=np.asarray(poly,float)
             if poly.ndim!=2 or poly.shape[1]!=2 or len(poly)<3 or not np.isfinite(poly).all():poly=None
+            else:
+                source=np.array([[0,0],[meta['width'],0],[meta['width'],meta['height']],[0,meta['height']]],np.float32)
+                area,clipped=cv2.intersectConvexConvex(cv2.convexHull(poly.astype(np.float32)),source)
+                poly=clipped.reshape(-1,2).astype(float) if clipped is not None and area>1 else None
         result.append(poly)
     return result,absent
 
@@ -138,12 +142,19 @@ def plan(c,meta,polys,absent,roll,motion):
         # Smooth a look-ahead maximum envelope in log space. A uniform widening
         # restores containment; reducing amplitude about the widest view enforces
         # speed/acceleration without violating any visibility bound.
-        log=gaussian_filter1d(maximum_filter1d(np.log(desired_size),size=max(1,2*round(opt['zoom_seconds']*fps)+1),mode='nearest'),max(.5,opt['zoom_seconds']*fps),mode='nearest')
-        log+=max(0,float(np.max(np.log(desired_size)-log)))
-        speed=np.max(abs(np.diff(log)))*fps if count>1 else 0
-        accel=np.max(abs(np.diff(log,2)))*fps**2 if count>2 else 0
-        fraction=min(1,(np.log(2)/opt['seconds_per_doubling'])/max(speed,1e-12),opt['zoom_acceleration']/max(accel,1e-12))
-        log=log.max()+fraction*(log-log.max());extent[start:stop]=np.exp(log)
+        base=np.log(desired_size)
+        sigma=max(.5,opt['zoom_seconds']*fps)
+        for attempt in range(30):
+            # A maximum window covering the Gaussian support is a guaranteed
+            # smooth majorant: every contributing neighbor includes this frame.
+            radius=max(1,int(4*sigma+.5))
+            log=gaussian_filter1d(maximum_filter1d(base,size=2*radius+1,mode='nearest'),sigma,mode='nearest')
+            speed=np.max(abs(np.diff(log)))*fps if count>1 else 0
+            accel=np.max(abs(np.diff(log,2)))*fps**2 if count>2 else 0
+            if speed<=np.log(2)/opt['seconds_per_doubling']+1e-10 and accel<=opt['zoom_acceleration']+1e-10:break
+            sigma*=1.25
+        else:log=np.full(count,float(base.max()))
+        extent[start:stop]=np.exp(log)
         # Recheck acceleration including changes in magnification itself.
         screen=velocity/(extent[start:stop,None]*np.array([aspect,1]))
         screen_acc=np.gradient(screen,axis=0)*fps if count>1 else np.zeros_like(screen)

@@ -49,3 +49,5 @@ class RenderPlannerTests(unittest.TestCase):
         _,m,_=self.fixtures(2);boxes=np.tile([1,2,3,4],(2,1))
         result,absent=polygons([],{'0':dict(source_polygon_px=[[1,1],[5,2],[2,8]]),'1':dict(bbox=None)},boxes,[True,True],m)
         self.assertEqual(result[0].shape,(3,2));self.assertIsNone(result[1]);self.assertEqual(absent,[1])
+        result,_=polygons([dict(frame=0,source_polygon_px=[[0,0],[5000,0],[0,5000]])],{},boxes,[False,False],m)
+        self.assertIsNone(result[0])
