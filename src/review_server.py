@@ -179,9 +179,9 @@ class Handler(BaseHTTPRequestHandler):
                     if preparation.get('description'):source_config['approved_target_description']=preparation['description']
                 state['configuration_review']=configuration_report(config,out,source_config)
                 import fcntl
-                out.mkdir(parents=True,exist_ok=True)
-                with (out/'analysis_snapshot.lock').open('a') as snapshot_lock:
-                    fcntl.flock(snapshot_lock,fcntl.LOCK_SH)
+                from contextlib import nullcontext
+                with ((out/'analysis_snapshot.lock').open('a') if out.exists() else nullcontext()) as snapshot_lock:
+                    if snapshot_lock is not None:fcntl.flock(snapshot_lock,fcntl.LOCK_SH)
                     for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures','analysis_snapshot'):
                         p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 from optical_diagnostics import load as load_optical
