@@ -319,7 +319,7 @@ class Batch:
             c=read(out/'run_config.json',c)
             observations=f"tracking_{c.get('tracking_render_path','selected')}.json" if c.get('tracking_mode')=='dual' else 'observations.json'
             meta=read(out/'meta.json',{})
-            if (out/observations).is_file() and meta.get('frames') and meta.get('cache'):
+            if ((out/observations).is_file() or (out/'anchor_checkpoint.json').is_file()) and meta.get('frames') and meta.get('cache'):
                 reference=self.path(meta['cache'])/'reference.jpg'
                 if reference.is_file():return name,out,observations,meta,reference
         raise ValueError(f'{project}: no saved analysis is available to rerender')
@@ -372,6 +372,15 @@ class Batch:
                 for name in {observations,'observations.json','tracking_raw_angle.json','tracking_leveled.json',
                              'tracking_selected.json','tracking_comparison.json','level_observations.json','optical_motion.jsonl','path_candidates.jsonl'}:
                     if (source_out/name).is_file():shutil.copy2(source_out/name,out/name)
+                checkpoint=source_out/'anchor_checkpoint.json'
+                if checkpoint.exists():
+                    # Freeze one committed manifest and exactly its immutable shards.
+                    manifest=read(checkpoint)
+                    for shard in manifest.get('result_shards',{}).get('files',{}).values():
+                        source=(source_out/shard).resolve()
+                        if not source.is_relative_to(source_out.resolve()):raise ValueError('Invalid result shard path')
+                        target=out/shard;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
+                    write(out/'anchor_checkpoint.json',manifest)
                 revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
                 snapshot.update(video=str(self.path(current['video'])),output_dir=str(out),batch_stage='render',
                                 batch_input_revision=revision,rerender_source=source_name)

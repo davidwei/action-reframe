@@ -779,6 +779,9 @@ def composite(frame,matrix,size,feather,box=None):
 @lookout_timed("render")
 def render(c):
     out=Path(c['output_dir'])
+    if (out/'anchor_checkpoint.json').exists():
+        from result_shards import export_snapshot
+        export_snapshot(out,write_json)
     meta=json.loads((out/'meta.json').read_text())
     c=dict(c)
     from zoom_path import output_dimensions

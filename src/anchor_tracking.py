@@ -54,7 +54,8 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     fingerprint=hashlib.sha256(json.dumps([VERSION,DETECTION_VERSION,VERIFICATION_VERSION,POLICY_VERSION,DESCRIPTION_VERSION,COMPARISON_VERSION,model,meta['signature'],config,manual],sort_keys=True,default=str).encode()).hexdigest()[:24]
     checkpoint=out/'anchor_checkpoint.json';prior=None
     if checkpoint.exists():
-        previous=json.loads(checkpoint.read_text())
+        from result_shards import load_checkpoint
+        previous=load_checkpoint(checkpoint)
         if previous.get('fingerprint')==fingerprint:prior=previous
     if prior is None:
         (out/'optical_motion.jsonl').write_text('')
@@ -66,6 +67,8 @@ def run_anchors(c,meta,model,helpers,api,single=None):
         backup=out/'anchor_checkpoint.before_event_journal.json'
         if not backup.exists():shutil.copyfile(checkpoint,backup)
     journal=EventJournal(out,prior)
+    from result_shards import ResultShards
+    shards=ResultShards(out,c.get('result_shard_frames',180))
     search=TrackingSearch(config,meta,gyro,model,helpers,api)
     progress=TrackingProgress(out,fingerprint,discovery,indices,start,stop,confidence_threshold(c),resuming=prior is not None,anchor_threshold=options['anchor_confidence'])
     search.progress=progress
@@ -84,28 +87,19 @@ def run_anchors(c,meta,model,helpers,api,single=None):
         progress.detection('discovery',index,row)
         return row
     def publish(state):
-        state['fingerprint']=fingerprint;journal.checkpoint(state,save,checkpoint)
+        state['fingerprint']=fingerprint;state['sample_indices']=indices
+        journal.checkpoint(state,lambda path,value:shards.save(path,value,save),checkpoint)
         save(out/'analysis_failures.json',[dict(frame=int(i),time=int(i)/meta['fps'],failures=items) for i,items in sorted(state.get('analysis_failures',{}).items(),key=lambda pair:int(pair[0]))])
-        rows=[];pairs=[]
-        for index in indices:
-            row=state['results'].get(str(index),dict(frame=index,time=index/meta['fps'],bbox=None,confidence=0,visibility='uncertain',selection_reason='Not examined yet',selection_flags=['tracking_unexamined']))
-            row=dict(row,selected_path=row.get('selected_path','manual' if row.get('manual') else 'neither'))
-            rows.append(row)
-            candidates=row.get('candidates')
-            if candidates and all(p in candidates for p in ('raw_angle','leveled')):pairs.append(dict(frame=index,time=row['time'],raw_angle=candidates['raw_angle'],leveled=candidates['leveled'],selected={k:v for k,v in row.items() if k!='candidates'},box_iou=row.get('box_iou')))
-        save(out/'observations.json',rows);save(out/'tracking_selected.json',rows);save(out/'tracking_comparison.json',pairs)
-        for path in ('raw_angle','leveled'):
-            save(out/f'tracking_{path}.json',[r if r.get('manual') else r.get('candidates',{}).get(path,dict(frame=r['frame'],time=r['time'],bbox=None,confidence=0,visibility='uncertain')) for r in rows])
         coverage=state['coverage'];counts=progress.publish(state)
         save(out/'analysis_progress.json',dict(stage='anchor_'+state['stage'],completed=len(coverage),total=len(indices),
             source_fps=meta['fps'],analysis_fps=c['analysis_fps'],discovery_fps=options['discovery_fps'],anchors=len(state['anchors']),
             independent_scanned=sum(bool(r.get('independent_scanned')) for r in coverage.values()),
             reliably_covered=sum(bool(r.get('reliably_covered')) for r in coverage.values()),queued=len(state['queue']),coverage=counts))
         save(out/'anchor_summary.json',dict(stage=state['stage'],anchors=state['anchors'],settings=options,coverage=coverage,
-            unresolved_frames=[r['frame'] for r in rows if not r.get('bbox')],analysis_interval=[start,stop]))
+            unresolved_frames=[i for i in indices if not state['results'].get(str(i),{}).get('bbox')],analysis_interval=[start,stop]))
         print(f"Anchor {state['stage']}: discovery {counts['discovery']['examined']}/{counts['discovery']['total']} scanned + {counts['discovery']['resolved_without_scan']} resolved without scan; crop verification {counts['verification']['examined']}/{counts['verification']['total']} checked; optical {counts['optical']['examined']}/{counts['optical']['total']} visited; {len(state['anchors'])} anchors; {len(state['queue'])} propagation tasks",flush=True)
     scheduler=AnchorScheduler(indices,discovery,[r for i,r in manual.items() if start<=i<=stop],search.propagate,
         discover,publish,dict(options,two_path_tracking=True,confidence_threshold=confidence_threshold(c),agreement_iou=c.get('tracking_selection',{}).get('agreement_iou',.35)),prior)
     try:scheduler.run()
     finally:progress.publish(scheduler.state)
-    return json.loads((out/'observations.json').read_text())
+    return [scheduler.state['results'][key] for key in sorted(scheduler.state['results'],key=int)]

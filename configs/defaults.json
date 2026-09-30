@@ -56,5 +56,6 @@
     "intermediate_seconds": 0.25
   },
   "zoom_seconds_per_doubling": 0.5,
-  "zoom_smoothing_seconds": 0.15
+  "zoom_smoothing_seconds": 0.15,
+  "result_shard_frames": 180
 }
