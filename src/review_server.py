@@ -145,6 +145,14 @@ def local_path(value):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # An interactive launcher can disappear while this server stays alive.
+        # Logging must never prevent send_response() from sending HTTP headers.
+        try:
+            super().log_message(format, *args)
+        except (OSError, ValueError):
+            pass
+
     def json_response(self,data,code=200):
         blob=json.dumps(data).encode()
         self.send_response(code);self.send_header('Content-Type','application/json')

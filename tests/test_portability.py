@@ -40,6 +40,16 @@ class PortabilityTests(unittest.TestCase):
         with urllib.request.urlopen(req) as response:
             return json.load(response)
 
+    def test_deleted_terminal_log_does_not_break_http(self):
+        class DeadTerminal:
+            def write(self, value):raise OSError(5, 'Input/output error')
+            def flush(self):pass
+        with patch('sys.stderr',DeadTerminal()):
+            with urllib.request.urlopen(self.base+'/') as response:
+                self.assertEqual(response.status,200)
+                self.assertIn(b'<html',response.read().lower())
+            self.assertEqual(self.request('/api/videos'),[])
+
     def test_empty_workspace_serves_ui_without_example_project(self):
         self.assertEqual(self.request('/api/videos'), [])
         state = self.request('/api/state')
