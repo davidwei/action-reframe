@@ -59,6 +59,13 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     if prior is None:
         (out/'optical_motion.jsonl').write_text('')
         (out/'path_candidates.jsonl').write_text('')
+    from event_journal import EventJournal
+    if prior is not None and 'events' in prior and 'event_journal' not in prior:
+        # Keep an untouched legacy checkpoint before its one-time migration.
+        import shutil
+        backup=out/'anchor_checkpoint.before_event_journal.json'
+        if not backup.exists():shutil.copyfile(checkpoint,backup)
+    journal=EventJournal(out,prior)
     search=TrackingSearch(config,meta,gyro,model,helpers,api)
     progress=TrackingProgress(out,fingerprint,discovery,indices,start,stop,confidence_threshold(c),resuming=prior is not None,anchor_threshold=options['anchor_confidence'])
     search.progress=progress
@@ -77,7 +84,7 @@ def run_anchors(c,meta,model,helpers,api,single=None):
         progress.detection('discovery',index,row)
         return row
     def publish(state):
-        state['fingerprint']=fingerprint;save(checkpoint,state)
+        state['fingerprint']=fingerprint;journal.checkpoint(state,save,checkpoint)
         save(out/'analysis_failures.json',[dict(frame=int(i),time=int(i)/meta['fps'],failures=items) for i,items in sorted(state.get('analysis_failures',{}).items(),key=lambda pair:int(pair[0]))])
         rows=[];pairs=[]
         for index in indices:

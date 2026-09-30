@@ -15,6 +15,7 @@ class AnchorScheduler:
         self.limit=self.settings.get('max_propagation_attempts',4)
         self.state=checkpoint or dict(version=VERSION,results={},coverage={},queue=[],attempts={},events=[],anchors=[])
         self.state.setdefault('analysis_failures',{})
+        self.state.setdefault('events',[])  # Pending journal entries only in production.
         self.queue=deque(self.state['queue'])
         if checkpoint is None:
             for row in anchors:

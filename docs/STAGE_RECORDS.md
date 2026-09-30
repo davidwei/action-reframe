@@ -45,3 +45,11 @@ Every newly started execution saves `effective_config.json` in its output direct
 Resolution happens at execution start, not enqueue time. Waiting jobs therefore use the defaults installed when they start; explicit snapshot overrides still win. Retries resolve again and append a new execution record, preserving prior attempts. Existing running processes and historical runs are not retrospectively assigned today's settings. The configuration panel uses recorded effective settings for batch runs when available. Values for stages not executed (such as tracking on a rerender-only job) are configuration values, not evidence that those stages ran.
 
 Camera-path version 4 adds [log-zoom smoothing and look-ahead](ZOOM_SMOOTHING.md). The final zoom speed/fit requirements may relax complete-edge coverage, with explicit review flags and background fill.
+
+## Scheduler event journal
+
+Scheduler history is appended to `events_<id>.jsonl`, one compact JSON event per line. The candidate payload is unchanged. `anchor_checkpoint.json` now stores `event_journal: {version, file, committed_bytes, count}` instead of embedding history. Only pending events remain in memory; after a successful checkpoint they are cleared. Frame results and compatibility exports are unchanged.
+
+Events are flushed and fsynced before atomic checkpoint replacement commits their prefix. On resume, a shorter-than-committed journal is an error. A longer tail represents an interrupted checkpoint: it is archived to `events_uncommitted_<id>.jsonl` and removed from the active journal before retrying the pending scheduler task. Committed events are never rewritten. Existing JSON checkpoints are backed up as `anchor_checkpoint.before_event_journal.json` and migrated once on resume; old journals are left untouched when a new analysis fingerprint starts a new run. This is process-crash recovery; the existing checkpoint writer does not guarantee durability across sudden power loss.
+
+An already running process retains its loaded implementation until restarted. No active run files are migrated externally.
