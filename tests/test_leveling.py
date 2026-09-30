@@ -14,6 +14,20 @@ from leveling import quaternion_roll, line_angle, angular_difference, visual_obs
 
 
 class LevelingTests(unittest.TestCase):
+    def test_gyro_leveling_never_calls_model(self):
+        from leveling import run_leveling
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp);(out/'meta.json').write_text(json.dumps(dict(frames=1,fps=30,samples=[0])))
+            # Historical visual evidence must not affect gyro-only decisions.
+            (out/'level_observations.json').write_text(json.dumps([dict(frame=0,roll=80)]))
+            gyro=dict(calibration={},frames=[dict(frame=0,time=0,roll=2.)])
+            def api(*args):raise AssertionError('Gyro mode must not request a model')
+            with patch('leveling.extract_gyro',return_value=gyro):
+                rows=run_leveling(dict(output_dir=temp,video='unused',leveling_source='gyro'),api)
+            self.assertEqual(rows[0]['final_roll'],2.)
+            self.assertIsNone(rows[0]['qwen_roll']);self.assertFalse(rows[0]['level_divergent'])
+            self.assertEqual(json.loads((out/'level_progress.json').read_text())['status'],'skipped')
+
     def test_telemetry_schema_and_time_alignment(self):
         def msg(number, content):
             return bytes([number*8+2, len(content)])+content

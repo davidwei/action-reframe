@@ -193,6 +193,10 @@ from lookout.events import timed as lookout_timed
 def run_leveling(c, api, single=None):
     out=Path(c['output_dir']);meta=json.loads((out/'meta.json').read_text())
     gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
+    if c.get('leveling_source')=='gyro':
+        save(out/'level_progress.json',dict(completed=0,total=0,status='skipped',reason='Gyro leveling selected; Qwen leveling is unnecessary'))
+        print('Gyro leveling: skipping Qwen visual estimates',flush=True)
+        return build_comparison(c,meta)
     served=api(c['api_url']+'/models')['data'][0];model=served['id']
     indices=meta['samples'] if single is None else [min(range(meta['frames']),key=lambda i:abs(i/meta['fps']-single))]
     path=out/'level_observations.json'
@@ -211,7 +215,7 @@ def run_leveling(c, api, single=None):
 
 def build_comparison(c,meta):
     out=Path(c['output_dir']);gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
-    path=out/'level_observations.json';observations=json.loads(path.read_text()) if path.exists() else []
+    path=out/'level_observations.json';observations=json.loads(path.read_text()) if path.exists() and c.get('leveling_source')!='gyro' else []
     usable=[r for r in observations if r.get('roll') is not None and not r.get('error')]
     threshold=float(c.get('level_divergence_degrees',5))
     if not math.isfinite(threshold) or threshold<=0:raise ValueError('Level divergence threshold must be positive')

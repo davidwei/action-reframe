@@ -51,3 +51,7 @@ See [stage records](STAGE_RECORDS.md) for cache boundaries, [folder workflow](BA
 ### Optical overlap stopping
 
 Propagation now stops a raw or leveled branch when the same frame/path already has a usable optical candidate with motion quality greater than or equal to the new proposal. Independent detections alone do not trigger this rule; identity confidence is not substituted for motion quality. The comparison happens before crop verification or independent recovery. Other paths continue independently, with active paths carried in scheduler tasks across checkpoints. Historical optical candidates, including intermediate frames, are loaded from the candidate journal on resume. Existing results are retained. This changes propagation scheduling, not stage-evidence cache keys; an already running worker must restart to load it.
+
+### Gyro-only leveling
+
+When `leveling_source` is `gyro`, leveling extracts telemetry and skips all Qwen visual leveling requests, including explicit level/level-render stages. Rendering uses gyro angles without requiring visual validation or generating missing-visual review flags. Previously saved visual estimates remain on disk for audit but are excluded from gyro-mode comparisons. Visual leveling mode retains its model-based behavior. Already running workers must restart to load this change.

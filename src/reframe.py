@@ -234,7 +234,7 @@ def observe(c, meta, i, model, history=None):
         cached = json.loads(result_path.read_text())
         if 'error' not in cached:
             return cached
-    level_task = ('Leveling is handled by an independent visual pass. Return shoreline=null, level_confidence=0 and level_note="separate leveling pass".'
+    level_task = ('Leveling is supplied by gyro telemetry. Return shoreline=null, level_confidence=0 and level_note="separate leveling pass".'
                   if c.get('leveling_source')=='gyro' else
                   'Independently estimate visual level from the current frame using a true horizon or defensible background evidence. Do not assume shorelines or terrain are horizontal. Return two left-to-right reference points in shoreline, or null when ambiguous, with honest level_confidence.')
     prompt = f'''You are measuring a frame for an offline object-following video editor.
@@ -434,7 +434,7 @@ Bounding box coordinates are normalized 0..1000 within IMAGE 3 ONLY.
 Shoreline coordinates MUST be normalized 0..1000 within FULL IMAGE 4. Estimate its signed slope from the actual background,
 using only the current background evidence. Do not use the sail or rigging as a level reference.'''
         if c.get('leveling_source')=='gyro':
-            prompt+='\nLeveling is a separate independent pass. For this tracking request return shoreline=null, level_confidence=0, level_note="separate leveling pass".'
+            prompt+='\nLeveling is supplied by gyro telemetry. For this tracking request return shoreline=null, level_confidence=0, level_note="separate leveling pass".'
         if c.get('color_refinement',False):
             prompt+=f'''\nImage 3 has {len(proposals)} NUMBERED candidate rectangles, with ids starting at 0.
 Select the rectangle containing the SAME target. Add "candidate": integer or null to your JSON.
@@ -807,8 +807,7 @@ def render(c):
         for i,row in enumerate(level_rows):
             flags[i]=[flag for flag in flags[i] if flag!='level_needs_review']
             if row['level_divergent']:flags[i].append('qwen_gyro_divergence')
-            if row['qwen_roll'] is None:flags[i].append('visual_level_unavailable')
-            elif (row['qwen_level_confidence'] or 0)<.65:flags[i].append('visual_level_uncertain')
+            if row['qwen_roll'] is not None and (row['qwen_level_confidence'] or 0)<.65:flags[i].append('visual_level_uncertain')
             if row['qwen_direction_mismatch']:flags[i].append('visual_level_direction_inconsistent')
         # Manual roll keys cannot silently override an explicitly selected gyro final source.
     corrections_path=out/'corrections.json'
