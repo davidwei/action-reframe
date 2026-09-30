@@ -179,6 +179,7 @@ class Handler(BaseHTTPRequestHandler):
                     if preparation.get('description'):source_config['approved_target_description']=preparation['description']
                 state['configuration_review']=configuration_report(config,out,source_config)
                 import fcntl
+                out.mkdir(parents=True,exist_ok=True)
                 with (out/'analysis_snapshot.lock').open('a') as snapshot_lock:
                     fcntl.flock(snapshot_lock,fcntl.LOCK_SH)
                     for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures','analysis_snapshot'):
