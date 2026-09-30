@@ -47,3 +47,7 @@ New two-path analysis requires supported gyro telemetry. The inspected DJI attit
 Optical tracking and rendering are CPU-based. Confidence is a model heuristic, not a calibrated probability; crop text cannot prove exact box geometry. Scene changes, tiny targets and occlusion still need review. Live label updates are not guaranteed to affect an already-running analysis. Full planner generation/review, separate trial approval, useful-segment export and image enhancement remain product work.
 
 See [stage records](STAGE_RECORDS.md) for cache boundaries, [folder workflow](BATCH_WORKFLOW.md) for operating details and [documentation guide](README.md) for plans versus current guides.
+
+### Optical overlap stopping
+
+Propagation now stops a raw or leveled branch when the same frame/path already has a usable optical candidate with motion quality greater than or equal to the new proposal. Independent detections alone do not trigger this rule; identity confidence is not substituted for motion quality. The comparison happens before crop verification or independent recovery. Other paths continue independently, with active paths carried in scheduler tasks across checkpoints. Historical optical candidates, including intermediate frames, are loaded from the candidate journal on resume. Existing results are retained. This changes propagation scheduling, not stage-evidence cache keys; an already running worker must restart to load it.

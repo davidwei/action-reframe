@@ -28,11 +28,13 @@ class AnchorScheduler:
         self.state['queue']=list(self.queue);self.state['stage']=stage;self.save(self.state)
 
     def _enqueue(self,row,direction):
+        paths=row.get('propagation_paths')
+        if paths is not None and not paths:return
         pos=self.positions[row['frame']]+direction
         if not 0<=pos<len(self.frames):return
         target=self.frames[pos];key=f"{row.get('origin_anchor',row['frame'])}:{row['frame']}:{target}"
         if key in self.state['attempts']:return
-        self.queue.append(dict(source=row['frame'],target=target,direction=direction,origin=row.get('origin_anchor',row['frame']),key=key))
+        self.queue.append(dict(source=row['frame'],target=target,direction=direction,origin=row.get('origin_anchor',row['frame']),key=key,paths=paths))
 
     def can_anchor(self,row):
         from verification_policy import anchor_eligible
@@ -67,7 +69,7 @@ class AnchorScheduler:
                     or (existing and existing.get('manual')) or not propagation_usable(source,self.threshold)):
                     self.queue.popleft();continue
                 self._save('propagating')
-                candidate=self.propagate(source,target,task['direction'],self.state['results'])
+                candidate=self.propagate(dict(source,_propagation_paths=task['paths']) if task.get('paths') is not None else source,target,task['direction'],self.state['results'])
                 candidate=self._review_failures(candidate,target)
                 candidate=dict(candidate,origin_anchor=source.get('origin_anchor',source['frame']),parent_frame=source['frame'])
                 self.queue.popleft();self.state['attempts'][task['key']]=task

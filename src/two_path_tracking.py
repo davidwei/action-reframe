@@ -39,7 +39,29 @@ class TwoPathSearch(TrackingSearch):
         from tracking_progress import discovery_grid
         self.discovery=set(discovery_grid(0,self.meta['frames']-1,self.meta['fps'],min(2.,self.settings.get('discovery_fps',2.))))
         self.detections={}
+        # Include intermediate frames and previous attempts when resuming.
+        self.optical_best={}
+        log=Path(self.c['output_dir'])/'path_candidates.jsonl'
+        if log.exists():
+            for line in log.open():
+                try:entry=json.loads(line)
+                except ValueError:continue
+                for value in entry.get('candidates',{}).values():self.remember_optical(value)
         self.threshold=confidence_threshold(self.c)
+
+    def remember_optical(self,row):
+        from motion_render import motion_usable
+        if not row.get('candidate_id','').endswith('_optical') or not motion_usable(row):return
+        quality=row.get('motion_quality')
+        if not isinstance(quality,(int,float)) or not math.isfinite(quality):return
+        key=(row['frame'],row['path']);old=self.optical_best.get(key)
+        if old is None or quality>old['motion_quality']:self.optical_best[key]=row
+
+    def optical_dominated(self,row):
+        old=self.optical_best.get((row['frame'],row['path']))
+        quality=row.get('motion_quality')
+        return bool(old and isinstance(quality,(int,float)) and math.isfinite(quality)
+                    and old['motion_quality']>=quality)
 
     def branch_history(self,rows,index,direction,path):
         history=self.history(rows,index,direction)
@@ -88,8 +110,9 @@ class TwoPathSearch(TrackingSearch):
 
     def propagate(self,source,index,step,rows):
         direction='forward' if step>0 else 'backward'
-        branch_outputs={};all_records={};w,h=self.meta['width'],self.meta['height']
+        branch_outputs={};all_records={};stopped={};active=source.get('_propagation_paths',PATHS);w,h=self.meta['width'],self.meta['height']
         for path in PATHS:
+            if path not in active:continue
             seed=source if source.get('manual') else source.get('path_results',{}).get(path)
             if not seed or not seed.get('bbox'):continue
             previous_image=self.frame(source['frame'])
@@ -128,6 +151,13 @@ class TwoPathSearch(TrackingSearch):
                 optical_record(self.c['output_dir'],dict(frame=i,path=path,source_frame=source['frame'],direction=direction,
                     bbox_px=box.tolist() if reliable else None,reliable=reliable,motion_quality=motion['motion_quality'],
                     feature_count=motion.get('feature_count'),uncertainty_px=motion['uncertainty_px'],reason=motion.get('reason')))
+                # Compare only optical motion evidence, before spending a Qwen call.
+                for prior in rows.get(str(i),{}).get('four_candidates',{}).values():self.remember_optical(prior)
+                if self.optical_dominated(candidate):
+                    stopped[path]=dict(frame=i,reason='existing_optical_quality_not_lower',
+                        previous_quality=self.optical_best[(i,path)]['motion_quality'],new_quality=candidate['motion_quality'])
+                    break
+                self.remember_optical(candidate)
                 decision=None
                 if reliable:
                     decision=schedule.decide(i,motion,motion['box'],((box[:2]+box[2:])/2).tolist())
@@ -170,11 +200,13 @@ class TwoPathSearch(TrackingSearch):
         # A lost branch can recover at a discovery checkpoint even if the other survives.
         records=all_records.setdefault(index,{})
         for path in PATHS:
-            if path not in branch_outputs:
+            if path in active and path not in stopped and path not in branch_outputs:
                 detection=self.detect(index,rows,direction,path)
                 if detection:records[detection['candidate_id']]=detection
         result=None
         for i,records in sorted(all_records.items()):
             selected=self.finish(i,records,rows.get(str(i)))
             if i==index:result=selected
+        result['propagation_paths']=[p for p in active if p not in stopped]
+        result['propagation_stops']=stopped
         return result

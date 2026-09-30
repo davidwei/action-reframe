@@ -18,6 +18,31 @@ def row(frame,path,method,score,box=None):
         identity_verified=True,analysis_source='flow_crop_validation' if optical else 'full_frame_detection')
 
 class TwoPathTests(unittest.TestCase):
+    def test_optical_stop_is_per_path_and_uses_motion_quality(self):
+        search=object.__new__(TwoPathSearch);search.optical_best={}
+        old=dict(row(5,'raw_angle','optical',.1),motion_quality=.8)
+        search.remember_optical(old)
+        self.assertTrue(search.optical_dominated(dict(old,confidence=.99,motion_quality=.8)))
+        self.assertTrue(search.optical_dominated(dict(old,motion_quality=.7)))
+        self.assertFalse(search.optical_dominated(dict(old,motion_quality=.9)))
+        self.assertFalse(search.optical_dominated(dict(old,path='leveled')))
+        self.assertFalse(search.optical_dominated(dict(old,frame=6)))
+        search.remember_optical(dict(row(6,'raw_angle','detection',1),motion_quality=1))
+        self.assertFalse(search.optical_dominated(dict(old,frame=6)))
+
+    def test_scheduler_does_not_restart_a_stopped_path(self):
+        calls=[]
+        def propagate(source,i,step,rows):
+            calls.append((i,source.get('_propagation_paths')))
+            candidate=row(i,'leveled','optical',.7)
+            return dict(combine(None,dict(frame=i,four_candidates={'leveled_optical':candidate})),
+                        propagation_paths=['leveled'] if i==1 else [])
+        anchor=dict(frame=0,bbox=[100,100,300,300],confidence=1,manual=True,visibility='visible')
+        scheduler=AnchorScheduler([0,1,2,3],[],[anchor],propagate,lambda *a:None,lambda s:None,
+                                 dict(two_path_tracking=True,anchor_confidence=.85))
+        scheduler.run()
+        self.assertEqual(calls,[(1,None),(2,['leveled'])])
+
     def test_separate_winners_and_render_selection(self):
         records={r['candidate_id']:r for r in [row(1,'raw_angle','detection',.6),row(1,'raw_angle','optical',.8),row(1,'leveled','detection',.9),row(1,'leveled','optical',.7)]}
         result=combine(None,dict(frame=1,four_candidates=records))
@@ -79,6 +104,14 @@ class TwoPathTests(unittest.TestCase):
             self.assertEqual(records['3']['leveled_optical']['confidence_measurement'],'measured')
             self.assertLess(result['path_results']['raw_angle']['bbox'][0],result['path_results']['leveled']['bbox'][0])
             self.assertEqual(records['3']['leveled_optical']['rotation_applied'],0)
+            # Revisit identical source/frames: stop both paths at the first overlap,
+            # without another verification or independent recovery.
+            with patch('two_path_tracking.verify_box',side_effect=AssertionError('No repeat verification')),patch.object(search,'detect',side_effect=AssertionError('No recovery for dominated branch')):
+                repeat=search.propagate(source,3,1,{'0':source})
+            self.assertEqual(repeat['propagation_paths'],[])
+            self.assertEqual(set(repeat['propagation_stops']),{'raw_angle','leveled'})
+            self.assertTrue(all(v['frame']==1 for v in repeat['propagation_stops'].values()))
+
 
     def test_tiny_adaptive_skips_but_evaluation_keeps_actual_checks(self):
         for mode,expected_calls in [('adaptive',0),('evaluation',4)]:
