@@ -94,5 +94,5 @@ class RerenderTests(unittest.TestCase):
         tracks=read(self.out/'tracks.json')
         np.testing.assert_allclose(tracks[2]['bbox'],[8,8,20,30])
         self.assertIn('optical_identity_unverified',tracks[2]['flags'])
-        self.assertGreater(tracks[2]['zoom'],1)
+        self.assertGreater(tracks[2]['camera_diagnostics']['target_retained_fraction'],.999)
         self.assertEqual((self.out/'observations.json').read_bytes(),original)

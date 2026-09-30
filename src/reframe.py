@@ -824,7 +824,28 @@ def render(c):
     inputs['settings']['minimum_crop_short_side']=c.get('minimum_crop_short_side',180)
     from zoom_path import smoothing_settings
     inputs['settings'].update(smoothing_settings(c))
-    camera,camera_record=store.run('camera_path',4,inputs,compute_camera)
+    from render_planner import settings as planner_settings,polygons as planner_polygons,background_motion,plan as plan_render,VERSION as PLANNER_VERSION
+    planner=planner_settings(c)
+    if planner['enabled']:
+        polygon_rows,absent=planner_polygons(observations,corrections,boxes,supported,meta)
+        polygon_data=[None if poly is None else poly.tolist() for poly in polygon_rows]
+        gyro=json.loads((out/'gyro.json').read_text()) if c.get('leveling_source')=='gyro' else None
+        # The image estimator operates after the same leveling applied by rendering.
+        motion_gyro=gyro or dict(frames=[dict(roll=float(a)) for a in roll])
+        video_stat=Path(c['video']).stat()
+        motion_inputs=dict(video=str(Path(c['video']).resolve()),size=video_stat.st_size,mtime_ns=video_stat.st_mtime_ns,
+            polygons=polygon_data,roll=array_id(roll),settings=planner)
+        motion,motion_record=store.run('render_camera_motion',PLANNER_VERSION,motion_inputs,
+            lambda folder:background_motion(c['video'],meta,polygon_rows,motion_gyro,planner))
+        write_json(out/'camera_motion.json',dict(**motion,stage_record=motion_record))
+        observed={r['frame']:r for r in observations}
+        margins=[min(.3,c['margin_fraction']+(0 if str(i) in corrections or observed.get(i,{}).get('identity_verified') else .05)) for i in range(meta['frames'])]
+        planning_config=dict(c,_render_margins=margins)
+        inputs.update(polygons=polygon_data,absent=absent,planner=planner,motion_key=motion_record['key'],margins=margins)
+        camera,camera_record=store.run('camera_path',5,inputs,lambda folder:plan_render(planning_config,meta,polygon_rows,absent,roll,motion))
+        write_json(out/'camera_path_review.json',dict(settings=planner,imu_calibration=camera['imu_calibration'],frames=camera['diagnostics']))
+    else:
+        camera,camera_record=store.run('camera_path',4,inputs,compute_camera)
     centers,extent=np.asarray(camera['centers']),np.asarray(camera['extent'])
     write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='pending'))
     from zoom_path import constrain_zoom
@@ -877,9 +898,11 @@ def render(c):
             tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
                 'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
                 'minimum_crop_short_side':c.get('minimum_crop_short_side',180),'render_size':[ow,oh],
-                'zoom_seconds_per_doubling':c.get('zoom_seconds_per_doubling',.5),
-                'zoom_smoothing_seconds':c.get('zoom_smoothing_seconds',.15),
+                'zoom_seconds_per_doubling':planner['seconds_per_doubling'] if planner['enabled'] else c.get('zoom_seconds_per_doubling',.5),
+                'zoom_smoothing_seconds':planner['zoom_seconds'] if planner['enabled'] else c.get('zoom_smoothing_seconds',.15),
                 'zoom_edge_coverage_relaxed':bool(edge_relaxed[i]),
+                'render_planner':planner if planner['enabled'] else None,
+                'camera_diagnostics':camera.get('diagnostics',[None]*n)[i],
                 'zoom':float(h/extent[i]),'flags':flags[i],
                 'zoom_min':float(h/maximum_extent[i]) if maximum_extent[i]>0 else None,
                 'zoom_max':float(h/minimum_extent[i]),'zoom_constraints_conflict':bool(zoom_conflicts[i]),

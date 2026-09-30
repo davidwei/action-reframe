@@ -354,7 +354,7 @@ class Batch:
             for key in ('output_width','output_height','subject_height_fraction','margin_fraction',
                         'hold_seconds','widen_seconds','smoothing_seconds','feather_pixels','border',
                         'minimum_crop_short_side','preserve_source_aspect','zoom_seconds_per_doubling','zoom_smoothing_seconds',
-                        'tracking_selection','leveling_source','level_divergence_degrees'):
+                        'tracking_selection','leveling_source','level_divergence_degrees','render_planner'):
                 if key in current:snapshot[key]=current[key]
             prepared.append((project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat))
         ids=[]

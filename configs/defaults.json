@@ -57,5 +57,16 @@
   },
   "zoom_seconds_per_doubling": 0.5,
   "zoom_smoothing_seconds": 0.15,
-  "result_shard_frames": 180
+  "result_shard_frames": 180,
+  "render_planner": {
+    "enabled": true,
+    "center_seconds": 0.5,
+    "zoom_seconds": 0.7,
+    "seconds_per_doubling": 1.5,
+    "zoom_acceleration": 0.45,
+    "center_speed": 0.6,
+    "center_acceleration": 1.2,
+    "gap_seconds": 1.0,
+    "motion_width": 640
+  }
 }
