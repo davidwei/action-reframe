@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from model_response import completion
 
-VERSION=4
+VERSION=5
 
 PROMPT='''Compare Description A, an object identity description,
 with Description B, an independent description of an image crop.
@@ -62,11 +62,21 @@ Return ONLY JSON:
 "differences":["specific discrepancies or missing evidence"],
 "reason":"evidence supporting the identity score and completeness judgment"}}
 match_score must be between 0 and 1.
-target_present and target_complete must be booleans.'''
+target_present and target_complete must be booleans.
+Across reason, exclusion_reason, localization_reason, and all differences items,
+use at most {explanation_words} words total. State only decisive evidence.
+Do not restate descriptions or repeat evidence across fields.
+Preserve every required JSON field. Use empty strings or an empty list when no
+explanation is needed. This brevity requirement does not change the decision rules.'''
+
+
+def explanation_budget(description):
+    """Half the approved description's whitespace-delimited words, bounded 40–80."""
+    return max(40,min(80,math.ceil(len(description.split())*.5)))
 
 
 def compare_descriptions(a,b,model,api_url,api,audit,cache=True):
-    prompt=PROMPT.format(a=json.dumps(a),b=json.dumps(b))
+    prompt=PROMPT.format(a=json.dumps(a),b=json.dumps(b),explanation_words=explanation_budget(a))
     request={'model':model,'messages':[{'role':'user','content':[{'type':'text','text':prompt}]}],'temperature':0,'max_tokens':1000}
     audit=Path(audit);audit.parent.mkdir(parents=True,exist_ok=True)
     audit.write_text(json.dumps(request,indent=2))

@@ -163,7 +163,7 @@ class BatchTests(unittest.TestCase):
                 self.assertEqual(sum(c['type']=='image_url' for c in content),1)
                 result=json.dumps({'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'A green target'})
             elif prompt.startswith('Compare Description A'):
-                self.assertEqual(prompt,COMPARE.format(a=json.dumps('A green target'),b=json.dumps(dict(box_description='A green target',composition='isolated_subject',visibility='boundary_cut',viewpoint='external_view'))))
+                self.assertEqual(prompt,COMPARE.format(explanation_words=40,a=json.dumps('A green target'),b=json.dumps(dict(box_description='A green target',composition='isolated_subject',visibility='boundary_cut',viewpoint='external_view'))))
                 self.assertEqual(len(content),1)
                 result=json.dumps(dict(exclusion_check='pass',exclusion_reason='No contradiction',localization_support='supported',localization_reason='Isolated subject',match_score=value,target_present=True,target_complete=False,differences=['Clipped edge'],reason='Green appearance matches'))
             else:
@@ -208,7 +208,7 @@ class BatchTests(unittest.TestCase):
                 result=json.dumps({'viewpoint':'external_view','composition':'isolated_subject','visibility':'boundary_cut','box_description':'NEGATIVE_SCENE' if image.shape[:2]==(48,64) else 'POSITIVE_BOAT'})
             elif prompt.startswith('Compare Description A'):
                 negative='NEGATIVE_SCENE' in prompt
-                self.assertEqual(prompt,COMPARISON_PROMPT.format(a=json.dumps('BOAT_IDENTITY'),b=json.dumps(dict(box_description='NEGATIVE_SCENE' if negative else 'POSITIVE_BOAT',composition='isolated_subject',visibility='boundary_cut',viewpoint='external_view'))))
+                self.assertEqual(prompt,COMPARISON_PROMPT.format(explanation_words=40,a=json.dumps('BOAT_IDENTITY'),b=json.dumps(dict(box_description='NEGATIVE_SCENE' if negative else 'POSITIVE_BOAT',composition='isolated_subject',visibility='boundary_cut',viewpoint='external_view'))))
                 result=json.dumps(dict(exclusion_check='pass',exclusion_reason='No contradiction',localization_support='supported',localization_reason='Isolated subject',match_score=negative_score if negative else .8,target_present=True,
                                       target_complete=True,differences=[],reason='Visual text evidence'))
             else:
