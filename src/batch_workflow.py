@@ -77,6 +77,9 @@ class Batch:
                 db.execute('ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0')
             if 'lane' not in {r[1] for r in db.execute('PRAGMA table_info(jobs)')}:
                 db.execute("ALTER TABLE jobs ADD COLUMN lane TEXT NOT NULL DEFAULT 'queue'")
+            columns={r[1] for r in db.execute('PRAGMA table_info(jobs)')}
+            for name,kind in [('auto_resume','INTEGER NOT NULL DEFAULT 0'),('recovery','TEXT')]:
+                if name not in columns:db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {kind}')
 
     def db(self):
         db = sqlite3.connect(self.folder / 'queue.sqlite3', timeout=30)
@@ -257,6 +260,9 @@ class Batch:
             job['analysis_code_version']=compare_code(saved_code.get('analysis'),latest_code)
             job['render_code_version']=compare_code(saved_code.get('render'),latest_code)
             job['stage']=c.get('batch_stage','all')
+            job['recovery']=json.loads(job['recovery']) if job.get('recovery') else None
+            job['render_progress']=read(out/'render_progress.json',{})
+            job['recovery_progress']=read(out/'recovery_progress.json',{})
             job['progress']=({'stage':'render','completed':None,'total':None} if job['stage']=='render' else read(out/'analysis_progress.json',{}))
             from tracking_progress import progress_for_ui
             job['progress']=progress_for_ui(out,c,job['progress'])
@@ -355,7 +361,7 @@ class Batch:
             for key in ('output_width','output_height','subject_height_fraction','margin_fraction',
                         'hold_seconds','widen_seconds','smoothing_seconds','feather_pixels','border',
                         'minimum_crop_short_side','preserve_source_aspect','zoom_seconds_per_doubling','zoom_smoothing_seconds',
-                        'tracking_selection','leveling_source','level_divergence_degrees','render_planner'):
+                        'tracking_selection','leveling_source','level_divergence_degrees','render_planner','render_segment_seconds'):
                 if key in current:snapshot[key]=current[key]
             prepared.append((project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat))
         ids=[]
@@ -462,7 +468,7 @@ class Batch:
                 run=read(self.path(row['config']))
                 if read(self.path(run['output_dir'])/'corrections.json',{})!=manifest['labels']:
                     raise ValueError('Labels changed: copy corrections to the source and queue a new revision instead of retrying old inputs')
-                db.execute("UPDATE jobs SET status='queued',lane='queue',error=NULL,updated=? WHERE id=?",(time.time(),job_id))
+                db.execute("UPDATE jobs SET status='queued',lane='queue',auto_resume=0,error=NULL,updated=? WHERE id=?",(time.time(),job_id))
             elif action=='cancel' and row['status']=='queued':
                 db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=?",(time.time(),job_id))
             else:raise ValueError('Only queued jobs can be cancelled; failed/interrupted jobs can be retried')
@@ -511,15 +517,48 @@ class Batch:
             with file_lock(self.folder/'locks'/(job['id']+'.lock')) as acquired:
                 if acquired:
                     error='Runner stopped before recording completion; retry resumes compatible cached work.'
+                    resumable=True
                     try:
                         from result_shards import load_checkpoint
                         config=read(self.path(job['config']))
                         checkpoint=self.path(config['output_dir'])/'anchor_checkpoint.json'
                         if checkpoint.exists():load_checkpoint(checkpoint)
                     except (OSError,ValueError,KeyError,TypeError) as exc:
+                        resumable=False
                         error=f'Runner stopped; saved checkpoint is unreadable and needs repair before retry: {exc}'
-                    with self.db() as db:db.execute("UPDATE jobs SET status='interrupted',error=?,updated=? WHERE id=? AND status IN ('starting','running')",
-                        (error,time.time(),job['id']))
+                    with self.db() as db:db.execute("UPDATE jobs SET status='interrupted',error=?,updated=?,auto_resume=?,recovery=? WHERE id=? AND status IN ('starting','running')",
+                        (error,time.time(),int(resumable),json.dumps(dict(reason='process_interruption',detected_at=time.time(),message=error)),job['id']))
+
+    def resume_interrupted(self):
+        """Only interrupted processes are eligible; failures and user stops are not."""
+        if self.paused():return
+        candidates=[job for job in self.jobs() if job['status']=='interrupted' and job.get('auto_resume')]
+        if not candidates:return
+        from code_version import current
+        version=current()
+        for job in candidates:
+            c=read(self.path(job['config']));out=self.path(c['output_dir'])
+            previous=read(out/'code_version.json',{}).get('runner')
+            if not previous or previous.get('fingerprint')!=version.get('fingerprint'):
+                with self.db() as db:db.execute("UPDATE jobs SET auto_resume=0,error=?,updated=? WHERE id=? AND status='interrupted'",
+                    ('Code changed since this run. Review compatibility, then Retry saved inputs explicitly.',time.time(),job['id']))
+                continue
+            try:
+                self.action(job['id'],'retry')
+                with self.db() as db:db.execute("UPDATE jobs SET auto_resume=0,recovery=? WHERE id=?",
+                    (json.dumps(dict(reason='process_interruption',resumed_at=time.time(),message='Resuming after interruption; validated checkpoints and cached stages will be reused.')),job['id']))
+            except (ValueError,OSError) as exc:
+                with self.db() as db:db.execute("UPDATE jobs SET auto_resume=0,error=?,updated=? WHERE id=?",
+                    (f'Automatic recovery blocked: {exc}',time.time(),job['id']))
+
+    def supervise(self):
+        # This persistent service is separate from UI lifetime and queue pause state.
+        while True:
+            with file_lock(self.folder/'worker.lock') as acquired:
+                if acquired:
+                    self.recover();self.resume_interrupted()
+            if not self.paused():self.worker()
+            time.sleep(2)
 
     def start(self):
         self.pause(False)
@@ -579,7 +618,13 @@ class Batch:
                         with __import__('contextlib').redirect_stdout(log), __import__('contextlib').redirect_stderr(log):
                             stage=c.get('batch_stage','all')
                             if stage not in ('all','render'):raise ValueError('Invalid batch stage')
-                            sys.argv=[str(SOURCE/'reframe.py'),str(config),'--stage',stage]
+                            frozen=out/'resume_config.json'
+                            if not frozen.exists():
+                                from reframe import load_config
+                                effective=load_config(config)
+                                write(frozen,{k:v for k,v in effective.items() if not k.startswith('_')})
+                            os.environ['QWEN_API_URL']=read(frozen)['api_url']
+                            sys.argv=[str(SOURCE/'reframe.py'),str(frozen),'--stage',stage]
                             runpy.run_path(str(SOURCE/'reframe.py'),run_name='__main__')
                         code=0
                 if code:raise RuntimeError(f'Processor exited with code {code}; see job log')
@@ -601,7 +646,8 @@ def draft_description(batch, project):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--workspace',type=Path,required=True)
-    parser.add_argument('--worker',action='store_true');parser.add_argument('--execute')
+    parser.add_argument('--supervise',action='store_true');parser.add_argument('--worker',action='store_true');parser.add_argument('--execute')
     args=parser.parse_args();batch=Batch(args.workspace)
-    if args.worker:batch.worker()
+    if args.supervise:batch.supervise()
+    elif args.worker:batch.worker()
     elif args.execute:batch.execute(args.execute)

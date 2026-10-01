@@ -1,5 +1,6 @@
 """Append scheduler events; checkpoints commit a durable journal prefix."""
 import json
+import hashlib
 import os
 import uuid
 from pathlib import Path
@@ -33,14 +34,25 @@ class EventJournal:
             self.path.touch();self.offset=0;self.count=0
             sync_directory(self.folder)
 
+        self.hasher=hashlib.sha256()
+        with self.path.open('rb') as stream:
+            remaining=self.offset
+            while remaining:
+                block=stream.read(min(1024*1024,remaining))
+                if not block:raise ValueError('Event journal is shorter than checkpoint')
+                self.hasher.update(block);remaining-=len(block)
+        if marker and marker.get('sha256') and self.hasher.hexdigest()!=marker['sha256']:
+            raise ValueError('Event journal checksum mismatch')
+
     def checkpoint(self, state, save, path):
         pending=state.get('events',[])
         with self.path.open('ab') as stream:
             for event in pending:
-                stream.write((json.dumps(event,allow_nan=False,separators=(',',':'))+'\n').encode())
+                blob=(json.dumps(event,allow_nan=False,separators=(',',':'))+'\n').encode()
+                stream.write(blob);self.hasher.update(blob)
             stream.flush();os.fsync(stream.fileno())
             offset=stream.tell()
-        marker=dict(version=1,file=self.path.name,committed_bytes=offset,count=self.count+len(pending))
+        marker=dict(version=1,file=self.path.name,committed_bytes=offset,count=self.count+len(pending),sha256=self.hasher.hexdigest())
         snapshot=dict(state,event_journal=marker);snapshot.pop('events',None)
         # Atomic checkpoint replacement commits the journal prefix. On save failure
         # the caller must abort; resume recovers from the old checkpoint boundary.

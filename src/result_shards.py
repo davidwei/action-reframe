@@ -8,13 +8,17 @@ import warnings
 from durable_json import checksum, ensure_directory
 
 
-def _load_checkpoint(path):
-    path=Path(path);state=json.loads(path.read_text())
+def _load_checkpoint(path,root=None):
+    path=Path(path);root=Path(root) if root is not None else path.parent;state=json.loads(path.read_text())
+    if not isinstance(state,dict):raise ValueError('Checkpoint must be an object')
+    expected=state.get('checkpoint_checksum')
+    if expected and checksum({k:v for k,v in state.items() if k!='checkpoint_checksum'})!=expected:
+        raise ValueError('Checkpoint checksum mismatch')
     if 'result_shards' in state:
         results={}
         for name in state['result_shards']['files'].values():
-            shard=(path.parent/name).resolve()
-            if not shard.is_relative_to(path.parent.resolve()):raise ValueError('Invalid shard path')
+            shard=(root/name).resolve()
+            if not shard.is_relative_to(root.resolve()):raise ValueError('Invalid shard path')
             try:
                 rows=json.loads(shard.read_text())
                 if not isinstance(rows,dict):raise ValueError('Shard must contain frame records')
@@ -29,21 +33,33 @@ def _load_checkpoint(path):
     if marker:
         name=marker['file']
         if Path(name).name!=name:raise ValueError('Invalid event journal path')
-        if (path.parent/name).stat().st_size<marker['committed_bytes']:
+        if (root/name).stat().st_size<marker['committed_bytes']:
             raise ValueError('Event journal is shorter than committed checkpoint')
+        if marker.get('sha256'):
+            digest=hashlib.sha256();remaining=marker['committed_bytes']
+            with (root/name).open('rb') as stream:
+                while remaining:
+                    block=stream.read(min(1024*1024,remaining))
+                    if not block:raise ValueError('Truncated event journal')
+                    digest.update(block);remaining-=len(block)
+            if digest.hexdigest()!=marker['sha256']:raise ValueError('Event journal checksum mismatch')
     return state
 
 
 def load_checkpoint(path):
     path=Path(path)
-    try:return _load_checkpoint(path)
-    except (ValueError,OSError,KeyError,TypeError) as exc:
-        backup=path.with_name(path.name+'.previous')
-        try:state=_load_checkpoint(backup)
-        except (ValueError,OSError,KeyError,TypeError) as backup_error:
-            raise ValueError(f'Cannot recover checkpoint {path}: {exc}; previous checkpoint: {backup_error}') from exc
-        warnings.warn(f'Recovering complete previous checkpoint {backup}; current checkpoint invalid: {exc}',RuntimeWarning)
+    history=path.parent/'checkpoint_history'
+    candidates=[path,path.with_name(path.name+'.previous')]
+    candidates+=sorted(history.glob('*.json'),reverse=True) if history.exists() else []
+    failures=[]
+    for candidate in candidates:
+        try:state=_load_checkpoint(candidate,path.parent)
+        except (ValueError,OSError,KeyError,TypeError) as exc:
+            failures.append(f'{candidate}: {exc}');continue
+        if candidate!=path:
+            warnings.warn(f'Recovering complete checkpoint {candidate}; latest checkpoint invalid',RuntimeWarning)
         return state
+    raise ValueError('Cannot recover checkpoint: '+'; '.join(failures))
 
 
 class ResultShards:
@@ -74,9 +90,21 @@ class ResultShards:
             writer(self.folder/name,rows);files[group]=name;checksums[name]=checksum(rows)
         snapshot=dict(state,result_shards=dict(version=1,frames_per_shard=self.size,files=files,checksums=checksums),checkpoint_updated_at=time.time())
         snapshot.pop('results',None)
+        snapshot.pop('checkpoint_checksum',None)
+        snapshot['checkpoint_checksum']=checksum(snapshot)
         if self.last_snapshot is not None:writer(path.with_name(path.name+'.previous'),self.last_snapshot)
         writer(path,snapshot)
         self.last_snapshot=json.loads(json.dumps(snapshot))
+        history=self.folder/'checkpoint_history';ensure_directory(history)
+        stamp=time.time_ns()
+        writer(history/f'{stamp:020d}_recent.json',snapshot)
+        # Keep five recent generations plus one per hour for the last 24 saved hours.
+        hourly=list(history.glob('*_hourly.json'))
+        if not hourly or time.time()-max(p.stat().st_mtime for p in hourly)>=3600:
+            writer(history/f'{stamp:020d}_hourly.json',snapshot)
+        for kind,keep in [('recent',5),('hourly',24)]:
+            for old in sorted(history.glob(f'*_{kind}.json'),reverse=True)[keep:]:old.unlink()
+        # Shards are retained: active snapshot readers may still reference older files.
         # Keep references alive; scheduler replaces result rows rather than mutating them.
         self.previous=groups;self.files=files;self.checksums=checksums
 

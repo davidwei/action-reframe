@@ -131,3 +131,28 @@ class RerenderTests(unittest.TestCase):
         self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
         self.batch.action(job,'retry')
         self.assertEqual(self.batch.jobs()[0]['lane'],'queue')
+
+    def test_supervisor_restores_abandoned_render_and_reuses_segments_on_retry(self):
+        import time
+        from code_version import current
+        job=self.batch.enqueue_rerender(['project.json'])[0]
+        row=self.batch.jobs()[0];out=Path(read(self.root/row['config'])['output_dir'])
+        write(out/'code_version.json',dict(runner=current()))
+        with self.batch.db() as db:db.execute("UPDATE jobs SET status='running' WHERE id=?",(job,))
+        self.batch.pause(False)
+        log=(self.root/'supervisor.log').open('w')
+        process=subprocess.Popen([sys.executable,str(SOURCE/'batch_workflow.py'),'--workspace',str(self.root),'--supervise'],stdout=log,stderr=log)
+        try:
+            for _ in range(300):
+                row=self.batch.jobs()[0]
+                if row['status'] in ('succeeded','failed'):break
+                time.sleep(.05)
+            self.assertEqual(row['status'],'succeeded',row.get('error'))
+            self.assertIn('resumed_at',json.loads(row['recovery']))
+        finally:process.terminate();process.wait(timeout=10);log.close()
+        frozen=read(out/'resume_config.json')
+        with self.batch.db() as db:db.execute("UPDATE jobs SET status='starting' WHERE id=?",(job,))
+        subprocess.run([sys.executable,str(SOURCE/'batch_workflow.py'),'--workspace',str(self.root),'--execute',job],check=True)
+        self.assertEqual(self.batch.jobs()[0]['status'],'succeeded',self.batch.jobs()[0]['error'])
+        self.assertEqual(read(out/'resume_config.json'),frozen)
+        self.assertEqual(read(out/'render_progress.json')['segments_reused'],1)

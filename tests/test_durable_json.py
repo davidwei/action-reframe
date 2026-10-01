@@ -22,3 +22,11 @@ class DurableJsonTests(unittest.TestCase):
                 with patch('durable_json.os.replace',side_effect=lambda a,b:(events.append('replace'),replace(a,b))[-1]):
                     write_json(Path(folder)/'state.json',{})
             self.assertEqual(events,['sync','replace','sync'])
+
+    def test_disk_full_before_commit_does_not_destroy_old_state(self):
+        import errno
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'state.json';write_json(path,{'old':1})
+            with patch('durable_json.os.fsync',side_effect=OSError(errno.ENOSPC,'Disk full')):
+                with self.assertRaises(OSError):write_json(path,{'new':2})
+            self.assertEqual(json.loads(path.read_text()),{'old':1})

@@ -40,7 +40,7 @@ class Store:
     def __init__(self,root,usage=None):
         self.root=Path(root);self.usage=Path(usage) if usage else None
 
-    def run(self,stage,version,inputs,compute):
+    def run(self,stage,version,inputs,compute,validator=None):
         key=digest(dict(stage=stage,version=version,inputs=inputs))
         folder=self.root/stage/key[:2]/key;ensure_directory(folder)
         record=folder/'record.json'
@@ -59,10 +59,12 @@ class Store:
                         raise ValueError('Stage result checksum mismatch')
                     if isinstance(value,dict) and value.get('error'):
                         raise ValueError('Cached result contains an error')
+                    if validator:validator(value)
                 except (ValueError,KeyError,TypeError) as exc:
                     quarantine(record,exc);reused=False
             if not reused:
                 value=compute(folder)
+                if validator:validator(value)
                 if isinstance(value,dict) and value.get('error'):
                     raise ValueError('Failed stage results cannot be committed')
                 data=dict(stage=stage,version=version,key=key,inputs=inputs,result=value,created=time.time())

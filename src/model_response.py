@@ -49,7 +49,7 @@ def completion(api,url,payload,audit,stage,validator=None,retry_invalid=False,co
     inputs=dict(endpoint=url,request_sha256=digest(payload),retry_invalid=retry_invalid,correction_hint=correction_hint)
     def compute(folder):
         return _completion(api,url,payload,folder/'request.json',stage,validator,retry_invalid,correction_hint)
-    result,record=locate(audit).run(name,1,inputs,compute)
+    result,record=locate(audit).run(name,1,inputs,compute,validator=validator)
     if validator:validator(result)
     return dict(result,stage_record=record)
 

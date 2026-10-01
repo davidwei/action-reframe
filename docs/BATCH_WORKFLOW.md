@@ -443,8 +443,10 @@ Opening the folder view reconciles saved active jobs against OS advisory locks.
 A free worker lock permits reconciliation; a held worker lock protects the gap
 between claiming a job and starting its runner. Each runner's own lock protects
 jobs that survived a worker restart. Abandoned starting/running jobs become
-**Interrupted**, with a new status timestamp. Recovery never automatically retries
-jobs or treats partial output files as proof of success. Completed history is kept.
+**Interrupted**, with a new status timestamp. The persistent queue supervisor can automatically resume eligible interrupted
+jobs when the queue is enabled and code is unchanged. Failed/user-stopped jobs
+remain stopped. Partial output files are never proof of success. Completed history
+is kept. See [reboot recovery](REBOOT_RECOVERY.md).
 
 The queue banner reports live worker ownership, separately from the saved pause
 setting. Start/resume remains available when the worker is stopped. During

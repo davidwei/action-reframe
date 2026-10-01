@@ -56,7 +56,9 @@ def run_anchors(c,meta,model,helpers,api,single=None):
     if checkpoint.exists():
         from result_shards import load_checkpoint
         previous=load_checkpoint(checkpoint)
-        if previous.get('fingerprint')==fingerprint:prior=previous
+        if previous.get('fingerprint')==fingerprint:
+            prior=previous
+            save(out/'recovery_progress.json',dict(checkpoint_at=prior.get('checkpoint_updated_at'),saved_results=len(prior.get('results',{})),saved_coverage=len(prior.get('coverage',{})),message='Restored validated analysis checkpoint; completed stages are reused.'))
     if prior is None:
         (out/'optical_motion.jsonl').write_text('')
         (out/'path_candidates.jsonl').write_text('')

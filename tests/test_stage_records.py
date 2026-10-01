@@ -113,3 +113,12 @@ class StageRecordsTests(unittest.TestCase):
                 store.run('test',1,{},lambda _:(_ for _ in ()).throw(RuntimeError('model unavailable')))
             self.assertFalse(record.exists())
             self.assertEqual(store.run('test',1,{},lambda _:43)[0],43)
+
+    def test_schema_invalid_legacy_record_recomputed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=Store(folder);_,info=store.run('test',1,{},lambda _: {'answer':'wrong'})
+            record=Path(info['record']);data=json.loads(record.read_text());data.pop('result_checksum');record.write_text(json.dumps(data))
+            def validate(value):
+                if not isinstance(value['answer'],int):raise ValueError('answer must be numeric')
+            with self.assertWarns(RuntimeWarning):value,_=store.run('test',1,{},lambda _: {'answer':42},validator=validate)
+            self.assertEqual(value['answer'],42)

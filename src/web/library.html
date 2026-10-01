@@ -64,8 +64,10 @@ function renderJobs(){
    const date=new Date(j.updated*1000),stamp=document.createElement('time');
    stamp.dateTime=date.toISOString();stamp.title='Status updated: '+date.toLocaleString(undefined,{timeZoneName:'long'});
    stamp.textContent=' ('+date.toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'})+' '+date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(/\s+/g,'').toLowerCase()+')';status.append(stamp);
-  }if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
+  }if(j.recovery){status.append(text('p',j.recovery.message))}if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
   const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
+  if(j.recovery_progress?.saved_results)progress.append(text('p',`Checkpoint restored: ${j.recovery_progress.saved_results} saved results · ${j.recovery_progress.saved_coverage} covered positions`));
+  if(j.render_progress?.total)progress.append(text('p',`${j.render_progress.phase}: ${j.render_progress.completed}/${j.render_progress.total} frames · ${j.render_progress.segments_reused} segments reused`));
   if(p.coverage||p.stage_reuse)TrackingProgressView.render(progress,p,{running:j.status==='running'});
   const actions=document.createElement('td');actions.append(link('Open video focus','/?config='+encodeURIComponent(j.config)));
   actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));

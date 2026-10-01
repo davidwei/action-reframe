@@ -147,3 +147,21 @@ at login; boot without login requires user lingering). Restarting this UI servic
 leaves detached queue workers running. The manual `run_review.sh` launcher remains
 available for an externally managed model; do not run it on the same port as the
 installed service.
+
+
+### Persistent queue and automatic interruption recovery
+
+Install alongside the review service (using the same endpoint/model):
+
+```bash
+.venv/bin/python scripts/install_queue_service.py \
+  --workspace /path/to/videos --model-service vllm-vl.service \
+  --expected-model /path/to/models/Qwen3-VL-32B-FP8 --install
+systemctl --user status action-reframe-queue.service
+```
+
+The supervisor honors the saved queue pause setting. It resumes abandoned jobs
+with valid state and unchanged code; it does not retry genuine failures or user
+stops. A code change requires explicit retry. Render jobs now reuse validated
+30-second encoding segments after interruption. See [recovery behavior and
+limits](docs/REBOOT_RECOVERY.md).

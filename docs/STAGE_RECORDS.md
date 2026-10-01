@@ -76,8 +76,9 @@ include a result checksum; legacy records remain readable with structural/identi
 checks. Permission errors and disk I/O failures are not silently treated as cache
 misses. A failed recomputation never commits a success record.
 
-New result-shard manifests include shard checksums and retain one complete previous
-checkpoint (`anchor_checkpoint.json.previous`). If the current checkpoint or a
+New result-shard manifests include shard checksums and retain a complete previous
+checkpoint (`anchor_checkpoint.json.previous`), five recent generations and hourly
+snapshots. If the current checkpoint or a
 referenced shard is unreadable, the loader uses the complete valid previous
 checkpoint, including its scheduler state, with a warning. It never substitutes an
 older shard into newer scheduler state. Journal length is checked before recovery;
@@ -90,3 +91,5 @@ Core analysis, queue JSON and stage-cache writes use durable atomic replacement.
 This does not make every diagnostic/image/export file transactional. Full runner
 tracebacks are now retained in `job.log`. Corruption archives are retained for
 inspection; no automatic cleanup is performed.
+
+See [reboot recovery](REBOOT_RECOVERY.md) for supervised automatic recovery, frozen run configurations, and resumable encoding.

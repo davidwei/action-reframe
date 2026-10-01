@@ -68,5 +68,6 @@
     "center_acceleration": 1.2,
     "gap_seconds": 1.0,
     "motion_width": 640
-  }
+  },
+  "render_segment_seconds": 30
 }

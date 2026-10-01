@@ -349,3 +349,28 @@ with file_lock(root/'.batch/locks'/(job+'.lock')) as acquired:
         self.assertEqual(project['result_config'],'project.json')
         self.assertTrue(project['result_is_previous'])
         self.assertEqual(project['latest_job'],'failed')
+
+    def test_automatic_recovery_preserves_pause_and_rejects_code_change(self):
+        from code_version import current
+        job=self.queue();self.starting(job)
+        out=self.batch.path(read(self.root/self.batch.jobs()[0]['config'])['output_dir'])
+        write(out/'code_version.json',dict(runner=current()))
+        self.batch.recover();self.batch.resume_interrupted()
+        self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
+        self.batch.pause(False);self.batch.resume_interrupted()
+        self.assertEqual(self.batch.jobs()[0]['status'],'queued')
+        self.starting(job);self.batch.recover()
+        write(out/'code_version.json',dict(runner=dict(fingerprint='different')))
+        self.batch.resume_interrupted()
+        row=self.batch.jobs()[0]
+        self.assertEqual(row['status'],'interrupted');self.assertEqual(row['auto_resume'],0)
+        self.assertIn('Code changed',row['error'])
+
+    def test_failed_and_user_stopped_jobs_are_not_automatically_retried(self):
+        job=self.queue();self.starting(job)
+        self.batch.execute(job,[sys.executable,'-c','raise SystemExit(1)'])
+        self.batch.pause(False);self.batch.resume_interrupted()
+        self.assertEqual(self.batch.jobs()[0]['status'],'failed')
+        with self.batch.db() as db:db.execute("UPDATE jobs SET status='interrupted',error='Stopped by user',auto_resume=0 WHERE id=?",(job,))
+        self.batch.resume_interrupted()
+        self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')

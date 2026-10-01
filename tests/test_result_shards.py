@@ -59,6 +59,7 @@ class ShardTests(unittest.TestCase):
             cp.write_text('')
             with self.assertWarns(RuntimeWarning):self.assertEqual(load_checkpoint(cp)['queue'],['old'])
             cp.with_name(cp.name+'.previous').write_text('')
+            for history in (out/'checkpoint_history').glob('*.json'):history.write_text('')
             with self.assertRaisesRegex(ValueError,'Cannot recover checkpoint'):load_checkpoint(cp)
 
     def test_previous_checkpoint_scheduler_state_is_frozen(self):
@@ -70,3 +71,12 @@ class ShardTests(unittest.TestCase):
             store.save(cp,state,save)
             previous=json.loads(cp.with_name(cp.name+'.previous').read_text())
             self.assertEqual(previous['queue'],['old'])
+
+    def test_repeated_generations_recover_and_history_is_bounded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);cp=out/'checkpoint.json';store=ResultShards(out)
+            for i in range(9):store.save(cp,dict(results={str(i):{'frame':i}},sequence=i),save)
+            self.assertEqual(len(list((out/'checkpoint_history').glob('*_recent.json'))),5)
+            self.assertEqual(len(list((out/'checkpoint_history').glob('*_hourly.json'))),1)
+            cp.write_text('');cp.with_name(cp.name+'.previous').write_text('')
+            with self.assertWarns(RuntimeWarning):self.assertEqual(load_checkpoint(cp)['sequence'],8)

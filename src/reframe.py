@@ -874,49 +874,44 @@ def render(c):
                            'confidence':0 if box is None else 1,'visibility':'absent' if box is None else 'visible',
                            'manual':True,'selected_path':'manual' if box else 'neither','selection_reason':'Manual correction'}
         selection_rows=frame_provenance(list(provenance.values()),n,supported,confidence_threshold(c))
-    preview=out/'focused.mp4'
-    temp=out/'focused.encoding.mp4'
-    command=[c['ffmpeg'],'-y','-hide_banner','-loglevel','error','-f','rawvideo','-pix_fmt','bgr24',
-        '-s',f'{ow}x{oh}','-r',str(fps),'-i','pipe:0','-i',c['video'],'-map','0:v:0','-map','1:a?',
-        '-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy',
-        *ffmpeg_metadata_args(c['video']),'-movflags','+faststart+use_metadata_tags',str(temp)]
-    encoder=subprocess.Popen(command,stdin=subprocess.PIPE)
-    cap=cv2.VideoCapture(c['video'])
-    thumbs=out/'review_frames';thumbs.mkdir(exist_ok=True)
-    try:
-        for i in range(n):
+    for i in range(n):
+        tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
+            'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
+            'minimum_crop_short_side':c.get('minimum_crop_short_side',180),'render_size':[ow,oh],
+            'zoom_seconds_per_doubling':planner['seconds_per_doubling'] if planner['enabled'] else c.get('zoom_seconds_per_doubling',.5),
+            'zoom_smoothing_seconds':planner['zoom_seconds'] if planner['enabled'] else c.get('zoom_smoothing_seconds',.15),
+            'zoom_edge_coverage_relaxed':bool(edge_relaxed[i]),
+            'render_planner':planner if planner['enabled'] else None,
+            'camera_diagnostics':camera.get('diagnostics',[None]*n)[i],
+            'zoom':float(h/extent[i]),'flags':flags[i],
+            'zoom_min':float(h/maximum_extent[i]) if maximum_extent[i]>0 else None,
+            'zoom_max':float(h/minimum_extent[i]),'zoom_constraints_conflict':bool(zoom_conflicts[i]),
+            **(selection_rows[i] if selection_rows else {}),
+            **({k:v for k,v in level_rows[i].items() if k not in ('frame','time')} if level_rows else {})})
+    from render_segments import Segments
+    segments=Segments(c,meta,dict(camera=camera_record['key'],boxes=inputs['boxes'],supported=inputs['supported'],
+        source=inputs.get('motion_key',meta['signature'])))
+    cap=cv2.VideoCapture(c['video']);thumbs=out/'review_frames';thumbs.mkdir(exist_ok=True)
+    def segment_frames(start,stop):
+        if not cap.set(cv2.CAP_PROP_POS_FRAMES,start):raise RuntimeError(f'Cannot seek to render frame {start}')
+        for i in range(start,stop):
             ok,frame=cap.read()
-            if not ok:
-                raise RuntimeError(f'Render decode failed at {i}')
-            scale=oh/extent[i]
-            m=cv2.getRotationMatrix2D(tuple(centers[i]),float(roll[i]),float(scale))
+            if not ok:raise RuntimeError(f'Render decode failed at {i}')
+            m=cv2.getRotationMatrix2D(tuple(centers[i]),float(roll[i]),float(oh/extent[i]))
             m[:,2]+=np.array([ow/2,oh/2])-centers[i]
             result=composite(frame,m,(ow,oh),c['feather_pixels'],boxes[i] if supported[i] else None)
-            encoder.stdin.write(result.tobytes())
-            tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
-                'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
-                'minimum_crop_short_side':c.get('minimum_crop_short_side',180),'render_size':[ow,oh],
-                'zoom_seconds_per_doubling':planner['seconds_per_doubling'] if planner['enabled'] else c.get('zoom_seconds_per_doubling',.5),
-                'zoom_smoothing_seconds':planner['zoom_seconds'] if planner['enabled'] else c.get('zoom_smoothing_seconds',.15),
-                'zoom_edge_coverage_relaxed':bool(edge_relaxed[i]),
-                'render_planner':planner if planner['enabled'] else None,
-                'camera_diagnostics':camera.get('diagnostics',[None]*n)[i],
-                'zoom':float(h/extent[i]),'flags':flags[i],
-                'zoom_min':float(h/maximum_extent[i]) if maximum_extent[i]>0 else None,
-                'zoom_max':float(h/minimum_extent[i]),'zoom_constraints_conflict':bool(zoom_conflicts[i]),
-                **(selection_rows[i] if selection_rows else {}),
-                **({k:v for k,v in level_rows[i].items() if k not in ('frame','time')} if level_rows else {})})
             if i in meta['samples']:
                 cv2.imwrite(str(thumbs/f'{i:07d}.jpg'),cv2.resize(frame,(960,540)))
                 cv2.imwrite(str(thumbs/f'{i:07d}_out.jpg'),cv2.resize(result,(640,360)))
-            if i%300==0:
-                print(f'Render {i}/{n}',flush=True)
-    finally:
-        cap.release();encoder.stdin.close()
-        code=encoder.wait()
-    if code:
-        raise RuntimeError(f'FFmpeg failed: {code}')
-    temp.replace(preview)
+            yield frame,result
+    try:
+        for start in range(0,n,segments.length):
+            stop=min(n,start+segments.length)
+            if not segments.ready(start,stop):segments.encode(start,stop,segment_frames(start,stop))
+            print(f'Render {stop}/{n}; {segments.reused} segments reused',flush=True)
+    finally:cap.release()
+    segments.assemble(ffmpeg_metadata_args(c['video']))
+    preview=out/'focused.mp4'
     write_json(out/'tracks.json',tracks)
     write_sidecar(c)
     intervals=[]
@@ -930,7 +925,6 @@ def render(c):
             intervals.append({'start_frame':i,'end_frame':i,'start':i/fps,'end':(i+1)/fps,'reasons':reasons})
     write_json(out/'review_flags.json',intervals)
     print(f'Created {preview}; {sum(bool(f) for f in flags)}/{n} frames have review flags.',flush=True)
-    make_comparison(c)
     write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='complete',
         settings=dict(width=ow,height=oh,feather_pixels=c['feather_pixels']),
         outputs=['focused.mp4','comparison.mp4','tracks.json','review_flags.json']))
