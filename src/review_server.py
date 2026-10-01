@@ -108,7 +108,8 @@ def batch_active():
     if not (ROOT/'.batch'/'queue.sqlite3').exists():return False
     from batch_workflow import Batch
     batch=Batch(ROOT)
-    return batch.active() or (not batch.paused() and any(j['status']=='queued' for j in batch.jobs()))
+    worker_running=batch.reconcile()
+    return batch.active() or (worker_running and not batch.paused() and any(j['status']=='queued' for j in batch.jobs()))
 
 
 def legacy_project():

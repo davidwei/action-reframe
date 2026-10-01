@@ -199,6 +199,7 @@ class Batch:
 
     def library(self, active_project=None):
         from code_version import current,comparison as compare_code
+        worker_running=self.reconcile()
         latest_code=current()
         projects=[];jobs=self.jobs();discarded=self.discarded();archived=[]
         for path in sorted(self.root.glob('*.json')):
@@ -270,7 +271,7 @@ class Batch:
             project['analysis_code_version']=related[-1]['analysis_code_version'] if related else dict(status='unknown',label='Version not recorded')
             project['render_code_version']=related[-1]['render_code_version'] if related else dict(status='unknown',label='Version not recorded')
             project['can_reanalyze']=project['ready'] and project['status']!='Processing' and not project['discard_pending'] and bool(related or project['can_rerender']) and project['analysis_code_version']['status']!='current'
-        return dict(projects=projects,archived=archived,videos=videos,jobs=[j for j in jobs if j['project'] not in discarded or j['status'] in ('starting','running')],paused=self.paused())
+        return dict(projects=projects,archived=archived,videos=videos,jobs=[j for j in jobs if j['project'] not in discarded or j['status'] in ('starting','running')],paused=self.paused(),worker_running=worker_running)
 
     def jobs(self):
         with self.db() as db:
@@ -453,14 +454,33 @@ class Batch:
                 for _,fd in handles:os.close(fd)
         return {'stopped':job_id,'status':'interrupted'}
 
+    def reconcile(self):
+        """Reconcile abandoned runners without racing a worker claiming a job.
+
+        Lock ownership is live OS state; saved flags and PID history are not.
+        Return whether a worker currently holds the singleton lock.
+        """
+        with file_lock(self.folder/'worker.lock') as acquired:
+            if not acquired:return True
+            self.recover()
+            return False
+
     def recover(self):
-        # Only the workspace worker calls this while holding its singleton lock.
+        # Caller must hold the workspace worker lock (worker or UI reconciliation).
         for job in self.jobs():
             if job['status'] not in ('starting','running'):continue
             with file_lock(self.folder/'locks'/(job['id']+'.lock')) as acquired:
                 if acquired:
+                    error='Runner stopped before recording completion; retry resumes compatible cached work.'
+                    try:
+                        from result_shards import load_checkpoint
+                        config=read(self.path(job['config']))
+                        checkpoint=self.path(config['output_dir'])/'anchor_checkpoint.json'
+                        if checkpoint.exists():load_checkpoint(checkpoint)
+                    except (OSError,ValueError,KeyError,TypeError) as exc:
+                        error=f'Runner stopped; saved checkpoint is unreadable and needs repair before retry: {exc}'
                     with self.db() as db:db.execute("UPDATE jobs SET status='interrupted',error=?,updated=? WHERE id=? AND status IN ('starting','running')",
-                        ('Runner stopped before recording completion; retry resumes cached work.',time.time(),job['id']))
+                        (error,time.time(),job['id']))
 
     def start(self):
         self.pause(False)

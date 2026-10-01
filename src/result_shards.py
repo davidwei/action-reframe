@@ -13,7 +13,9 @@ def load_checkpoint(path):
         for name in state['result_shards']['files'].values():
             shard=(path.parent/name).resolve()
             if not shard.is_relative_to(path.parent.resolve()):raise ValueError('Invalid shard path')
-            results.update(json.loads(shard.read_text()))
+            try:results.update(json.loads(shard.read_text()))
+            except (OSError,ValueError) as exc:
+                raise ValueError(f'Cannot read result shard {name}: {exc}') from exc
         state['results']=results
     return state
 

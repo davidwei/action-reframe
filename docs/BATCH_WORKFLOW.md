@@ -436,3 +436,18 @@ stops/cancellations are never automatically retried. Code/configuration errors
 are flagged for investigation; the monitor does not generate code patches or
 claim that retrying fixes deterministic errors. Normal monitoring is read-only
 without this flag. This utility is separate from the queue worker itself.
+
+## Recovery after a reboot or crash
+
+Opening the folder view reconciles saved active jobs against OS advisory locks.
+A free worker lock permits reconciliation; a held worker lock protects the gap
+between claiming a job and starting its runner. Each runner's own lock protects
+jobs that survived a worker restart. Abandoned starting/running jobs become
+**Interrupted**, with a new status timestamp. Recovery never automatically retries
+jobs or treats partial output files as proof of success. Completed history is kept.
+
+The queue banner reports live worker ownership, separately from the saved pause
+setting. Start/resume remains available when the worker is stopped. During
+reconciliation, unreadable analysis checkpoints/shards produce an explicit repair
+message instead of a promise of successful resume. Evidence is left intact; a
+power-loss-damaged checkpoint needs repair before retrying that saved run.

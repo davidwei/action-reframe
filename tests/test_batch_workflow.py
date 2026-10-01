@@ -56,6 +56,33 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(self.batch.jobs()[0]['attempts'],2)
         self.assertTrue(self.batch.paused());self.batch.pause(False);self.assertFalse(Batch(self.root).paused())
 
+    def test_library_reconciles_stale_runner_but_preserves_live_locks(self):
+        job=self.queue();self.starting(job)
+        with file_lock(self.batch.folder/'worker.lock'):
+            self.assertTrue(self.batch.library()['worker_running'])
+            self.assertEqual(self.batch.jobs()[0]['status'],'starting')
+        with file_lock(self.batch.folder/'locks'/(job+'.lock')):
+            self.assertFalse(self.batch.library()['worker_running'])
+            self.assertEqual(self.batch.jobs()[0]['status'],'starting')
+        self.assertFalse(self.batch.library()['worker_running'])
+        self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
+        updated=self.batch.jobs()[0]['updated']
+        self.batch.library()
+        self.assertEqual(self.batch.jobs()[0]['updated'],updated)
+
+    def test_recovery_reports_corrupt_checkpoint_without_changing_evidence(self):
+        job=self.queue();self.starting(job)
+        config=read(self.root/self.batch.jobs()[0]['config'])
+        folder=self.batch.path(config['output_dir']);folder.mkdir(parents=True,exist_ok=True)
+        shard=folder/'empty.json';shard.write_text('')
+        write(folder/'anchor_checkpoint.json',{'result_shards':{'files':{'0':'empty.json'}}})
+        self.batch.reconcile()
+        recovered=self.batch.jobs()[0]
+        self.assertEqual(recovered['status'],'interrupted')
+        self.assertIn('needs repair',recovered['error'])
+        self.assertIn('empty.json',recovered['error'])
+        self.assertEqual(shard.read_bytes(),b'')
+
     def test_serial_worker_continues_after_failure_and_singleton(self):
         first=self.queue()
         write(self.root/'second.json',dict(self.config,output_dir='outputs/second'))
@@ -144,8 +171,9 @@ class BatchTests(unittest.TestCase):
         self.batch.restore('project.json');second=self.batch.enqueue(['project.json'])[0]
         self.starting(second)
         result=self.batch.discard('project.json');self.assertTrue(result['finishing'])
-        project=self.batch.library()['projects'][0]
-        self.assertEqual(project['status'],'Processing');self.assertTrue(project['discard_pending'])
+        with file_lock(self.batch.folder/'locks'/(second+'.lock')):
+            project=self.batch.library()['projects'][0]
+            self.assertEqual(project['status'],'Processing');self.assertTrue(project['discard_pending'])
         self.batch.execute(second,[sys.executable,'-c','pass'])
         self.assertEqual(self.batch.library()['projects'],[])
         self.assertEqual(self.batch.library()['archived'][0]['project'],'project.json')
