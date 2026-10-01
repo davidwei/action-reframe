@@ -5,7 +5,10 @@ from scipy.ndimage import gaussian_filter1d, maximum_filter1d
 from scipy.spatial.transform import Rotation
 from zoom_path import minimum_crop_size
 
-VERSION=2
+VERSION=2  # Polygon preparation and background-motion evidence.
+# Independent from motion evidence: bump whenever camera-path behavior changes.
+# Version 5 may contain the old shot-wide zoom compression even with VERSION=2.
+CAMERA_PATH_VERSION=6
 DEFAULTS=dict(enabled=True,center_seconds=.5,zoom_seconds=.7,seconds_per_doubling=1.5,
               zoom_acceleration=.45,center_speed=.6,center_acceleration=1.2,gap_seconds=1.,motion_width=640)
 

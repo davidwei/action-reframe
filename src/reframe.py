@@ -822,7 +822,7 @@ def render(c):
     inputs['settings']['minimum_crop_short_side']=c.get('minimum_crop_short_side',180)
     from zoom_path import smoothing_settings
     inputs['settings'].update(smoothing_settings(c))
-    from render_planner import settings as planner_settings,polygons as planner_polygons,background_motion,plan as plan_render,VERSION as PLANNER_VERSION
+    from render_planner import settings as planner_settings,polygons as planner_polygons,background_motion,plan as plan_render,VERSION as PLANNER_VERSION,CAMERA_PATH_VERSION
     planner=planner_settings(c)
     if planner['enabled']:
         polygon_rows,absent=planner_polygons(observations,corrections,boxes,supported,meta)
@@ -840,7 +840,7 @@ def render(c):
         margins=[min(.3,c['margin_fraction']+(0 if str(i) in corrections or observed.get(i,{}).get('identity_verified') else .05)) for i in range(meta['frames'])]
         planning_config=dict(c,_render_margins=margins)
         inputs.update(polygons=polygon_data,absent=absent,planner=planner,motion_key=motion_record['key'],margins=margins)
-        camera,camera_record=store.run('camera_path',5,inputs,lambda folder:plan_render(planning_config,meta,polygon_rows,absent,roll,motion))
+        camera,camera_record=store.run('camera_path',CAMERA_PATH_VERSION,inputs,lambda folder:plan_render(planning_config,meta,polygon_rows,absent,roll,motion))
         write_json(out/'camera_path_review.json',dict(settings=planner,imu_calibration=camera['imu_calibration'],frames=camera['diagnostics']))
     else:
         camera,camera_record=store.run('camera_path',4,inputs,compute_camera)

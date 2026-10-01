@@ -11,3 +11,15 @@ Default `render_planner` settings: enabled, center_seconds 0.5, zoom_seconds 0.7
 `camera_motion.json` records per-frame background reliability and the held-out IMU fit. `camera_path_review.json` and `tracks.json` record polygon retained fraction, target offset, zoom velocity/acceleration and crop-relative camera speed/acceleration. Invalid or visibility-violating paths fail before encoding. The review UI shows these metrics. Old render outputs remain separate; rerender jobs preserve source analysis.
 
 Limitations: background motion is a global translation approximation after leveling, not full 3D reconstruction; water/parallax/foreground rigging can confound estimates despite gating. Timestamp alignment uses the video's established constant-FPS assumption. Zoom-speed and acceleration bounds are explicit; jerk is reduced by smoothing but not hard-bounded. The sampled feature quality is an engineering reliability check, not proof of correct camera motion.
+
+
+### Camera-plan cache version
+
+The current planner uses camera-path stage version **6**, separately from the
+background-motion evidence version. Version 5 can contain an earlier shot-wide
+zoom-compression result, even when a run reports newer code. Rerendering now
+recomputes the camera plan once, reusing compatible tracking and background-motion
+records. Subsequent identical rerenders reuse version 6. Bump
+`CAMERA_PATH_VERSION` in `render_planner.py` whenever camera-plan behavior changes;
+do not bump the motion version for a centering/zoom-only change. The disabled
+planner's legacy camera-path version remains separate.
