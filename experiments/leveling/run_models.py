@@ -88,12 +88,12 @@ def run(plan_path):
                     wait_model(plan['experiment_endpoint'],candidate['model'],plan.get('startup_timeout',900),process)
                     row['startup_seconds']=time.monotonic()-start;row['status']='benchmarking';save()
                     with (folder/'benchmark.log').open('w') as log:
-                        subprocess.run([plan['benchmark_python'],str(Path(__file__).with_name('benchmark.py')),
+                        subprocess.run([plan['benchmark_python'],plan.get('benchmark_script',str(Path(__file__).with_name('benchmark.py'))),
                                         'run','--manifest',plan['manifest'],'--output',str(folder/'results'),
                                         '--endpoint',plan['experiment_endpoint'],'--model',candidate['model'],
                                         '--max-tokens',str(candidate.get('max_tokens',400))],
-                                       stdout=log,stderr=subprocess.STDOUT,check=True,timeout=1800)
-                    subprocess.run([plan['benchmark_python'],str(Path(__file__).with_name('report.py')),
+                                       stdout=log,stderr=subprocess.STDOUT,check=True,timeout=plan.get('benchmark_timeout',1800))
+                    subprocess.run([plan['benchmark_python'],plan.get('report_script',str(Path(__file__).with_name('report.py'))),
                                     str(folder/'results/results.json'),'--output',str(folder/'report.html')],check=True)
                     row['summary']=json.loads((folder/'results/summary.json').read_text());row['status']='completed'
             except Exception as exc:
