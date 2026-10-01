@@ -96,3 +96,38 @@ class RerenderTests(unittest.TestCase):
         self.assertIn('optical_identity_unverified',tracks[2]['flags'])
         self.assertGreater(tracks[2]['camera_diagnostics']['target_retained_fraction'],.999)
         self.assertEqual((self.out/'observations.json').read_bytes(),original)
+
+    def test_immediate_rerender_runs_while_analysis_active_and_queue_paused(self):
+        import time
+        from batch_workflow import file_lock
+        with self.batch.db() as db:
+            db.execute("INSERT INTO jobs (id,project,revision,status,created,updated,config) VALUES ('analysis','other.json','r','running',0,0,'other.json')")
+        with file_lock(self.batch.folder/'worker.lock'),file_lock(self.batch.folder/'locks/analysis.lock'):
+            job=self.batch.render_now('project.json')
+            for _ in range(300):
+                row=next(j for j in self.batch.jobs() if j['id']==job)
+                if row['status'] in ('succeeded','failed'):break
+                time.sleep(.05)
+            self.assertEqual(row['status'],'succeeded',row.get('error'))
+            self.assertEqual(row['lane'],'immediate')
+            self.assertTrue(self.batch.paused())
+            self.assertEqual(next(j for j in self.batch.jobs() if j['id']=='analysis')['status'],'running')
+
+    def test_immediate_limit_and_worker_lane_and_recovery(self):
+        from batch_workflow import file_lock
+        with file_lock(self.batch.folder/'immediate-launch.lock'):
+            job=self.batch.enqueue_rerender(['project.json'],immediate=True)[0]
+            self.batch.recover()
+            self.assertEqual(self.batch.jobs()[0]['status'],'starting')
+        with file_lock(self.batch.folder/'locks'/(job+'.lock')):
+            self.assertTrue(self.batch.active());self.assertFalse(self.batch.active(queued_lane_only=True))
+            # Another project with saved analysis cannot start a second immediate job.
+            write(self.root/'other.json',self.config)
+            with self.assertRaisesRegex(ValueError,'already running'):
+                self.batch.enqueue_rerender(['other.json'],immediate=True)
+            self.batch.pause(False);self.batch.worker()
+            self.assertEqual(self.batch.jobs()[0]['status'],'starting')
+        self.batch.reconcile()
+        self.assertEqual(self.batch.jobs()[0]['status'],'interrupted')
+        self.batch.action(job,'retry')
+        self.assertEqual(self.batch.jobs()[0]['lane'],'queue')

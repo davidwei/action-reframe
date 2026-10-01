@@ -307,6 +307,9 @@ class Handler(BaseHTTPRequestHandler):
                         from description_history import history
                         return self.json_response(history(batch,data['project']))
                     if action=='prepare':return self.json_response(batch.prepare(data['project'],data.get('description',''),data.get('ready',False)))
+                    if action=='render-now':
+                        if legacy_project()==data['project']:raise ValueError('Wait for this project’s running analysis to finish before rerendering')
+                        return self.json_response({'job':batch.render_now(data['project'])})
                     if action=='queue-rerender':
                         if legacy_project() in data.get('projects',[]):raise ValueError('Wait for this project’s running analysis to finish before queuing a rerender')
                         return self.json_response({'jobs':batch.enqueue_rerender(data.get('projects',[]))})

@@ -75,6 +75,8 @@ class Batch:
             db.execute('BEGIN IMMEDIATE')
             if 'priority' not in {r[1] for r in db.execute('PRAGMA table_info(jobs)')}:
                 db.execute('ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0')
+            if 'lane' not in {r[1] for r in db.execute('PRAGMA table_info(jobs)')}:
+                db.execute("ALTER TABLE jobs ADD COLUMN lane TEXT NOT NULL DEFAULT 'queue'")
 
     def db(self):
         db = sqlite3.connect(self.folder / 'queue.sqlite3', timeout=30)
@@ -275,8 +277,8 @@ class Batch:
         with self.db() as db:
             return [dict(r) for r in db.execute('SELECT * FROM jobs ORDER BY created')]
 
-    def active(self):
-        return any(j['status'] in ('starting','running') for j in self.jobs())
+    def active(self, queued_lane_only=False):
+        return any(j['status'] in ('starting','running') and (not queued_lane_only or j['lane']=='queue') for j in self.jobs())
 
     def enqueue(self, projects):
         if not projects: raise ValueError('Select at least one ready project')
@@ -323,7 +325,7 @@ class Batch:
                 if reference.is_file():return name,out,observations,meta,reference
         raise ValueError(f'{project}: no saved analysis is available to rerender')
 
-    def enqueue_rerender(self, projects):
+    def enqueue_rerender(self, projects, immediate=False):
         if not projects:raise ValueError('Select at least one project with saved analysis')
         prepared=[];jobs=self.jobs()
         for project in dict.fromkeys(projects):
@@ -359,6 +361,8 @@ class Batch:
         ids=[]
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            if immediate and db.execute("SELECT 1 FROM jobs WHERE lane='immediate' AND status IN ('starting','running')").fetchone():
+                raise ValueError('An immediate rerender is already running')
             for project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat in prepared:
                 if db.execute("SELECT 1 FROM jobs WHERE project=? AND status IN ('queued','starting','running')",(project,)).fetchone():
                     raise ValueError(f'{project}: a job is already queued or running')
@@ -379,6 +383,11 @@ class Batch:
                         source=(source_out/shard).resolve()
                         if not source.is_relative_to(source_out.resolve()):raise ValueError('Invalid result shard path')
                         target=out/shard;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
+                    marker=manifest.get('event_journal')
+                    if marker:
+                        name=marker['file']
+                        if Path(name).name!=name:raise ValueError('Invalid event journal path')
+                        shutil.copy2(source_out/name,out/name)
                     write(out/'anchor_checkpoint.json',manifest)
                 revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
                 snapshot.update(video=str(self.path(current['video'])),output_dir=str(out),batch_stage='render',
@@ -390,8 +399,37 @@ class Batch:
                     config=current,labels=labels,source_labels=current_labels,source_stat=source_stat,stage='render',analysis_source=source_name))
                 now=time.time();relative=str(config_path.relative_to(self.root))
                 db.execute('INSERT INTO jobs (id,project,revision,status,created,updated,config,priority) VALUES (?,?,?,?,?,?,?,?)',
-                           (job_id,project,revision,'queued',now,now,relative,1));ids.append(job_id)
+                           (job_id,project,revision,'starting' if immediate else 'queued',now,now,relative,1));ids.append(job_id)
+                if immediate:db.execute("UPDATE jobs SET lane='immediate' WHERE id=?",(job_id,))
         return ids
+
+    def render_now(self, project):
+        self.reconcile()
+        with file_lock(self.folder/'immediate-launch.lock') as acquired:
+            if not acquired:raise ValueError('An immediate rerender is being started')
+            job_id=self.enqueue_rerender([project],immediate=True)[0]
+            try:
+                with (self.folder/'worker.log').open('a') as log:
+                    process=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--workspace',str(self.root),'--execute',job_id],
+                        stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+                # Hold the launch lock until the runner owns its lifetime lock.
+                for _ in range(200):
+                    with file_lock(self.folder/'locks'/(job_id+'.lock')) as available:
+                        if not available:
+                            import threading
+                            threading.Thread(target=process.wait,daemon=True).start()
+                            return job_id
+                    if process.poll() is not None:
+                        job=next(j for j in self.jobs() if j['id']==job_id)
+                        if job['status'] in ('succeeded','failed'):return job_id
+                        raise RuntimeError('Immediate rerender runner exited before starting')
+                    time.sleep(.05)
+                process.terminate();process.wait(timeout=10)
+                raise RuntimeError('Immediate rerender runner did not start in time')
+            except Exception as exc:
+                with self.db() as db:db.execute("UPDATE jobs SET status='interrupted',error=?,updated=? WHERE id=? AND status='starting'",
+                    (str(exc),time.time(),job_id))
+                raise
 
     def adopt(self, job_id):
         job=next((j for j in self.jobs() if j['id']==job_id),None)
@@ -424,7 +462,7 @@ class Batch:
                 run=read(self.path(row['config']))
                 if read(self.path(run['output_dir'])/'corrections.json',{})!=manifest['labels']:
                     raise ValueError('Labels changed: copy corrections to the source and queue a new revision instead of retrying old inputs')
-                db.execute("UPDATE jobs SET status='queued',error=NULL,updated=? WHERE id=?",(time.time(),job_id))
+                db.execute("UPDATE jobs SET status='queued',lane='queue',error=NULL,updated=? WHERE id=?",(time.time(),job_id))
             elif action=='cancel' and row['status']=='queued':
                 db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=?",(time.time(),job_id))
             else:raise ValueError('Only queued jobs can be cancelled; failed/interrupted jobs can be retried')
@@ -467,6 +505,9 @@ class Batch:
         # Caller must hold the workspace worker lock (worker or UI reconciliation).
         for job in self.jobs():
             if job['status'] not in ('starting','running'):continue
+            if job.get('lane')=='immediate':
+                with file_lock(self.folder/'immediate-launch.lock') as available:
+                    if not available:continue
             with file_lock(self.folder/'locks'/(job['id']+'.lock')) as acquired:
                 if acquired:
                     error='Runner stopped before recording completion; retry resumes compatible cached work.'
@@ -491,13 +532,13 @@ class Batch:
             if not acquired:return
             self.recover()
             while not self.paused():
-                if self.active():
+                if self.active(queued_lane_only=True):
                     # A runner survived a previous worker/UI restart.
                     time.sleep(1);self.recover();continue
                 with self.db() as db:
                     db.execute('BEGIN IMMEDIATE')
                     if db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()[0]=='1':return
-                    row=db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY priority DESC, created LIMIT 1").fetchone()
+                    row=db.execute("SELECT * FROM jobs WHERE status='queued' AND lane='queue' ORDER BY priority DESC, created LIMIT 1").fetchone()
                     if not row:return
                     db.execute("UPDATE jobs SET status='starting',updated=? WHERE id=?",(time.time(),row['id']))
                 subprocess.run([sys.executable,str(Path(__file__).resolve()),'--workspace',str(self.root),'--execute',row['id']])

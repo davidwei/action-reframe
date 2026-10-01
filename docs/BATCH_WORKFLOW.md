@@ -451,3 +451,21 @@ setting. Start/resume remains available when the worker is stopped. During
 reconciliation, unreadable analysis checkpoints/shards produce an explicit repair
 message instead of a promise of successful resume. Evidence is left intact; a
 power-loss-damaged checkpoint needs repair before retrying that saved run.
+
+
+## Immediate rerendering
+
+**Render now (no re-analysis)** starts a detached render-only runner immediately,
+without starting/resuming the overnight queue or changing its pause setting. One
+immediate rerender is allowed at a time. It may overlap queued analysis (or queued
+rendering) on another project; CPU, disk, and memory are still shared. The same
+project cannot have another pending/running job. The existing queued rerender
+option remains available for serial execution.
+
+Immediate runs use the same frozen inputs, separate output directory, progress,
+Stop processing, and completed-result views as queued runs. They are labeled
+“Rerender only · immediate” in the run list. A launch lock protects the handoff to
+the runner; the normal job lock protects execution. Crash recovery marks abandoned
+runs interrupted. Retry saved inputs puts a failed/interrupted immediate run into
+the standard queue. Neither closing the page nor restarting the review service
+stops a launched rerender. No analysis/model request is made by render-only jobs.
