@@ -1,0 +1,9 @@
+# Separate experiment environment; do not install into production.
+vllm==0.30.0
+transformers==5.18.0
+torch==2.13.0
+# Match the CUDA 13.0 runtime bundled with this PyTorch build.
+nvidia-cuda-nvcc==13.0.88
+nvidia-cuda-crt==13.0.88
+nvidia-nvvm==13.0.88
+nvidia-nvjitlink==13.0.88

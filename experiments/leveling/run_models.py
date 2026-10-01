@@ -64,7 +64,7 @@ def run(plan_path):
     for candidate in plan['candidates']:
         if not Path(candidate['path'],'config.json').is_file():
             raise ValueError(f"Missing model: {candidate['path']}")
-    wait_model(plan['production_endpoint'],plan['production_model'],30)
+    wait_model(plan['production_endpoint'],plan['production_model'],300)
     save()
     try:
         service('stop')
@@ -90,7 +90,8 @@ def run(plan_path):
                     with (folder/'benchmark.log').open('w') as log:
                         subprocess.run([plan['benchmark_python'],str(Path(__file__).with_name('benchmark.py')),
                                         'run','--manifest',plan['manifest'],'--output',str(folder/'results'),
-                                        '--endpoint',plan['experiment_endpoint'],'--model',candidate['model']],
+                                        '--endpoint',plan['experiment_endpoint'],'--model',candidate['model'],
+                                        '--max-tokens',str(candidate.get('max_tokens',400))],
                                        stdout=log,stderr=subprocess.STDOUT,check=True,timeout=1800)
                     subprocess.run([plan['benchmark_python'],str(Path(__file__).with_name('report.py')),
                                     str(folder/'results/results.json'),'--output',str(folder/'report.html')],check=True)
