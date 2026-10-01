@@ -120,13 +120,19 @@ with that dependency. Substitute your workspace, port and model unit:
 ```bash
 .venv/bin/python scripts/install_review_service.py \
   --workspace /path/to/videos --port 8766 \
-  --model-service vllm-vl.service --install
+  --model-service vllm-vl.service \
+  --expected-model /path/to/models/Qwen3-VL-32B-FP8 --install
 ```
 
 Without `--install`, this prints the generated unit for review. It does not install
 vLLM or choose/download model weights. The existing model unit owns those settings.
 The review unit starts the model service and waits up to ten minutes for a nonempty
-`/v1/models` response before starting the UI. `--api-url` overrides the endpoint and
+`/v1/models` response before starting the UI. Its first model ID must exactly match
+`--expected-model` (use the ID returned by your intended server, including any
+path or served-model alias). A mismatch refuses startup and logs expected and
+actual IDs; simply having the expected model elsewhere in the list is insufficient
+because analysis clients select the first model. This checks the server-reported
+identity at startup, not the weights themselves or subsequent endpoint changes. `--api-url` overrides the endpoint and
 sets `QWEN_API_URL` for the UI and its workers. Startup failures appear in the journal;
 systemd retries failed startup. Starting the UI does not automatically resume jobs.
 

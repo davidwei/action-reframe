@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--python', type=Path, default=Path(sys.executable))
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--model-service', required=True)
+    parser.add_argument('--expected-model', required=True, help='Exact expected served model ID')
     parser.add_argument('--api-url', default='http://127.0.0.1:8000/v1')
     parser.add_argument('--install', action='store_true')
     args = parser.parse_args()
@@ -32,7 +33,7 @@ After={args.model_service}
 [Service]
 Type=simple
 Environment={quoted('QWEN_API_URL='+args.api_url)}
-ExecStartPre={python} {quoted(repo/'scripts/wait_for_model.py')} --api-url {quoted(args.api_url)} --timeout 600
+ExecStartPre={python} {quoted(repo/'scripts/wait_for_model.py')} --api-url {quoted(args.api_url)} --timeout 600 --expected-model {quoted(args.expected_model)}
 ExecStart={python} {quoted(repo/'src/review_server.py')} --workspace {quoted(args.workspace.resolve())} --port {args.port}
 TimeoutStartSec=660
 Restart=on-failure

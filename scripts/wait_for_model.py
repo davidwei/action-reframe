@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 
-def wait(url, timeout):
+def wait(url, timeout, expected_model):
     deadline = time.monotonic() + timeout
     endpoint = url.rstrip('/') + '/models'
     while True:
@@ -16,7 +16,14 @@ def wait(url, timeout):
                 models = json.load(response)['data']
             if not models:
                 raise ValueError('model list is empty')
-            print(f'Model ready: {models[0]["id"]}', flush=True)
+            # Analysis clients select the first model; finding a match elsewhere
+            # in the list would not prove they will use the intended model.
+            actual = models[0]['id']
+            if actual != expected_model:
+                raise SystemExit(
+                    f'Model mismatch at {endpoint}: expected {expected_model!r}, '
+                    f'but the first served model is {actual!r}. Review startup refused.')
+            print(f'Model verified: {actual}', flush=True)
             return
         except (OSError, ValueError, KeyError) as error:
             if time.monotonic() >= deadline:
@@ -29,5 +36,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--api-url', required=True)
     parser.add_argument('--timeout', type=float, default=600)
+    parser.add_argument('--expected-model', required=True, help='Exact first served model ID from /v1/models')
     args = parser.parse_args()
-    wait(args.api_url, args.timeout)
+    wait(args.api_url, args.timeout, args.expected_model)
