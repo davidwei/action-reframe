@@ -19,7 +19,8 @@ for row in d['rows']:
     if line:
         x1,y1,x2,y2 = line
         overlay = f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="magenta" stroke-width="4"/><circle cx="{x1}" cy="{y1}" r="7" fill="magenta"/><circle cx="{x2}" cy="{y2}" r="7" fill="magenta"/>'
-    cards.append(f'''<article><h2>{html.escape(s['clip'])} — {s['time']:.2f}s</h2>
+    variant=(f" · input rotation {s.get('rotation_degrees',0):+g}° · repeat {row['repeat']+1}" if 'repeat' in row else '')
+    cards.append(f'''<article><h2>{html.escape(s['clip'])} — {s['time']:.2f}s{variant}</h2>
     <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" style="aspect-ratio:{s['width']}/{s['height']}">
     <image href="data:image/jpeg;base64,{image}" width="1000" height="1000" preserveAspectRatio="none"/>{overlay}</svg>
     <p>Roll: {r.get('roll')}° · gyro: {s.get('gyro_roll')}° · confidence: {r.get('orientation_confidence')} · wall: {row['wall_seconds']:.2f}s</p>
