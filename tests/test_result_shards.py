@@ -45,3 +45,28 @@ class ShardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             p=Path(folder)/'checkpoint.json';state=dict(results={'1':{'frame':1}},events=[])
             save(p,state);self.assertEqual(load_checkpoint(p),state)
+
+    def test_corrupt_latest_shard_restores_whole_previous_generation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);cp=out/'checkpoint.json';store=ResultShards(out)
+            store.save(cp,dict(results={'1':{'frame':1}},queue=['old']),save)
+            store.save(cp,dict(results={'2':{'frame':2}},queue=['new']),save)
+            manifest=json.loads(cp.read_text())
+            shard=out/next(iter(manifest['result_shards']['files'].values()))
+            shard.write_text('{}')  # Valid JSON, but wrong checksum.
+            with self.assertWarns(RuntimeWarning):state=load_checkpoint(cp)
+            self.assertEqual(state['queue'],['old']);self.assertEqual(set(state['results']),{'1'})
+            cp.write_text('')
+            with self.assertWarns(RuntimeWarning):self.assertEqual(load_checkpoint(cp)['queue'],['old'])
+            cp.with_name(cp.name+'.previous').write_text('')
+            with self.assertRaisesRegex(ValueError,'Cannot recover checkpoint'):load_checkpoint(cp)
+
+    def test_previous_checkpoint_scheduler_state_is_frozen(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);cp=out/'checkpoint.json';store=ResultShards(out)
+            state=dict(results={'1':{'frame':1}},queue=['old'])
+            store.save(cp,state,save)
+            state['queue'].append('new')
+            store.save(cp,state,save)
+            previous=json.loads(cp.with_name(cp.name+'.previous').read_text())
+            self.assertEqual(previous['queue'],['old'])

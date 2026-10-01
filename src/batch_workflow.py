@@ -27,10 +27,8 @@ def read(path, default=None):
 
 
 def write(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
-    temp.write_text(json.dumps(value, indent=2, allow_nan=False))
-    temp.replace(path)
+    from durable_json import write_json
+    write_json(path,value)
 
 
 @contextmanager
@@ -549,6 +547,8 @@ class Batch:
                 write(out/'code_version.json',saved_code)
                 status,error='succeeded',None
             except BaseException as exc:
+                import traceback
+                with (out/'job.log').open('a') as log:traceback.print_exc(file=log)
                 status,error='failed',f'{type(exc).__name__}: {exc}'
             with self.db() as db:db.execute('UPDATE jobs SET status=?,error=?,updated=? WHERE id=?',(status,error,time.time(),job_id))
 

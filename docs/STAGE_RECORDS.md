@@ -50,7 +50,7 @@ Camera-path version 4 adds [log-zoom smoothing and look-ahead](ZOOM_SMOOTHING.md
 
 Scheduler history is appended to `events_<id>.jsonl`, one compact JSON event per line. The candidate payload is unchanged. `anchor_checkpoint.json` now stores `event_journal: {version, file, committed_bytes, count}` instead of embedding history. Only pending events remain in memory; after a successful checkpoint they are cleared. Frame results and compatibility exports are unchanged.
 
-Events are flushed and fsynced before atomic checkpoint replacement commits their prefix. On resume, a shorter-than-committed journal is an error. A longer tail represents an interrupted checkpoint: it is archived to `events_uncommitted_<id>.jsonl` and removed from the active journal before retrying the pending scheduler task. Committed events are never rewritten. Existing JSON checkpoints are backed up as `anchor_checkpoint.before_event_journal.json` and migrated once on resume; old journals are left untouched when a new analysis fingerprint starts a new run. This is process-crash recovery; the existing checkpoint writer does not guarantee durability across sudden power loss.
+Events are flushed and fsynced before atomic checkpoint replacement commits their prefix. On resume, a shorter-than-committed journal is an error. A longer tail represents an interrupted checkpoint: it is archived to `events_uncommitted_<id>.jsonl` and removed from the active journal before retrying the pending scheduler task. Committed events are never rewritten. Existing JSON checkpoints are backed up as `anchor_checkpoint.before_event_journal.json` and migrated once on resume; old journals are left untouched when a new analysis fingerprint starts a new run. Checkpoint and shard writes now fsync the temporary file before replacement and fsync the containing directory afterward. Filesystem/hardware failures can still destroy data; these measures improve power-loss durability but cannot guarantee it.
 
 An already running process retains its loaded implementation until restarted. No active run files are migrated externally.
 
@@ -65,3 +65,28 @@ Analysis writes scheduler/progress records and evidence but no longer rebuilds o
 Text comparison explanations use a prompt-level total word budget of `clamp(ceil(approved_description_words / 2), 40, 80)` across reason, exclusion_reason, localization_reason and differences. Word counting uses whitespace. Required JSON fields and identity/localization rules are unchanged; the 1000-token output allowance remains unchanged to avoid truncating JSON. This is a soft instruction, not a validation failure/retry trigger. Crop-description prompts are unchanged. Comparison request keys/version distinguish new evidence from older results.
 
 A three-pair live replay (accepted, rejected, exclusion contradiction) preserved scores and the target-present, exclusion, and localization decisions. Mean latency fell from 12.06s to 4.03s; mean explanation length fell from 251 to 55 words. One response exceeded its 56-word budget (67 words). This is a small smoke check, not evidence of general accuracy equivalence.
+
+
+## Corruption recovery
+
+Shared stage records are validated under their per-key lock before reuse. Empty,
+malformed, mismatched, or checksum-damaged records are renamed to
+`record.json.corrupt.<id>` and recomputed. Valid records remain cached. New records
+include a result checksum; legacy records remain readable with structural/identity
+checks. Permission errors and disk I/O failures are not silently treated as cache
+misses. A failed recomputation never commits a success record.
+
+New result-shard manifests include shard checksums and retain one complete previous
+checkpoint (`anchor_checkpoint.json.previous`). If the current checkpoint or a
+referenced shard is unreadable, the loader uses the complete valid previous
+checkpoint, including its scheduler state, with a warning. It never substitutes an
+older shard into newer scheduler state. Journal length is checked before recovery;
+the existing journal recovery archives any uncommitted tail. If both generations
+are invalid, processing stops with filenames and causes rather than guessing or
+silently discarding analysis. Old runs without a previous checkpoint cannot gain
+this protection retroactively. Human labels/configuration are not regenerated.
+
+Core analysis, queue JSON and stage-cache writes use durable atomic replacement.
+This does not make every diagnostic/image/export file transactional. Full runner
+tracebacks are now retained in `job.log`. Corruption archives are retained for
+inspection; no automatic cleanup is performed.

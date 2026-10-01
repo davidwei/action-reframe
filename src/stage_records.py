@@ -6,6 +6,7 @@ import os
 import time
 import uuid
 from pathlib import Path
+from durable_json import write_json, checksum, quarantine, ensure_directory
 
 
 def digest(value):
@@ -31,8 +32,7 @@ def configure(c):
     marker=out/'stage_store.json'
     content=json.dumps(dict(root=str(root)))
     if not marker.exists() or marker.read_text()!=content:
-        temp=out/(uuid.uuid4().hex+'.tmp')
-        temp.write_text(content);os.replace(temp,marker)
+        write_json(marker,dict(root=str(root)))
     return Store(root,out/'stage_usage.jsonl')
 
 
@@ -42,23 +42,32 @@ class Store:
 
     def run(self,stage,version,inputs,compute):
         key=digest(dict(stage=stage,version=version,inputs=inputs))
-        folder=self.root/stage/key[:2]/key;folder.mkdir(parents=True,exist_ok=True)
+        folder=self.root/stage/key[:2]/key;ensure_directory(folder)
         record=folder/'record.json'
         with (folder/'lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
             reused=record.exists();started=time.monotonic()
             if reused:
-                value=json.loads(record.read_text())['result']
-            else:
+                try:
+                    data=json.loads(record.read_text())
+                    expected=dict(stage=stage,version=version,key=key)
+                    if not isinstance(data,dict) or any(data.get(k)!=v for k,v in expected.items()):
+                        raise ValueError('Stage record identity mismatch')
+                    if digest(data['inputs'])!=digest(inputs):raise ValueError('Stage inputs mismatch')
+                    value=data['result']
+                    if 'result_checksum' in data and checksum(value)!=data['result_checksum']:
+                        raise ValueError('Stage result checksum mismatch')
+                    if isinstance(value,dict) and value.get('error'):
+                        raise ValueError('Cached result contains an error')
+                except (ValueError,KeyError,TypeError) as exc:
+                    quarantine(record,exc);reused=False
+            if not reused:
                 value=compute(folder)
                 if isinstance(value,dict) and value.get('error'):
                     raise ValueError('Failed stage results cannot be committed')
                 data=dict(stage=stage,version=version,key=key,inputs=inputs,result=value,created=time.time())
-                temp=folder/(uuid.uuid4().hex+'.tmp')
-                try:
-                    temp.write_text(json.dumps(data,allow_nan=False));os.replace(temp,record)
-                finally:
-                    temp.unlink(missing_ok=True)
+                data['result_checksum']=checksum(value)
+                write_json(record,data)
             if self.usage:
                 self.usage.parent.mkdir(parents=True,exist_ok=True)
                 line=json.dumps(dict(stage=stage,key=key,reused=reused,seconds=time.monotonic()-started,time=time.time()))+'\n'

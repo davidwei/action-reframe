@@ -4,43 +4,81 @@ import json
 import time
 import uuid
 from pathlib import Path
+import warnings
+from durable_json import checksum, ensure_directory
 
 
-def load_checkpoint(path):
+def _load_checkpoint(path):
     path=Path(path);state=json.loads(path.read_text())
     if 'result_shards' in state:
         results={}
         for name in state['result_shards']['files'].values():
             shard=(path.parent/name).resolve()
             if not shard.is_relative_to(path.parent.resolve()):raise ValueError('Invalid shard path')
-            try:results.update(json.loads(shard.read_text()))
+            try:
+                rows=json.loads(shard.read_text())
+                if not isinstance(rows,dict):raise ValueError('Shard must contain frame records')
+                expected=state['result_shards'].get('checksums',{}).get(name)
+                if expected and checksum(rows)!=expected:raise ValueError('Shard checksum mismatch')
+                results.update(rows)
             except (OSError,ValueError) as exc:
                 raise ValueError(f'Cannot read result shard {name}: {exc}') from exc
         state['results']=results
+    if not isinstance(state.get('results'),dict):raise ValueError('Checkpoint has no result map')
+    marker=state.get('event_journal')
+    if marker:
+        name=marker['file']
+        if Path(name).name!=name:raise ValueError('Invalid event journal path')
+        if (path.parent/name).stat().st_size<marker['committed_bytes']:
+            raise ValueError('Event journal is shorter than committed checkpoint')
     return state
+
+
+def load_checkpoint(path):
+    path=Path(path)
+    try:return _load_checkpoint(path)
+    except (ValueError,OSError,KeyError,TypeError) as exc:
+        backup=path.with_name(path.name+'.previous')
+        try:state=_load_checkpoint(backup)
+        except (ValueError,OSError,KeyError,TypeError) as backup_error:
+            raise ValueError(f'Cannot recover checkpoint {path}: {exc}; previous checkpoint: {backup_error}') from exc
+        warnings.warn(f'Recovering complete previous checkpoint {backup}; current checkpoint invalid: {exc}',RuntimeWarning)
+        return state
 
 
 class ResultShards:
     def __init__(self,folder,size=180):
         if isinstance(size,bool) or int(size)!=size or size<1:raise ValueError('result_shard_frames must be a positive integer')
-        self.folder=Path(folder);self.size=int(size);self.previous={};self.files={}
-        (self.folder/'result_shards').mkdir(exist_ok=True)
+        self.folder=Path(folder);self.size=int(size);self.previous={};self.files={};self.checksums={};self.last_snapshot=None
+        ensure_directory(self.folder/'result_shards')
 
     def save(self,path,state,writer):
+        path=Path(path)
+        if self.last_snapshot is None and path.exists():
+            # Only once on resume, validate the complete old generation before retaining it.
+            try:
+                old=load_checkpoint(path)
+                if 'result_shards' in old:old.pop('results',None)
+                self.last_snapshot=old
+            except ValueError:
+                pass  # No usable old generation; never overwrite evidence with an invented backup.
         groups={}
         for frame,row in state['results'].items():groups.setdefault(str(int(frame)//self.size),{})[frame]=row
-        files={}
+        files={};checksums={}
         for group,rows in groups.items():
             previous=self.previous.get(group,{})
             unchanged=rows.keys()==previous.keys() and all(rows[k] is previous[k] for k in rows)
-            if unchanged:files[group]=self.files[group];continue
+            if unchanged:
+                files[group]=self.files[group];checksums[files[group]]=self.checksums[files[group]];continue
             name='result_shards/'+group+'_'+uuid.uuid4().hex+'.json'
-            writer(self.folder/name,rows);files[group]=name
-        snapshot=dict(state,result_shards=dict(version=1,frames_per_shard=self.size,files=files),checkpoint_updated_at=time.time())
+            writer(self.folder/name,rows);files[group]=name;checksums[name]=checksum(rows)
+        snapshot=dict(state,result_shards=dict(version=1,frames_per_shard=self.size,files=files,checksums=checksums),checkpoint_updated_at=time.time())
         snapshot.pop('results',None)
+        if self.last_snapshot is not None:writer(path.with_name(path.name+'.previous'),self.last_snapshot)
         writer(path,snapshot)
+        self.last_snapshot=json.loads(json.dumps(snapshot))
         # Keep references alive; scheduler replaces result rows rather than mutating them.
-        self.previous=groups;self.files=files
+        self.previous=groups;self.files=files;self.checksums=checksums
 
 
 def export_snapshot(folder,writer):

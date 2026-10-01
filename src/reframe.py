@@ -41,10 +41,8 @@ def set_analysis_fps(c, value=None, source_fps=None):
 
 
 def write_json(path, value):
-    path = Path(path)
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    tmp.write_text(json.dumps(value, indent=2, allow_nan=False))
-    tmp.replace(path)
+    from durable_json import write_json as durable_write
+    durable_write(path,value)
 
 
 def api(url, payload=None):

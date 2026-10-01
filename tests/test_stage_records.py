@@ -81,3 +81,35 @@ class StageRecordsTests(unittest.TestCase):
                 cv2.imwrite(str(image),np.ones((10,10,3),np.uint8))
                 contextual_completion(c,*args);self.assertEqual(len(calls),2)
                 contextual_completion(c,*args[:-2],'Find skier',1000);self.assertEqual(len(calls),3)
+
+    def test_corruption_is_quarantined_and_recomputed_once(self):
+        for damaged in ('', '{broken', '{}', '{"result":42}'):
+            with self.subTest(damaged=damaged), tempfile.TemporaryDirectory() as folder:
+                store=Store(folder);calls=[]
+                def compute(_):calls.append(1);return {'answer':42}
+                _,info=store.run('test',1,{},compute)
+                record=Path(info['record']);record.write_text(damaged)
+                with self.assertWarns(RuntimeWarning):
+                    with ThreadPoolExecutor(4) as pool:
+                        results=list(pool.map(lambda _:store.run('test',1,{},compute),range(4)))
+                self.assertEqual(len(calls),2)
+                self.assertEqual(sum(not r[1]['reused'] for r in results),1)
+                self.assertEqual(next(record.parent.glob('record.json.corrupt.*')).read_text(),damaged)
+
+    def test_valid_json_with_changed_result_fails_checksum(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=Store(folder)
+            _,info=store.run('test',1,{},lambda _: {'answer':42})
+            record=Path(info['record']);data=json.loads(record.read_text());data['result']['answer']=0
+            record.write_text(json.dumps(data))
+            with self.assertWarns(RuntimeWarning):value,info=store.run('test',1,{},lambda _: {'answer':43})
+            self.assertEqual(value['answer'],43);self.assertFalse(info['reused'])
+
+    def test_recompute_failure_does_not_recommit_corruption(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=Store(folder);_,info=store.run('test',1,{},lambda _:42)
+            record=Path(info['record']);record.write_text('')
+            with self.assertWarns(RuntimeWarning),self.assertRaisesRegex(RuntimeError,'model unavailable'):
+                store.run('test',1,{},lambda _:(_ for _ in ()).throw(RuntimeError('model unavailable')))
+            self.assertFalse(record.exists())
+            self.assertEqual(store.run('test',1,{},lambda _:43)[0],43)

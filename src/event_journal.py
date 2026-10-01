@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 from pathlib import Path
+from durable_json import sync_directory
 
 
 class EventJournal:
@@ -24,10 +25,13 @@ class EventJournal:
                     archive=self.folder/('events_uncommitted_'+uuid.uuid4().hex+'.jsonl')
                     with archive.open('wb') as target:
                         while block:=stream.read(1024*1024):target.write(block)
+                        target.flush();os.fsync(target.fileno())
+                    sync_directory(self.folder)
                     stream.truncate(self.offset);stream.flush();os.fsync(stream.fileno())
         else:
             self.path=self.folder/('events_'+uuid.uuid4().hex+'.jsonl')
             self.path.touch();self.offset=0;self.count=0
+            sync_directory(self.folder)
 
     def checkpoint(self, state, save, path):
         pending=state.get('events',[])
