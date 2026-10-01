@@ -161,7 +161,7 @@ def run(manifest,out,endpoint,model,tokens):
 if __name__=='__main__':
     p=argparse.ArgumentParser();sub=p.add_subparsers(dest='command',required=True)
     a=sub.add_parser('prepare');a.add_argument('--spec',type=Path,required=True);a.add_argument('--output',type=Path,required=True)
-    a=sub.add_parser('run');a.add_argument('--manifest',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--endpoint',required=True);a.add_argument('--model',required=True);a.add_argument('--max-tokens',type=int,default=1000)
+    a=sub.add_parser('run');a.add_argument('--manifest',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--endpoint',required=True);a.add_argument('--model',required=True);a.add_argument('--max-tokens',type=int,default=1000,help='Swap-runner compatibility; production stage budgets are used instead.')
     a=p.parse_args()
     if a.command=='prepare':prepare(a.spec,a.output)
     else:run(a.manifest,a.output,a.endpoint,a.model,a.max_tokens)

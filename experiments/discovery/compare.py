@@ -10,6 +10,9 @@ def aggregate(root):
    rows=[r for r in d['rows'] if r['stage']==stage]
    if not rows:continue
    t=[r['wall_seconds'] for r in rows];s=dict(cases=len(rows),errors=sum('error' in r for r in rows),median_seconds=statistics.median(t),mean_seconds=statistics.mean(t),retry_requests=sum(max(0,len(r['calls'])-1) for r in rows),truncated_requests=sum(c.get('finish_reason')=='length' for r in rows for c in r['calls']))
+   if stage=='crop_description':
+    lengths=[len(r['result']['box_description'].split()) for r in rows if 'result' in r]
+    if lengths:s.update(median_description_words=statistics.median(lengths),maximum_description_words=max(lengths),over_120_words=sum(n>120 for n in lengths))
    if stage=='discovery':
     s['paths']={}
     for name in sorted(set(r['path'] for r in rows)):
@@ -35,7 +38,15 @@ def aggregate(root):
   summaries[path.parents[1].name]=stats
   links.append(f'<p><a href="{path.parents[1].name}/report.html">{html.escape(d["model"])}</a></p>')
  (root/'comparison.json').write_text(json.dumps(summaries,indent=2))
- (root/'index.html').write_text('<meta charset="utf-8"><h1>Object discovery and verification comparison</h1>'+''.join(links)+'<pre>'+html.escape(json.dumps(summaries,indent=2))+'</pre>')
+ table=['<table><tr><th>Model</th><th>Task</th><th>Cases</th><th>Median seconds</th><th>Errors</th><th>Accuracy</th></tr>']
+ for model,stages in summaries.items():
+  for stage,metric in stages.items():
+   accuracy=(f"{metric['correct']}/{metric['expected_cases']}" if 'correct' in metric else '')
+   if stage=='discovery':accuracy='; '.join(f"{k}: IoU ≥0.5 {v['iou50']}/{v['positives']}, absent false positives {v['false_positives']}/{v['absent']}" for k,v in metric['paths'].items())
+   values=[model,stage,str(metric['cases']),f"{metric['median_seconds']:.2f}",str(metric.get('errors','')),accuracy]
+   table.append('<tr>'+''.join('<td>'+html.escape(v)+'</td>' for v in values)+'</tr>')
+ table.append('</table>')
+ (root/'index.html').write_text('<meta charset="utf-8"><style>body{font:16px sans-serif;margin:30px}td,th{padding:10px;border:1px solid #ccc;text-align:left}table{border-collapse:collapse}pre{white-space:pre-wrap}</style><h1>Object discovery and verification comparison</h1><p>Small sailing-specific benchmark. Human labels are evaluation references. Times include retries; end-to-end crop latency includes description and comparison. Other comparison timings exclude image description.</p>'+''.join(table)+''.join(links)+'<details><summary>Detailed metrics</summary><pre>'+html.escape(json.dumps(summaries,indent=2))+'</pre></details>')
  return summaries
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('root',type=Path);a=p.parse_args();print(json.dumps(aggregate(a.root),indent=2))

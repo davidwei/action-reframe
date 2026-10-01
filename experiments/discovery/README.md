@@ -19,9 +19,16 @@ and `benchmark_timeout` overrides. Production units and settings are unchanged.
 - Fixed text-only comparison: controlled positive, blurry, partial, wrong-color,
   camera-relative, background, and wrong-category descriptions identical for all models.
 
+A second text-only pass uses the exact 32 real crop descriptions frozen from the
+Qwen3-VL baseline. Its original comparison calls are reused (not timed a second
+time); other models receive byte-identical description inputs. This separates
+comparison behavior from each model’s own image reading. Coarse identity is checked
+against human crops; invented fine markings in a description are not new ground truth.
+
 Same runtime, quantization configuration, serial concurrency, temperature zero, and
 thinking-disabled request flag for all candidates. Production output budgets (650
-for detection, 1000 for description/comparison) and truncation retries apply equally.
+for detection, 1000 for description/comparison) and truncation retries apply equally. Malformed discovery schemas count as failures
+without the additional format-repair retry used by the production contextual wrapper.
 Measure wall latency including retries, request counts, token usage, schema errors,
 detection IoU against human boxes, absent-frame false positives, and identity decisions
 at 0.5. Also retain raw responses, crops, and visual overlays for manual inspection.

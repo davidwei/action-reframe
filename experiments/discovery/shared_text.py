@@ -5,6 +5,7 @@ from benchmark import request,save
 from description_comparison import compare_descriptions
 
 def run(manifest,out,endpoint,model):
+ assert model in [v['id'] for v in request(endpoint+'/models')['data']]
  data=json.loads(manifest.read_text());out.mkdir(parents=True,exist_ok=True);rows=[]
  for case in data['text']:
   calls=[]

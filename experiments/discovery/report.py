@@ -10,6 +10,8 @@ def build(results,output):
   parts.append('<section><h2>'+html.escape(r['stage']+' '+r['id'])+'</h2>')
   if r['stage']=='discovery':
    s=samples[r['sample']];im=cv2.imread(s['image'])
+   parts.append('<p>Approved identity: '+html.escape(s['target'])+'</p><p>Held-out reference frame '+str(s['reference_frame'])+'</p>')
+   parts.append('<img style="max-height:180px" src="data:image/png;base64,'+base64.b64encode(Path(s['reference']).read_bytes()).decode()+'">')
    for box,color in [(s['bbox'],(255,255,255)),(r.get('result',{}).get('source_bbox'),(255,0,255))]:
     if box:
      x1,y1,x2,y2=map(round,box);cv2.rectangle(im,(x1,y1),(x2,y2),color,3)
