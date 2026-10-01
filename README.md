@@ -111,3 +111,33 @@ The comparison UI shows final gyro roll, independent Qwen roll, their signed dif
 Artifacts include `gyro.json`, `level_observations.json`, `level_comparison.json`, `level_summary.json`, `level_progress.json`, and content-keyed `level_cache/`. All remain in the ignored output workspace. Tracking and independent leveling observations are stored separately; the UI labels legacy tracking-pass level fields to avoid confusing them with the final rotation.
 
 New UI projects and minimal configuration files share `configs/defaults.json`: 10 FPS crop verification, at most 2 FPS independent recovery per path, 50% acceptance and 85% priority-anchor thresholds, gyro rotation, and no analysis zoom. Example configs inherit those defaults rather than embedding older context/tracking settings. Existing projects and queued snapshots keep their saved overrides.
+
+## Review and model startup after reboot (Linux)
+
+If a local model already has a systemd user service, install the review service
+with that dependency. Substitute your workspace, port and model unit:
+
+```bash
+.venv/bin/python scripts/install_review_service.py \
+  --workspace /path/to/videos --port 8766 \
+  --model-service vllm-vl.service --install
+```
+
+Without `--install`, this prints the generated unit for review. It does not install
+vLLM or choose/download model weights. The existing model unit owns those settings.
+The review unit starts the model service and waits up to ten minutes for a nonempty
+`/v1/models` response before starting the UI. `--api-url` overrides the endpoint and
+sets `QWEN_API_URL` for the UI and its workers. Startup failures appear in the journal;
+systemd retries failed startup. Starting the UI does not automatically resume jobs.
+
+```bash
+systemctl --user start action-reframe-review.service
+systemctl --user status action-reframe-review.service vllm-vl.service
+journalctl --user -u action-reframe-review.service -u vllm-vl.service -f
+```
+
+The enabled user service starts when the user's systemd manager starts (normally
+at login; boot without login requires user lingering). Restarting this UI service
+leaves detached queue workers running. The manual `run_review.sh` launcher remains
+available for an externally managed model; do not run it on the same port as the
+installed service.
