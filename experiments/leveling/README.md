@@ -18,3 +18,11 @@ Compare reference-line placement, abstention and invalid-output rates, gyro disa
 Never stop or reconfigure a production model merely because the queue is idle. An idle vLLM server can still reserve all GPU memory. Obtain an explicit maintenance window before temporarily replacing it, or use separate hardware/CPU. Keep the experimental runtime separate from the production environment. Restore and verify the exact production model before ending any maintenance window. Do not compare CPU candidate speed to the GPU baseline as if it measured relative model efficiency.
 
 The initial dataset contains 12 frames from two sailing videos: three slow-motion frames without gyro and nine frames with saved gyro. This is a smoke benchmark, not a comprehensive comparison across skiing, open-ocean horizons, or other scene types.
+
+## Authorized temporary model swaps
+
+`run_models.py PLAN.json` runs a list of candidates on a separate port, with a fixed two-GPU, 8192-token, eager-mode configuration. It stops the specified production service only after validating candidate paths and the current production model ID. Each candidate gets its own server log, GPU utilization/memory/power samples, startup timing, raw responses, and visual report. Launch or benchmark failures are recorded and the next candidate is attempted. The outer `finally` restarts production and verifies its model ID.
+
+For protection against termination of the controller itself, run it as a transient user systemd service with `KillMode=control-group` and an `ExecStopPost` command that starts the original production service. This is an additional restoration guard; a service health check remains necessary afterward. Keep the plan and model downloads outside the repository. The plan supplies paths, endpoints, production service/model identifiers, environment variables and pinned candidate revisions; none is hard-coded into the runner.
+
+A same-runtime baseline is recommended: serve the existing production weights through the experimental runtime before the new candidates. Compare that baseline to the candidates; retain the production-runtime baseline separately. Quantization and eager-mode settings must be disclosed. The Gemma candidate uses online FP8 quantization of official weights; the Qwen candidates use official FP8 checkpoints.
