@@ -78,6 +78,11 @@ def run(path):
     for candidate in (plan["primary"],plan["review"]):
         if not Path(candidate["path"],"config.json").is_file():raise ValueError(f"Missing model weights: {candidate['path']}")
     wait_model(plan["production_endpoint"],plan["production_model"],300);save();process=None
+    previous_handlers={}
+    def interrupted(signum,frame):
+        raise InterruptedError(f"Leveling orchestration interrupted by signal {signum}")
+    for signum in (signal.SIGTERM,signal.SIGINT):
+        previous_handlers[signum]=signal.getsignal(signum);signal.signal(signum,interrupted)
     paused=[]
     try:
         for name in plan.get("pause_services",[]):
@@ -112,6 +117,7 @@ def run(path):
         finally:
             for name in reversed(paused):service("start",name)
             record["ended"]=time.time();save()
+            for signum,handler in previous_handlers.items():signal.signal(signum,handler)
 
 
 if __name__=="__main__":

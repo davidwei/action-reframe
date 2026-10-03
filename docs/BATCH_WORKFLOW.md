@@ -17,27 +17,37 @@ that folder; recursive subfolder import is not yet implemented.
    use Review descriptions to jump to the description section of Video focus. New projects default
    to anchor tracking. You can save additional polygon labels before analysis.
    Existing projects are listed separately, including multiple targets per video.
-2. **Prepare inputs.** Open labels/settings to set Crop Verification FPS, tracking mode and
+2. **Resolve leveling before object analysis.** The project view validates whether
+   supported DJI attitude covers every source frame. When it does not, Step 0 accepts
+   a short scene hint and a maximum processing budget, then queues standalone visual
+   leveling. The hint helps identify plausible horizons or structural references but
+   never supplies geometry. Completed annotations show `Done` separately from their
+   supported-frame coverage and review flags. **Review leveling side by side** decodes
+   selected source frames and applies saved corrections on CPU; it does not call a model.
+   A new leveling run uses the configured Gemma/Qwen runtime and therefore needs GPU
+   capacity. Object analysis is blocked for new projects explicitly marked as requiring
+   leveling until a source-matched, checksummed annotation is attached.
+3. **Prepare inputs.** Open labels/settings to set Crop Verification FPS, tracking mode and
    confidence thresholds. Use Review descriptions to open the description editor in Video focus. With
    labeled crops and no saved text, Qwen prepopulates a draft using all
    ground-truth crops; without crops the editor starts empty. Saved text is
    preserved, and a regenerate control can draft again from the crops. Edit the
    text and save a draft or explicitly approve it; drafting never approves it.
-3. **Approve and mark ready.** Approval records the description and current
+4. **Approve and mark ready.** Approval records the description and current
    configuration/label/source revision. Changing these inputs makes readiness
    stale. Unapproved projects cannot be queued. The approved description is used
    directly by crop-text verification; its candidate crop description remains
    blind to the target. Legacy projects without an approved description use the same blind crop
    descriptor on their initial reference crop.
-4. **Queue selected projects.** Select ready projects individually or select all
+5. **Queue selected projects.** Select ready projects individually or select all
    ready. Each run receives a saved input snapshot and an isolated output folder.
    Queueing is separate from starting. Duplicate pending jobs for the same
    revision are deduplicated. New completed-run requests get separate outputs.
-5. **Start/resume queue.** One video runs at a time through analysis, rendering and
+6. **Start/resume queue.** One video runs at a time through analysis, rendering and
    comparison. Closing/restarting the web UI does not stop the separate worker.
    Failures are recorded and later jobs continue. An existing single-video job
    must finish before starting the batch; preparation and queueing remain usable.
-6. **Review results.** Open a saved run's focus view or synchronized comparison.
+7. **Review results.** Open a saved run's focus view or synchronized comparison.
    Inspect flags, add labels or approve estimates. Batch-run review edits are
    stored separately from frozen processing labels, so they cannot silently
    change a queued/running job. Use **Copy corrections to source**, review and
@@ -79,6 +89,8 @@ at execution. Source videos are not copied or fully content-hashed.
 - `.batch/worker.log`: scheduler log.
 - `outputs/batch/<id>/`: existing pipeline artifacts, frozen `corrections.json`,
   processing `job.log`, and optional `review_corrections.json` for subsequent edits.
+- `.batch/leveling_runtime.json`: optional machine-local model/service paths used only
+  when a queued visual-leveling job actually starts.
 
 These are local runtime data excluded from Git. Runtime snapshots may use resolved
 paths; moving the workspace requires re-preparation rather than assuming saved
@@ -112,6 +124,10 @@ links to each video's existing flags and comparison view.
 | Ready | At least one cropped box and an approved description for current inputs | Label subject; Review descriptions; Queue processing; Discard project |
 | Processing | Queued, starting or running | Label subject; Review descriptions; Open video focus; Discard project |
 | Done | Successful processing for current inputs (including unchanged legacy output) | Label subject; Review descriptions; Open video focus; Watch side by side; Discard project |
+
+Leveling has its own prerequisite status: `Not queued`, `Queued`, `Processing`, or
+`Done`. A completed job may still have partial evidence coverage; `Done` describes job
+completion, while coverage and review counts describe result quality.
 
 These names are canonical across states. **Label subject** opens Video focus at
 `#subject-labels`; **Review descriptions** opens that same workspace at

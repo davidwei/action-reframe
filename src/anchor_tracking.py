@@ -8,6 +8,7 @@ from tracking_progress import TrackingProgress,discovery_grid
 from tracking_evidence import reliable
 from manual_tracking import manual_observations
 from two_path_tracking import TwoPathSearch as TrackingSearch
+from leveling_annotations import tracking_attitude
 from leveling import extract_gyro
 from tracking_selection import confidence_threshold
 from dual_tracking import VERSION as DETECTION_VERSION
@@ -45,9 +46,10 @@ def run_anchors(c,meta,model,helpers,api,single=None):
                                confidence=1.,confidence_source='human',manual=True,visibility='visible',analysis_source='manual',direction='manual')
     discovery=discovery_grid(start,stop,meta['fps'],min(2.,options['discovery_fps']))
     indices=sorted(set(i for i in meta['samples'] if start<=i<=stop)|set(discovery)|{i for i in manual if start<=i<=stop})
-    if c.get('leveling_source')!='gyro':
-        raise ValueError('Two-path optical analysis requires gyro leveling. Set leveling_source to gyro in the source project and queue a new run; visual mode cannot silently substitute zero rotation.')
-    gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
+    if c.get('leveling_source') not in ('gyro','annotation'):
+        raise ValueError('Two-path optical analysis requires gyro or completed standalone leveling annotations.')
+    gyro=extract_gyro(c['video'],meta) if c.get('leveling_source','gyro')=='gyro' else tracking_attitude(c,meta)
+    save(out/'gyro.json',gyro)
     from verification_policy import VERSION as POLICY_VERSION
     from crop_description import VERSION as DESCRIPTION_VERSION
     from description_comparison import VERSION as COMPARISON_VERSION

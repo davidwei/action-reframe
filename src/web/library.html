@@ -30,6 +30,19 @@ function renderProjects(){
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selected.has(p.project);checkbox.disabled=!p.ready||p.status==='Processing'||p.discard_pending||drafts.has(p.project);checkbox.setAttribute('aria-label','Queue '+p.project);checkbox.onchange=()=>checkbox.checked?selected.add(p.project):selected.delete(p.project);
   row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at),document.createElement('br'),codeBadge(p.code_version),document.createElement('br'),codeBadge(p.analysis_code_version,'Analysis'),document.createElement('br'),codeBadge(p.render_code_version,'Render'));
   card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} Crop Verification FPS · ${p.labels} additional labels`));
+  const level=document.createElement('section'),levelTitle=text('strong','Step 0 · Leveling analysis — '+(p.leveling?.status||'Unknown'));level.style.margin='10px 0';level.style.padding='12px';level.append(levelTitle);
+  if(p.leveling?.gyro_available)level.append(text('p','Supported gyro telemetry is present. A separate visual-leveling job is not required.'));
+  else{
+   const hint=document.createElement('textarea');hint.value=p.leveling?.scene_hint||'';hint.placeholder='Quick scene hint, for example: open ocean with a visible sea-sky horizon; ignore sailboat masts and waves';hint.setAttribute('aria-label','Leveling scene hint');hint.style.minHeight='52px';
+   const hours=document.createElement('input');hours.type='number';hours.min='0.1';hours.max='48';hours.step='0.5';hours.value=p.leveling?.hours||6;hours.style.width='80px';
+   const controls=document.createElement('div');controls.className='row';controls.append(text('label','Maximum hours'),hours,
+    button('Save leveling hint',async()=>{await api('/leveling-settings',{project:p.project,scene_hint:hint.value,hours:Number(hours.value)});await load();notice('Leveling scene hint saved.')}));
+   if(!p.leveling?.annotation&&!p.leveling?.job)controls.append(button('Queue leveling analysis',async()=>{const r=await api('/queue-leveling',{project:p.project,scene_hint:hint.value,hours:Number(hours.value)});await load();notice(r.already_done?'Leveling is already available.':'Leveling queued. It will use GPU models when the overnight queue is started and GPU capacity is available.')}));
+   level.append(hint,controls);
+   if(p.leveling?.annotation){level.append(text('p',`${p.leveling.estimated.toLocaleString()}/${p.leveling.frames.toLocaleString()} frames supported (${(p.leveling.coverage*100).toFixed(1)}%); ${p.leveling.needs_review.toLocaleString()} review flags.`),link('Review leveling side by side','/leveling?config='+encodeURIComponent(p.project)));}
+   else if(p.leveling?.job)level.append(text('p','Leveling job '+p.leveling.job.slice(0,8)+' is '+p.leveling.status.toLowerCase()+'.'));
+  }
+  card.append(level);
   card.append(text('p','Actions: '+p.actions.join(' · ')));
   if(p.result_is_previous)card.append(text('p','Video focus and side-by-side playback open the last successful result. It may use earlier inputs or code; the latest attempt is listed in the queue below.'));
   if(p.stale)card.append(text('p','Inputs changed — review and approve again.'));
@@ -57,7 +70,7 @@ function renderJobs(){
  $('jobs').replaceChildren();
  const rank=j=>['starting','running'].includes(j.status)?0:j.status==='queued'?1:2;
  for(const j of [...state.jobs].sort((a,b)=>rank(a)-rank(b)||(rank(a)===1?(b.priority||0)-(a.priority||0)||a.created-b.created:b.created-a.created))){
-  const row=document.createElement('tr'),identity=document.createElement('td');identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · '+(j.stage==='render'?(j.lane==='immediate'?'Rerender only · immediate':'Rerender only · priority'):'Analyze + render')+' · attempt '+j.attempts));
+  const row=document.createElement('tr'),identity=document.createElement('td');const kind=j.stage==='leveling'?'Leveling analysis':j.stage==='render'?(j.lane==='immediate'?'Rerender only · immediate':'Rerender only · priority'):'Analyze + render';identity.append(text('strong',j.project),text('small',' · '+j.id.slice(0,8)+' · '+kind+' · attempt '+j.attempts));
   identity.append(document.createElement('br'),codeBadge(j.code_version));if(j.stage==='render')identity.append(document.createElement('br'),codeBadge(j.analysis_code_version,'Reused analysis'));
   const status=document.createElement('td');status.append(text('span',j.status==='succeeded'?'success':j.status));
   if(Number.isFinite(j.updated)){
@@ -65,16 +78,17 @@ function renderJobs(){
    stamp.dateTime=date.toISOString();stamp.title='Status updated: '+date.toLocaleString(undefined,{timeZoneName:'long'});
    stamp.textContent=' ('+date.toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'})+' '+date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(/\s+/g,'').toLowerCase()+')';status.append(stamp);
   }if(j.recovery){status.append(text('p',j.recovery.message))}if(j.error){const e=text('p',j.error);e.className='error';status.append(e)}
-  const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:'Waiting for analysis');
+  const p=j.progress||{},progress=text('td',j.stage==='render'?(j.status==='succeeded'?'Render complete':j.status==='running'?'Rendering — see job log':'Rerender only; analysis reused'):p.stage?`${p.stage}: ${p.completed??'?'} / ${p.total??'?'}`:j.stage==='leveling'?'Waiting for leveling':'Waiting for analysis');
   if(j.recovery_progress?.saved_results)progress.append(text('p',`Checkpoint restored: ${j.recovery_progress.saved_results} saved results · ${j.recovery_progress.saved_coverage} covered positions`));
   if(j.render_progress?.total)progress.append(text('p',`${j.render_progress.phase}: ${j.render_progress.completed}/${j.render_progress.total} frames · ${j.render_progress.segments_reused} segments reused`));
   if(p.coverage||p.stage_reuse)TrackingProgressView.render(progress,p,{running:j.status==='running'});
-  const actions=document.createElement('td');actions.append(link('Open video focus','/?config='+encodeURIComponent(j.config)));
+  const actions=document.createElement('td');actions.append(link(j.stage==='leveling'?'Open source project':'Open video focus',j.stage==='leveling'?'/?config='+encodeURIComponent(j.project):'/?config='+encodeURIComponent(j.config)));
+  if(j.stage==='leveling'&&j.status==='succeeded')actions.append(document.createElement('br'),link('Review leveling side by side','/leveling?config='+encodeURIComponent(j.project)));
   actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));
   if(['starting','running'].includes(j.status))actions.append(button('Stop processing',async()=>{await api('/stop',{id:j.id});await load();notice('Stopped. Cached frames and checkpoints are preserved for Retry saved inputs.')}));
   if(j.status==='queued')actions.append(button('Cancel',async()=>{await api('/cancel',{id:j.id});await load()}));
   if(['failed','interrupted'].includes(j.status))actions.append(button('Retry saved inputs',async()=>{await api('/retry',{id:j.id});await load();notice('Requeued. Start/resume if paused.')}));
-  if(['succeeded','failed','interrupted'].includes(j.status))actions.append(button('Copy corrections to source',async()=>{const r=await api('/adopt',{id:j.id});await load();notice(`Copied ${r.labels} labels to ${r.project}. Review and approve it before queuing a new run.`)}));
+  if(j.stage!=='leveling'&&['succeeded','failed','interrupted'].includes(j.status))actions.append(button('Copy corrections to source',async()=>{const r=await api('/adopt',{id:j.id});await load();notice(`Copied ${r.labels} labels to ${r.project}. Review and approve it before queuing a new run.`)}));
   if(j.comparison_available)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(j.config)));
   actions.append(document.createElement('br'),link('Job log','/files/'+j.output_dir+'/job.log'));
   row.append(identity,status,progress,actions);$('jobs').append(row);

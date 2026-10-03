@@ -46,7 +46,7 @@ def set_anchor_options(config,data):
     from adaptive_verification import settings as adaptive_settings
     adaptive_settings(config)
     if 'leveling_source' in data:
-        if data['leveling_source'] not in ('gyro','visual'):raise ValueError('Invalid leveling source')
+        if data['leveling_source'] not in ('gyro','visual','annotation'):raise ValueError('Invalid leveling source')
         config['leveling_source']=data['leveling_source'];saved['leveling_source']=data['leveling_source']
     if 'tracking_mode' in data:
         if data['tracking_mode'] not in ('single','dual','anchor'):raise ValueError('Invalid tracking mode')
@@ -83,6 +83,9 @@ def review_geometry(config,out,index):
         if gyro_path.exists():
             rows=json.loads(gyro_path.read_text()).get('frames',[])
             if index<len(rows):roll=rows[index].get('roll')
+    if roll is None and not track and config.get('leveling_source')=='annotation':
+        from leveling_annotations import row_at
+        roll=row_at(ROOT,config,index).get('correction_degrees_ccw')
     return meta,track,preview_geometry(config,meta,track,roll)
 
 
@@ -170,6 +173,19 @@ class Handler(BaseHTTPRequestHandler):
                 from batch_workflow import Batch
                 result=Batch(ROOT).library(active_project=legacy_project());result['legacy_running']=JOB is not None and JOB.poll() is None
                 return self.json_response(result)
+            if parsed.path=='/api/leveling-state':
+                if not config_name:raise ValueError('Choose a project first')
+                config=json.loads(local_path(config_name).read_text())
+                from leveling_annotations import annotation_status,validate_manifest,row_at
+                status=annotation_status(ROOT,config);result={'project':config_name,**status}
+                if status.get('annotation'):
+                    path,manifest=validate_manifest(ROOT,config,True)
+                    result['manifest']=manifest
+                    review=path.parent/'review_intervals.json';timeline=path.parent/'timeline_preview.json'
+                    result['review_intervals']=json.loads(review.read_text()) if review.exists() else []
+                    result['timeline']=json.loads(timeline.read_text()) if timeline.exists() else []
+                    if 'frame' in q:result['row']=row_at(ROOT,config,int(q['frame'][0]))
+                return self.json_response(result)
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
             if parsed.path=='/api/state':
@@ -184,6 +200,17 @@ class Handler(BaseHTTPRequestHandler):
                     manifest=local_path(config_name).parent/'inputs.json'
                     if manifest.exists():source_project=json.loads(manifest.read_text()).get('project',config_name)
                 state['project_name']=config.get('project_name') or (Path(source_project).stem if source_project else None)
+                if config_name:
+                    from leveling_annotations import annotation_status
+                    state['leveling']=annotation_status(ROOT,config)
+                    if source_project:
+                        from batch_workflow import Batch
+                        for job in reversed(Batch(ROOT).jobs()):
+                            if job['project']!=source_project or job['status'] not in ('queued','starting','running'):continue
+                            run=json.loads(local_path(job['config']).read_text())
+                            if run.get('batch_stage')=='leveling':
+                                state['leveling'].update(status={'queued':'Queued','starting':'Starting','running':'Processing'}[job['status']],job=job['id'])
+                                break
                 from configuration_review import report as configuration_report
                 source_config=None
                 if source_project and source_project!=config_name and local_path(source_project).exists():
@@ -234,6 +261,20 @@ class Handler(BaseHTTPRequestHandler):
                     x1,y1,x2,y2=map(round,reference_config['reference_box']);f=f[y1:y2,x1:x2]
                 ok,b=cv2.imencode('.jpg',f,[cv2.IMWRITE_JPEG_QUALITY,92])
                 self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b.tobytes());return
+            if parsed.path=='/api/leveling-frame':
+                if not config_name:raise ValueError('Choose a project first')
+                config=json.loads(local_path(config_name).read_text());index=int(q.get('frame',['0'])[0])
+                from leveling_annotations import row_at
+                row=row_at(ROOT,config,index)
+                cap=cv2.VideoCapture(str(local_path(config['video'])));cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read();cap.release()
+                if not ok:raise ValueError('Cannot decode requested source frame')
+                if q.get('view',['raw'])[0]=='leveled' and row.get('correction_degrees_ccw') is not None:
+                    height,width=frame.shape[:2]
+                    matrix=cv2.getRotationMatrix2D((width/2,height/2),float(row['correction_degrees_ccw']),1)
+                    frame=cv2.warpAffine(frame,matrix,(width,height),flags=cv2.INTER_LINEAR,borderMode=cv2.BORDER_REFLECT_101)
+                ok,b=cv2.imencode('.jpg',frame,[cv2.IMWRITE_JPEG_QUALITY,92])
+                if not ok:raise ValueError('Cannot encode leveling preview')
+                self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b.tobytes());return
             if parsed.path=='/api/preview':
                 from video_preview import preview
                 return self.json_response(preview(ROOT,local_path(q['video'][0]),q.get('time',['0'])[0]))
@@ -241,8 +282,9 @@ class Handler(BaseHTTPRequestHandler):
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            path=WEB_ROOT/({'/':'review.html','/compare':'compare.html','/library':'library.html','/lookout':'lookout.html'}[parsed.path]) if parsed.path in ('/','/compare','/library','/lookout') else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/configuration_review.js','/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js','/files/lookout.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
-            if parsed.path not in ('/','/compare','/library','/lookout') and not parsed.path.startswith('/files/'):
+            pages={'/':'review.html','/compare':'compare.html','/library':'library.html','/lookout':'lookout.html','/leveling':'leveling.html'}
+            path=WEB_ROOT/pages[parsed.path] if parsed.path in pages else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/configuration_review.js','/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js','/files/lookout.js','/files/leveling_step.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
+            if parsed.path not in pages and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
             if not path.is_file():return self.json_response({'error':'Not found'},404)
             size=path.stat().st_size;start=0;end=size-1;status=200
@@ -307,6 +349,8 @@ class Handler(BaseHTTPRequestHandler):
                         from description_history import history
                         return self.json_response(history(batch,data['project']))
                     if action=='prepare':return self.json_response(batch.prepare(data['project'],data.get('description',''),data.get('ready',False)))
+                    if action=='leveling-settings':return self.json_response(batch.save_leveling_settings(data['project'],data.get('scene_hint',''),data.get('hours',6)))
+                    if action=='queue-leveling':return self.json_response(batch.enqueue_leveling(data['project'],data.get('scene_hint'),data.get('hours')))
                     if action=='render-now':
                         if legacy_project()==data['project']:raise ValueError('Wait for this project’s running analysis to finish before rerendering')
                         return self.json_response({'job':batch.render_now(data['project'])})

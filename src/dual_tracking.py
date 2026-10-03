@@ -14,6 +14,7 @@ from tracking_selection import TrackSelector
 import cv2
 import numpy as np
 from backward_tracking import bidirectional_pass
+from leveling_annotations import tracking_attitude
 from leveling import extract_gyro
 
 VERSION = 8
@@ -93,7 +94,7 @@ The user accepts a blurry, distant or low-resolution target. Track it whenever v
 Use coarse shape, color, equipment and motion context when fine details are unreadable. Do not invent missing details; return uncertainty only when the available evidence cannot distinguish the target.
 Current source frame {index}, time {index/meta['fps']:.3f}s. Source size {w}x{h}; IMAGE 2 size {size[0]}x{size[1]}.
 {'IMAGE 2 is a local SEARCH CROP, not the full source. Locate the target within this crop and return coordinates normalized to its full displayed extent; code maps them back to source coordinates.' if c.get('_search_region') else ''}
-Current gyro-derived roll is {angle:.6f} degrees. Positive roll requires counterclockwise correction.
+Current configured leveling correction is {angle:.6f} degrees. Positive values require counterclockwise correction.
 {'IMAGE 2 has already been rotated counterclockwise by that angle, with expanded black borders to avoid cutting content. Do not rotate again. Black padding is not scene content.' if path=='leveled' else 'IMAGE 2 has NOT been rotated. Use the angle to understand camera tilt; return coordinates in the RAW image.'}
 Additional HISTORY full frames use ORIGINAL RAW views, even in the leveled path. Use their visual motion context; return coordinates only in IMAGE 2.
 Use visible target parts and equipment. Apply exclusions from the approved target description; do not invent project-specific exclusions. Do not switch identity. If absent or uncertain, return null and honest confidence.
@@ -227,7 +228,8 @@ def run_dual(c, meta, model, api_helpers, single=None):
     out=Path(c['output_dir']);save=api_helpers[2]
     render_path=c.get('tracking_render_path','selected')
     if render_path not in (*PATHS,'selected'):raise ValueError('Invalid tracking_render_path')
-    gyro=extract_gyro(c['video'],meta);save(out/'gyro.json',gyro)
+    gyro=extract_gyro(c['video'],meta) if c.get('leveling_source','gyro')=='gyro' else tracking_attitude(c,meta)
+    save(out/'gyro.json',gyro)
     from manual_tracking import manual_observations
     manual=manual_observations(c,meta)
     indices=sorted(set(meta['samples']) | set(manual))

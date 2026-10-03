@@ -36,6 +36,8 @@
   "border": "blurred_extension",
   "feather_pixels": 40,
   "leveling_source": "gyro",
+  "leveling_scene_hint": "",
+  "leveling_budget_hours": 6,
   "level_divergence_degrees": 5,
   "level_workers": 2,
   "anchor_tracking": {

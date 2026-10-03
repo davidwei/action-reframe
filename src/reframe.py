@@ -72,14 +72,18 @@ def image_message(path):
 
 
 def load_config(path):
+    config_path = Path(path).resolve()
     c = json.loads((Path(__file__).resolve().parent.parent/'configs/defaults.json').read_text())
     from effective_config import merge
-    c=merge(c,json.loads(Path(path).read_text()))
+    c=merge(c,json.loads(config_path.read_text()))
     c['api_url'] = os.environ.get('QWEN_API_URL',c['api_url']).rstrip('/')
-    c['_config_path'] = str(Path(path).resolve())
-    c['video'] = str((Path(path).resolve().parent / c['video']).resolve())
-    c['output_dir'] = str((Path(path).resolve().parent / c['output_dir']).resolve())
-    c['stage_store_dir']=str((Path(path).resolve().parent / c.get('stage_store_dir',os.environ.get('ACTION_REFRAME_STAGE_STORE',str(Path(c['output_dir'])/'.stage_records')))).resolve())
+    c['_config_path'] = str(config_path)
+    c['_workspace_root'] = str(config_path.parent)
+    c['video'] = str((config_path.parent / c['video']).resolve())
+    c['output_dir'] = str((config_path.parent / c['output_dir']).resolve())
+    if c.get('leveling_annotation'):
+        c['leveling_annotation'] = str((config_path.parent / c['leveling_annotation']).resolve())
+    c['stage_store_dir']=str((config_path.parent / c.get('stage_store_dir',os.environ.get('ACTION_REFRAME_STAGE_STORE',str(Path(c['output_dir'])/'.stage_records')))).resolve())
     c['ffmpeg'] = imageio_ffmpeg.get_ffmpeg_exe()
     from stage_records import configure
     configure(c)
@@ -808,6 +812,19 @@ def render(c):
             if row['qwen_roll'] is not None and (row['qwen_level_confidence'] or 0)<.65:flags[i].append('visual_level_uncertain')
             if row['qwen_direction_mismatch']:flags[i].append('visual_level_direction_inconsistent')
         # Manual roll keys cannot silently override an explicitly selected gyro final source.
+    elif c.get('leveling_source')=='annotation':
+        from leveling_annotations import correction_series
+        annotation_roll,level_supported,level_quality,annotation_rows=correction_series(
+            c.get('_workspace_root',Path(c['video']).parent),c,meta['frames'])
+        roll=annotation_roll
+        for i,row in enumerate(annotation_rows):
+            flags[i]=[flag for flag in flags[i] if flag!='level_needs_review']
+            if not level_supported[i]:flags[i].append('visual_level_interpolated')
+            if level_quality[i]<.4:flags[i].append('visual_level_low_evidence')
+            flags[i].extend(flag for flag in row.get('flags',[]) if flag not in flags[i])
+        write_json(out/'level_annotation_summary.json',dict(
+            source=c['leveling_annotation'],supported=int(level_supported.sum()),frames=meta['frames'],
+            mean_evidence_quality=float(level_quality.mean())))
     corrections_path=out/'corrections.json'
     corrections=json.loads(corrections_path.read_text()) if corrections_path.exists() else {}
     zoom_anchors=confident_frames(observations,corrections,meta['frames'],confidence_threshold(c))
@@ -827,7 +844,7 @@ def render(c):
     if planner['enabled']:
         polygon_rows,absent=planner_polygons(observations,corrections,boxes,supported,meta)
         polygon_data=[None if poly is None else poly.tolist() for poly in polygon_rows]
-        gyro=json.loads((out/'gyro.json').read_text()) if c.get('leveling_source')=='gyro' else None
+        gyro=json.loads((out/'gyro.json').read_text()) if c.get('leveling_source') in ('gyro','annotation') and (out/'gyro.json').exists() else None
         # The image estimator operates after the same leveling applied by rendering.
         motion_gyro=gyro or dict(frames=[dict(roll=float(a)) for a in roll])
         video_stat=Path(c['video']).stat()
@@ -876,7 +893,7 @@ def render(c):
         selection_rows=frame_provenance(list(provenance.values()),n,supported,confidence_threshold(c))
     for i in range(n):
         tracks.append({'frame':i,'time':i/fps,'bbox':boxes[i].tolist() if supported[i] else None,
-            'roll':float(roll[i]),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
+            'roll':float(roll[i]),'level_source':c.get('leveling_source','visual'),'center':centers[i].tolist(),'crop_height':float(extent[i]),'crop_width':float(extent[i]*ow/oh),
             'minimum_crop_short_side':c.get('minimum_crop_short_side',180),'render_size':[ow,oh],
             'zoom_seconds_per_doubling':planner['seconds_per_doubling'] if planner['enabled'] else c.get('zoom_seconds_per_doubling',.5),
             'zoom_smoothing_seconds':planner['zoom_seconds'] if planner['enabled'] else c.get('zoom_smoothing_seconds',.15),

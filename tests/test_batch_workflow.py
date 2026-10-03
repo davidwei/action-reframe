@@ -153,7 +153,9 @@ class BatchTests(unittest.TestCase):
         self.batch.prepare(project,'green rectangle',False)
         self.assertEqual(current()['status'],'Draft')
         with self.assertRaises(ValueError):self.batch.prepare(project,'green rectangle',True)
-        config=read(self.root/project);config['reference_box']=[10,10,30,30];write(self.root/project,config)
+        config=read(self.root/project);config['reference_box']=[10,10,30,30]
+        # This state-machine test does not execute the separate GPU leveling prerequisite.
+        config['leveling_required']=False;write(self.root/project,config)
         self.batch.prepare(project,'green rectangle',True)
         self.assertEqual(current()['status'],'Ready')
         job=self.batch.enqueue([project])[0];self.assertEqual(current()['status'],'Processing')
@@ -164,6 +166,21 @@ class BatchTests(unittest.TestCase):
         self.assertTrue((self.root/project).exists());self.assertTrue((self.root/'clip.avi').exists())
         with self.assertRaises(ValueError):self.batch.enqueue([project])
         self.batch.restore(project);self.assertEqual(current()['status'],'Done')
+
+    def test_leveling_is_a_separate_prerequisite_job(self):
+        project=self.batch.create_project('clip.avi')['project']
+        config=read(self.root/project);config['reference_box']=[10,10,30,30];write(self.root/project,config)
+        self.batch.prepare(project,'green rectangle',True)
+        with self.assertRaisesRegex(ValueError,'complete visual leveling'):
+            self.batch.enqueue([project])
+        result=self.batch.enqueue_leveling(project,'indoor scene with long structural lines',1.5)
+        job=next(j for j in self.batch.jobs() if j['id']==result['job'])
+        run=read(self.root/job['config'])
+        self.assertEqual(run['batch_stage'],'leveling')
+        self.assertEqual(run['leveling_scene_hint'],'indoor scene with long structural lines')
+        self.assertEqual(run['leveling_budget_hours'],1.5)
+        state=next(p for p in self.batch.library()['projects'] if p['project']==project)
+        self.assertEqual(state['leveling']['status'],'Queued')
 
     def test_discard_cancels_queued_and_defers_running_archive(self):
         first=self.queue();self.batch.discard('project.json')

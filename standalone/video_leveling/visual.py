@@ -53,7 +53,9 @@ def angle_from_line(line,width,height):
     return math.degrees(math.atan2((y2-y1)*height,(x2-x1)*width))
 
 def observe(job,sample,endpoint,model,stage='primary'):
-    key=digest(dict(prompt=PROMPT,model=model,image_sha=sample['sha256'],version=1));path=job.out/stage/f'{sample["frame"]:09d}_{key[:16]}.json'
+    scene_hint=str(job.config.get('scene_hint','')).strip()
+    prompt=PROMPT+(f'\nUser scene hint: {scene_hint}\nUse this only to recognize plausible background cues. It is not measured geometry and must not override visible evidence.' if scene_hint else '')
+    key=digest(dict(prompt=prompt,model=model,image_sha=sample['sha256'],version=2));path=job.out/stage/f'{sample["frame"]:09d}_{key[:16]}.json'
     old=load(path)
     if old:return old
     start=time.monotonic();row=dict(frame=sample['frame'],time=sample['time'],model=model,stage=stage,key=key,image=sample['image'],reference_line=None,angle=None,quality=0.)
@@ -69,10 +71,10 @@ def observe(job,sample,endpoint,model,stage='primary'):
         for im in (image,marked):
             encoded=cv2.imencode('.jpg',im,[cv2.IMWRITE_JPEG_QUALITY,92])[1]
             content.append(dict(type='image_url',image_url=dict(url='data:image/jpeg;base64,'+base64.b64encode(encoded).decode())))
-        content.append(dict(type='text',text=PROMPT))
+        content.append(dict(type='text',text=prompt))
         payload=dict(model=model,messages=[dict(role='user',content=content)],temperature=0,max_tokens=500,chat_template_kwargs=dict(enable_thinking=False),response_format=dict(type='json_object'))
         answer=request(endpoint.rstrip('/')+'/chat/completions',payload,timeout=min(job.config['request_timeout'],max(1,job.remaining())))
-        row.update(response=answer,candidates=lines,prompt_version=digest(PROMPT))
+        row.update(response=answer,candidates=lines,prompt_version=digest(prompt),scene_hint=scene_hint)
         choice=answer['choices'][0]
         if choice.get('finish_reason')=='length':raise ValueError('Model output truncated')
         raw=choice['message']['content'];value=json.loads(raw[raw.index('{'):raw.rindex('}')+1]);cid=value.get('candidate_id')
@@ -91,8 +93,10 @@ def observations(job,stage):
     rows=[]
     folder=job.out/stage
     if not folder.exists():return rows
+    scene_hint=str(job.config.get('scene_hint','')).strip()
+    prompt=PROMPT+(f'\nUser scene hint: {scene_hint}\nUse this only to recognize plausible background cues. It is not measured geometry and must not override visible evidence.' if scene_hint else '')
     for path in folder.glob('*.json'):
         row=load(path)
-        if row and row.get('prompt_version') in (None,digest(PROMPT)):rows.append(row)
+        if row and row.get('prompt_version') in (None,digest(prompt)):rows.append(row)
     # This job locks effective models in its planning manifest; cache files include model hash.
     return sorted(rows,key=lambda r:r['frame'])

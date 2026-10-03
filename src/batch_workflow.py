@@ -112,6 +112,8 @@ class Batch:
         cap=cv2.VideoCapture(str(source));fps=cap.get(5);cap.release()
         if fps<=0:raise ValueError('Cannot read video')
         config['analysis_fps']=min(config['analysis_fps'],fps)
+        from leveling_annotations import gyro_available
+        config['leveling_required']=not gyro_available(source)
         name='project_'+uuid.uuid4().hex[:8]+'.json'
         config.update(video=str(source.relative_to(self.root)),output_dir='outputs/'+name[:-5],
                       reference_time=0,reference_box=None,target='')
@@ -211,8 +213,12 @@ class Batch:
                 prep = self.preparation(path.name)
                 ready=bool(prep.get('ready') and prep.get('revision')==rev and prep.get('description','').strip() and c.get('reference_box'))
                 revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
-                related=[j for j in jobs if j['project']==path.name]
-                updated_at=self.last_updated(path.name,c,prep,related)
+                all_related=[j for j in jobs if j['project']==path.name]
+                leveling_related=[];related=[]
+                for job in all_related:
+                    run=read(self.path(job['config']),{})
+                    (leveling_related if run.get('batch_stage')=='leveling' else related).append(job)
+                updated_at=self.last_updated(path.name,c,prep,all_related)
                 pending=next((j for j in reversed(related) if j['status'] in ('queued','starting','running')),None)
                 if path.name==active_project:pending={'id':None,'config':path.name,'status':'running'}
                 if path.name in discarded and not pending:
@@ -232,7 +238,15 @@ class Batch:
                 try:
                     self.rerender_source(path.name,jobs);can_rerender=not pending and path.name not in discarded
                 except (ValueError,OSError,KeyError):can_rerender=False
+                from leveling_annotations import annotation_status
+                leveling=annotation_status(self.root,c)
+                level_pending=next((j for j in reversed(leveling_related) if j['status'] in ('queued','starting','running')),None)
+                if level_pending:leveling['status']={'queued':'Queued','starting':'Starting','running':'Processing'}[level_pending['status']]
+                leveling['job']=level_pending['id'] if level_pending else None
+                leveling['hours']=float(c.get('leveling_budget_hours',6))
                 actions=['Label subject','Review descriptions']
+                if leveling['required'] and not leveling['annotation'] and not level_pending:actions.append('Queue leveling')
+                if leveling['annotation']:actions.append('Review leveling side by side')
                 if can_rerender:actions.append('Queue Rerendering (no re-analysis)')
                 if status=='Ready':actions.append('Queue processing')
                 if result_config or status in ('Processing','Done'):actions.append('Open video focus')
@@ -248,7 +262,7 @@ class Batch:
                     labels=len(labels),description=prep.get('description',''),
                     ready=ready,
                     stale=bool(prep.get('ready') and prep.get('revision')!=rev),
-                    analysis_fps=c.get('analysis_fps'),tracking_mode=c.get('tracking_mode','single')))
+                    analysis_fps=c.get('analysis_fps'),tracking_mode=c.get('tracking_mode','single'),leveling=leveling))
             except (ValueError,OSError,TypeError,KeyError):
                 continue
         videos=[str(p.relative_to(self.root)) for p in sorted(self.root.iterdir()) if p.is_file() and not p.name.startswith('.') and p.suffix.lower() in VIDEO_SUFFIXES]
@@ -263,9 +277,17 @@ class Batch:
             job['recovery']=json.loads(job['recovery']) if job.get('recovery') else None
             job['render_progress']=read(out/'render_progress.json',{})
             job['recovery_progress']=read(out/'recovery_progress.json',{})
-            job['progress']=({'stage':'render','completed':None,'total':None} if job['stage']=='render' else read(out/'analysis_progress.json',{}))
+            if job['stage']=='render':job['progress']={'stage':'render','completed':None,'total':None}
+            elif job['stage']=='leveling':
+                level_state=read(out/'state.json',{})
+                stages=level_state.get('stages',{})
+                current=next((name for name in ('export','review','refine','motion','primary','prepare','job') if name in stages),None)
+                row=stages.get(current,{}) if current else {}
+                job['progress']=dict(stage='leveling: '+(current or 'waiting'),completed=row.get('examined',row.get('completed_chunks')),
+                                     total=row.get('planned',row.get('total_chunks')),details=row)
+            else:job['progress']=read(out/'analysis_progress.json',{})
             from tracking_progress import progress_for_ui
-            job['progress']=progress_for_ui(out,c,job['progress'])
+            if job['stage']!='leveling':job['progress']=progress_for_ui(out,c,job['progress'])
             flags=read(out/'review_flags.json',[])
             job['review_count']=len(flags) if isinstance(flags,(list,dict)) else 0
             job['comparison_available']=(out/'comparison.mp4').exists()
@@ -286,6 +308,49 @@ class Batch:
     def active(self, queued_lane_only=False):
         return any(j['status'] in ('starting','running') and (not queued_lane_only or j['lane']=='queue') for j in self.jobs())
 
+    def save_leveling_settings(self, project, scene_hint, hours=6):
+        config, _, _ = self.inputs(project)
+        scene_hint = str(scene_hint or '').strip()
+        hours = float(hours)
+        if not 0 < hours <= 48:raise ValueError('Leveling budget must be between 0 and 48 hours')
+        config['leveling_scene_hint'] = scene_hint
+        config['leveling_budget_hours'] = hours
+        write(self.path(project), config)
+        with self.db() as db:db.execute('INSERT OR REPLACE INTO project_updates VALUES (?,?)',(project,time.time()))
+        return {'scene_hint':scene_hint,'hours':hours}
+
+    def enqueue_leveling(self, project, scene_hint=None, hours=None):
+        if project in self.discarded():raise ValueError('Restore the discarded project before queuing')
+        config, labels, revision = self.inputs(project)
+        if scene_hint is not None or hours is not None:
+            self.save_leveling_settings(project,scene_hint if scene_hint is not None else config.get('leveling_scene_hint',''),
+                                        hours if hours is not None else config.get('leveling_budget_hours',6))
+            config, labels, revision = self.inputs(project)
+        from leveling_annotations import annotation_status
+        status=annotation_status(self.root,config)
+        if status['gyro_available']:raise ValueError('This video has a supported gyro track; standalone visual leveling is not required')
+        if status['annotation']:return {'job':None,'status':status['status'],'already_done':True}
+        jobs=self.jobs()
+        for job in reversed(jobs):
+            if job['project']==project and job['status'] in ('queued','starting','running'):
+                run=read(self.path(job['config']),{})
+                if run.get('batch_stage')=='leveling':return {'job':job['id'],'status':job['status']}
+        job_id=uuid.uuid4().hex;out=self.root/'outputs'/'batch'/job_id
+        config_path=self.folder/'runs'/job_id/'project.json'
+        source=self.path(config['video']);hours=float(config.get('leveling_budget_hours',6))
+        snapshot=dict(config,video=str(source),output_dir=str(out),batch_stage='leveling',
+                      leveling_scene_hint=config.get('leveling_scene_hint',''),leveling_budget_hours=hours,
+                      batch_input_revision=revision)
+        write(config_path,snapshot);write(out/'corrections.json',labels)
+        stat=source.stat();source_stat={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns}
+        write(config_path.parent/'inputs.json',dict(project=project,revision=revision,
+            preparation=self.preparation(project),config=config,labels=labels,source_stat=source_stat,stage='leveling'))
+        now=time.time();relative=str(config_path.relative_to(self.root))
+        with self.db() as db:db.execute(
+            'INSERT INTO jobs (id,project,revision,status,created,updated,config) VALUES (?,?,?,?,?,?,?)',
+            (job_id,project,revision,'queued',now,now,relative))
+        return {'job':job_id,'status':'queued'}
+
     def enqueue(self, projects):
         if not projects: raise ValueError('Select at least one ready project')
         # Validate the entire selection before adding any jobs.
@@ -294,6 +359,10 @@ class Batch:
             if project in self.discarded():raise ValueError('Restore discarded projects before queuing')
             c,labels,rev=self.inputs(project);prep=self.preparation(project)
             if not prep.get('ready') or prep.get('revision')!=rev: raise ValueError(f'{project}: approve current inputs before queuing')
+            from leveling_annotations import annotation_status
+            level=annotation_status(self.root,c)
+            if c.get('leveling_required') and level['required'] and not level['annotation']:
+                raise ValueError(f'{project}: complete visual leveling before queuing object analysis')
             self.validate(c);prepared.append((project,c,labels,rev,prep))
         ids=[]
         with self.db() as db:
@@ -308,6 +377,8 @@ class Batch:
                 snapshot=dict(c,video=str(self.path(c['video'])),output_dir=str(out),
                     approved_target_description=prep['description'],batch_input_revision=revision,
                     stage_store_dir=str(self.folder/'stage_records'))
+                if c.get('leveling_annotation'):
+                    snapshot['leveling_annotation']=str(self.path(c['leveling_annotation']))
                 write(config_path,snapshot);write(out/'corrections.json',labels)
                 source_stat=self.path(c['video']).stat()
                 write(config_path.parent/'inputs.json',dict(project=project,revision=revision,preparation=prep,config=c,labels=labels,
@@ -361,8 +432,9 @@ class Batch:
             for key in ('output_width','output_height','subject_height_fraction','margin_fraction',
                         'hold_seconds','widen_seconds','smoothing_seconds','feather_pixels','border',
                         'minimum_crop_short_side','preserve_source_aspect','zoom_seconds_per_doubling','zoom_smoothing_seconds',
-                        'tracking_selection','leveling_source','level_divergence_degrees','render_planner','render_segment_seconds'):
+                        'tracking_selection','leveling_source','leveling_annotation','level_divergence_degrees','render_planner','render_segment_seconds'):
                 if key in current:snapshot[key]=current[key]
+            if current.get('leveling_annotation'):snapshot['leveling_annotation']=str(self.path(current['leveling_annotation']))
             prepared.append((project,rev,prep,current,labels,source_name,source_out,observations,meta,reference,snapshot,source_stat))
         ids=[]
         with self.db() as db:
@@ -583,6 +655,36 @@ class Batch:
                 subprocess.run([sys.executable,str(Path(__file__).resolve()),'--workspace',str(self.root),'--execute',row['id']])
                 self.recover()
 
+    def run_leveling(self, config_path, config, out):
+        runtime_value=os.environ.get('ACTION_LEVELING_PLAN')
+        runtime=Path(runtime_value).expanduser() if runtime_value else self.folder/'leveling_runtime.json'
+        if not runtime.is_file():
+            raise ValueError('Visual leveling runtime is not configured. Set ACTION_LEVELING_PLAN or .batch/leveling_runtime.json')
+        plan=read(runtime)
+        plan=dict(plan,working_directory=str(SOURCE.parent),run_output=str(out/'orchestrator'),pause_services=[])
+        plan['jobs']=[dict(video=str(self.path(config['video'])),output=str(out),
+            hours=float(config.get('leveling_budget_hours',6)),options=dict(
+                plan.get('job_defaults',{}),scene_hint=config.get('leveling_scene_hint','')))]
+        plan_path=config_path.parent/'leveling_plan.json';write(plan_path,plan)
+        if str(SOURCE.parent) not in sys.path:sys.path.insert(0,str(SOURCE.parent))
+        from standalone.video_leveling.orchestrate import run
+        run(plan_path)
+
+    def attach_leveling(self, project, out):
+        config,_,old_revision=self.inputs(project)
+        manifest=read(out/'leveling.json')
+        if not manifest:raise ValueError('Leveling job completed without an annotation manifest')
+        annotation=str((out/'leveling.json').relative_to(self.root))
+        config.update(leveling_source='annotation',leveling_annotation=annotation)
+        write(self.path(project),config)
+        _,_,new_revision=self.inputs(project)
+        preparation=self.preparation(project)
+        if preparation:
+            preparation=dict(preparation,revision=new_revision,updated_at=time.time())
+            with self.db() as db:db.execute('INSERT OR REPLACE INTO preparations VALUES (?,?)',(project,json.dumps(preparation)))
+        with self.db() as db:db.execute('INSERT OR REPLACE INTO project_updates VALUES (?,?)',(project,time.time()))
+        return {'annotation':annotation,'previous_revision':old_revision,'revision':new_revision}
+
     def execute(self, job_id, command=None):
         # Keep the run lock across the actual processor, even if the scheduler dies.
         with file_lock(self.folder/'locks'/(job_id+'.lock')) as acquired:
@@ -617,19 +719,23 @@ class Batch:
                         import runpy
                         with __import__('contextlib').redirect_stdout(log), __import__('contextlib').redirect_stderr(log):
                             stage=c.get('batch_stage','all')
-                            if stage not in ('all','render'):raise ValueError('Invalid batch stage')
-                            frozen=out/'resume_config.json'
-                            if not frozen.exists():
-                                from reframe import load_config
-                                effective=load_config(config)
-                                write(frozen,{k:v for k,v in effective.items() if not k.startswith('_')})
-                            os.environ['QWEN_API_URL']=read(frozen)['api_url']
-                            sys.argv=[str(SOURCE/'reframe.py'),str(frozen),'--stage',stage]
-                            runpy.run_path(str(SOURCE/'reframe.py'),run_name='__main__')
+                            if stage not in ('all','render','leveling'):raise ValueError('Invalid batch stage')
+                            if stage=='leveling':
+                                self.run_leveling(config,c,out)
+                                self.attach_leveling(row['project'],out)
+                            else:
+                                frozen=out/'resume_config.json'
+                                if not frozen.exists():
+                                    from reframe import load_config
+                                    effective=load_config(config)
+                                    write(frozen,{k:v for k,v in effective.items() if not k.startswith('_')})
+                                os.environ['QWEN_API_URL']=read(frozen)['api_url']
+                                sys.argv=[str(SOURCE/'reframe.py'),str(frozen),'--stage',stage]
+                                runpy.run_path(str(SOURCE/'reframe.py'),run_name='__main__')
                         code=0
                 if code:raise RuntimeError(f'Processor exited with code {code}; see job log')
                 saved_code=read(out/'code_version.json',{})
-                saved_code['render']=version
+                if c.get('batch_stage')!='leveling':saved_code['render']=version
                 write(out/'code_version.json',saved_code)
                 status,error='succeeded',None
             except BaseException as exc:

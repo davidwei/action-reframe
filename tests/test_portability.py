@@ -55,7 +55,7 @@ class PortabilityTests(unittest.TestCase):
         state = self.request('/api/state')
         self.assertIsNone(state['project'])
         self.assertEqual(state['config']['video'], '')
-        for path in ['/', '/compare', '/files/frame_analysis.js', '/files/configuration_review.js']:
+        for path in ['/', '/compare', '/leveling', '/files/frame_analysis.js', '/files/configuration_review.js']:
             with urllib.request.urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
         import re

@@ -13,7 +13,7 @@ from .pipeline import export, motion_pass, prepare, refine_pass, visual_pass
 
 def options(args):
     names=("base_fps","motion_fps","motion_width","chunk_seconds",
-           "max_anchor_gap_seconds","primary_seconds","review_seconds","request_timeout")
+           "max_anchor_gap_seconds","primary_seconds","review_seconds","request_timeout","scene_hint")
     return {name:getattr(args,name) for name in names if getattr(args,name,None) is not None}
 
 
@@ -41,6 +41,8 @@ def main(argv=None):
     parser.add_argument("--primary-seconds",type=float)
     parser.add_argument("--review-seconds",type=float)
     parser.add_argument("--request-timeout",type=float)
+    parser.add_argument("--scene-hint",default=None,
+                        help="Short user description of reliable scene-level cues; never treated as measured geometry")
     args=parser.parse_args(argv)
     if args.command in ("primary","refine") and not args.primary_model:
         parser.error(f"{args.command} requires --primary-model")
