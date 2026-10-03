@@ -1,0 +1,14 @@
+{
+  "primary": {
+    "label": "gemma4",
+    "served_name": "google/gemma-4-31B-it",
+    "path": "/absolute/path/to/gemma-4-31B-it",
+    "extra_args": ["--quantization", "fp8"]
+  },
+  "review": {
+    "label": "qwen38",
+    "served_name": "Qwen/Qwen3.8-27B-FP8",
+    "path": "/absolute/path/to/Qwen3.8-27B-FP8",
+    "extra_args": []
+  }
+}
