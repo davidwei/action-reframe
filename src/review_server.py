@@ -178,13 +178,28 @@ class Handler(BaseHTTPRequestHandler):
                 config=json.loads(local_path(config_name).read_text())
                 from leveling_annotations import annotation_status,validate_manifest,row_at
                 status=annotation_status(ROOT,config);result={'project':config_name,**status}
+                result['hours']=float(config.get('leveling_budget_hours',6))
+                from batch_workflow import Batch
+                latest=None
+                for job in reversed(Batch(ROOT).jobs()):
+                    if job['project']!=config_name:continue
+                    run=json.loads(local_path(job['config']).read_text())
+                    if run.get('batch_stage')=='leveling':
+                        latest={key:job.get(key) for key in ('id','status','updated','error')}
+                        break
+                result['job']=latest
+                if latest and latest['status'] in ('queued','starting','running'):
+                    result['status']={'queued':'Queued','starting':'Starting','running':'Processing'}[latest['status']]
+                elif latest and latest['status'] in ('failed','interrupted') and not status.get('annotation'):
+                    result['status']=latest['status'].title()
                 if status.get('annotation'):
                     path,manifest=validate_manifest(ROOT,config,True)
-                    result['manifest']=manifest
-                    review=path.parent/'review_intervals.json';timeline=path.parent/'timeline_preview.json'
-                    result['review_intervals']=json.loads(review.read_text()) if review.exists() else []
-                    result['timeline']=json.loads(timeline.read_text()) if timeline.exists() else []
-                    if 'frame' in q:result['row']=row_at(ROOT,config,int(q['frame'][0]))
+                    result['metadata']=manifest.get('metadata',{})
+                    if 'frame' in q:
+                        result['row']=row_at(ROOT,config,int(q['frame'][0]))
+                    else:
+                        review=path.parent/'review_intervals.json'
+                        result['review_intervals']=json.loads(review.read_text()) if review.exists() else []
                 return self.json_response(result)
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])

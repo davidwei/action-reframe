@@ -244,9 +244,7 @@ class Batch:
                 if level_pending:leveling['status']={'queued':'Queued','starting':'Starting','running':'Processing'}[level_pending['status']]
                 leveling['job']=level_pending['id'] if level_pending else None
                 leveling['hours']=float(c.get('leveling_budget_hours',6))
-                actions=['Label subject','Review descriptions']
-                if leveling['required'] and not leveling['annotation'] and not level_pending:actions.append('Queue leveling')
-                if leveling['annotation']:actions.append('Review leveling side by side')
+                actions=(['Leveling'] if leveling['required'] else [])+['Label subject','Review descriptions']
                 if can_rerender:actions.append('Queue Rerendering (no re-analysis)')
                 if status=='Ready':actions.append('Queue processing')
                 if result_config or status in ('Processing','Done'):actions.append('Open video focus')

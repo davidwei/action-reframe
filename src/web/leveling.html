@@ -1,24 +1,42 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Leveling review</title>
+<title>Leveling</title>
 <style>
-:root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1700px;margin:24px auto;padding:0 22px}a{color:#85d4f8}button,input{font:inherit;padding:8px 12px;color:inherit;background:#25485d;border:1px solid #526274;border-radius:6px}button{cursor:pointer}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.panel{background:#080b0f;border:1px solid #354654;border-radius:10px;overflow:hidden}.panel h2{font-size:17px;padding:8px 14px;margin:0;background:#1a2733}.panel img{display:block;width:100%;min-height:180px;object-fit:contain}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0}#seek{width:100%}pre{white-space:pre-wrap;background:#1a2430;padding:14px;border-radius:8px}.warn{color:#ffc286}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+:root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1700px;margin:24px auto;padding:0 22px}a{color:#85d4f8}button,input,textarea{font:inherit;padding:8px 12px;color:inherit;background:#182633;border:1px solid #526274;border-radius:6px}button{background:#25485d;cursor:pointer}button:disabled{opacity:.45;cursor:wait}textarea{display:block;width:min(900px,95%);min-height:80px;margin-top:6px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.panel,.settings{background:#151f29;border:1px solid #354654;border-radius:10px;padding:16px;margin:16px 0}.panel{background:#080b0f;padding:0;overflow:hidden}.panel h2{font-size:17px;padding:8px 14px;margin:0;background:#1a2733}.panel img{display:block;width:100%;min-height:180px;object-fit:contain}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0}#seek{width:100%}pre{white-space:pre-wrap;background:#1a2430;padding:14px;border-radius:8px}.warn{color:#ffc286}.error{color:#ffad9f}small{color:#adc0ce}@media(max-width:800px){.grid{grid-template-columns:1fr}}
 </style>
 <p><a href="/library">← Folder library</a> · <a id="projectLink">Video focus</a></p>
-<h1 id="title">Leveling review</h1>
-<p id="summary">Loading saved leveling annotations…</p>
-<div class="grid"><div class="panel"><h2>Original frame</h2><img id="raw" alt="Original source frame"></div><div class="panel"><h2>Leveled frame</h2><img id="leveled" alt="Frame rotated using saved leveling correction"></div></div>
-<div class="row"><button id="previousFlag">Previous review interval</button><button id="back">−1 frame</button><button id="forward">+1 frame</button><button id="nextFlag">Next review interval</button><span id="position"></span></div>
-<input id="seek" type="range" min="0" max="0" value="0" step="1" aria-label="Frame">
-<pre id="details"></pre>
-<p>Preview borders use reflected source pixels so rotation is easy to inspect. The annotation records only rotation; action rendering applies its own framing and border treatment.</p>
+<h1 id="title">Leveling</h1>
+<section class="settings">
+ <h2>Leveling setup</h2>
+ <p id="status">Loading project…</p>
+ <label>Scene hint for the visual model
+  <textarea id="sceneHint" placeholder="For example: open ocean with a visible sea-sky horizon; ignore sailboat masts and waves"></textarea>
+ </label>
+ <div class="row"><label>Maximum processing time <input id="hours" type="number" min="0.1" max="48" step="0.5" value="6" style="width:80px"> hours</label><button id="save">Save settings</button><button id="queue">Queue leveling analysis</button></div>
+ <small>Describe stable scene geometry that indicates level. The time budget controls how densely the visual models can inspect a long video. A queued analysis uses GPU models when the overnight queue is running.</small>
+ <p id="message" role="status"></p>
+</section>
+<section id="review" hidden>
+ <h2>Review leveling result</h2>
+ <p id="summary"></p>
+ <div class="grid"><div class="panel"><h2>Original frame</h2><img id="raw" alt="Original source frame"></div><div class="panel"><h2>Leveled frame</h2><img id="leveled" alt="Frame rotated using saved leveling correction"></div></div>
+ <div class="row"><button id="previousFlag">Previous review interval</button><button id="back">−1 frame</button><button id="forward">+1 frame</button><button id="nextFlag">Next review interval</button><span id="position"></span></div>
+ <input id="seek" type="range" min="0" max="0" value="0" step="1" aria-label="Frame">
+ <pre id="details"></pre>
+ <p>Preview borders use reflected source pixels so rotation is easy to inspect. The annotation records rotation; action rendering applies its own framing and border treatment.</p>
+</section>
 <script>
 const $=id=>document.getElementById(id),project=new URLSearchParams(location.search).get('config')||'';let state=null,frame=0,timer=null;
 $('projectLink').href='/?config='+encodeURIComponent(project);
-async function json(url){const r=await fetch(url),v=await r.json();if(!r.ok)throw Error(v.error||r.status);return v}
+async function json(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(v.error||r.status);return v}
+async function post(action,body){return json('/api/batch/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project,...body})})}
 function image(view){return '/api/leveling-frame?config='+encodeURIComponent(project)+'&frame='+frame+'&view='+view+'&v='+Date.now()}
-async function show(next){if(!state)return;frame=Math.max(0,Math.min(state.frames-1,Math.round(next)));$('seek').value=frame;$('raw').src=image('raw');$('leveled').src=image('leveled');const current=await json('/api/leveling-state?config='+encodeURIComponent(project)+'&frame='+frame);const row=current.row;const seconds=row.time_seconds;$('position').textContent=`${seconds.toFixed(3)} s · frame ${frame}/${state.frames-1}`;$('details').textContent=JSON.stringify({correction_degrees_ccw:row.correction_degrees_ccw,evidence_quality:row.evidence_quality,source:row.source,flags:row.flags},null,2)}
+async function show(next){if(!state?.annotation)return;frame=Math.max(0,Math.min(state.frames-1,Math.round(next)));$('seek').value=frame;$('raw').src=image('raw');$('leveled').src=image('leveled');const current=await json('/api/leveling-state?config='+encodeURIComponent(project)+'&frame='+frame);const row=current.row,seconds=row.time_seconds;$('position').textContent=`${seconds.toFixed(3)} s · frame ${frame}/${state.frames-1}`;$('details').textContent=JSON.stringify({correction_degrees_ccw:row.correction_degrees_ccw,evidence_quality:row.evidence_quality,source:row.source,flags:row.flags},null,2)}
 function flag(direction){const rows=state.review_intervals||[],candidate=(direction<0?[...rows].reverse():rows).find(r=>direction<0?r.end_frame<frame:r.start_frame>frame);if(candidate)show(direction<0?candidate.end_frame:candidate.start_frame)}
+function busy(){return ['queued','starting','running'].includes(state?.job?.status)}
+async function load(first=false){state=await json('/api/leveling-state?config='+encodeURIComponent(project));$('title').textContent='Leveling · '+project;if(first){$('sceneHint').value=state.scene_hint||'';$('hours').value=state.hours||6}$('status').textContent=state.gyro_available?'Supported gyro telemetry is available. Visual leveling is not required.':`Status: ${state.status}${state.job?.id?' · job '+state.job.id.slice(0,8):''}`;$('sceneHint').disabled=state.gyro_available;$('hours').disabled=state.gyro_available;$('save').disabled=state.gyro_available||busy();$('queue').disabled=state.gyro_available||busy()||Boolean(state.annotation);$('queue').textContent=busy()?'Leveling job '+state.job.status:state.annotation?'Leveling completed':'Queue leveling analysis';if(state.job?.error){$('message').textContent=state.job.error;$('message').className='error'}if(state.annotation){$('review').hidden=false;$('summary').textContent=`${state.estimated.toLocaleString()}/${state.frames.toLocaleString()} frames directly supported (${(state.coverage*100).toFixed(1)}%). ${state.unknown.toLocaleString()} frames lack direct support; ${state.needs_review.toLocaleString()} carry review flags.`;$('seek').max=state.frames-1;if(first)await show(0)}else $('review').hidden=true}
+$('save').onclick=async()=>{try{$('save').disabled=true;await post('leveling-settings',{scene_hint:$('sceneHint').value,hours:Number($('hours').value)});$('message').className='';$('message').textContent='Leveling settings saved.';await load()}catch(e){$('message').className='error';$('message').textContent=e.message}finally{$('save').disabled=state?.gyro_available||busy()}}
+$('queue').onclick=async()=>{try{$('queue').disabled=true;const result=await post('queue-leveling',{scene_hint:$('sceneHint').value,hours:Number($('hours').value)});$('message').className='';$('message').textContent=result.already_done?'A leveling result is already attached.':'Leveling analysis queued. Start the overnight queue from the folder view when GPU capacity is available.';await load()}catch(e){$('message').className='error';$('message').textContent=e.message}finally{$('queue').disabled=state?.gyro_available||busy()||Boolean(state?.annotation)}}
 $('back').onclick=()=>show(frame-1);$('forward').onclick=()=>show(frame+1);$('previousFlag').onclick=()=>flag(-1);$('nextFlag').onclick=()=>flag(1);$('seek').oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>show(Number($('seek').value)),80)};
-(async()=>{try{state=await json('/api/leveling-state?config='+encodeURIComponent(project));if(!state.annotation)throw Error('This project has no completed leveling annotation.');$('title').textContent='Leveling review · '+project;$('summary').textContent=`${state.status}: ${state.estimated.toLocaleString()}/${state.frames.toLocaleString()} frames directly supported (${(state.coverage*100).toFixed(1)}%). ${state.unknown.toLocaleString()} frames lack direct support; ${state.needs_review.toLocaleString()} carry review flags. Scene hint: ${state.scene_hint||'none'}`;$('seek').max=state.frames-1;await show(0)}catch(e){$('summary').textContent=e.message;$('summary').className='warn'}})();
+load(true).catch(e=>{$('status').textContent=e.message;$('status').className='error'});setInterval(()=>load().catch(()=>{}),5000);
 </script></html>

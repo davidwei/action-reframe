@@ -67,6 +67,17 @@ class PortabilityTests(unittest.TestCase):
                     self.assertIn('javascript',response.headers['Content-Type'],script)
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_folder_delegates_visual_leveling_to_detailed_page(self):
+        library=(review_server.WEB_ROOT/'library.html').read_text()
+        leveling=(review_server.WEB_ROOT/'leveling.html').read_text()
+        self.assertNotIn('Save leveling hint',library)
+        self.assertIn("button('Leveling'",library)
+        self.assertLess(library.index("button('Leveling'"),library.index("link('Label subject'"))
+        self.assertIn('Scene hint for the visual model',leveling)
+        self.assertIn('Maximum processing time',leveling)
+        self.assertIn('Queue leveling analysis',leveling)
+        self.assertIn('Review leveling result',leveling)
+
     def test_create_project_from_synthetic_video_and_relocate(self):
         video = self.root / 'sample.avi'
         writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'MJPG'), 10, (64, 48))
