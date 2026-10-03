@@ -70,6 +70,7 @@ class PortabilityTests(unittest.TestCase):
     def test_folder_delegates_visual_leveling_to_detailed_page(self):
         library=(review_server.WEB_ROOT/'library.html').read_text()
         leveling=(review_server.WEB_ROOT/'leveling.html').read_text()
+        tracking=(review_server.WEB_ROOT/'review.html').read_text()
         self.assertNotIn('Save leveling hint',library)
         self.assertIn("button('Leveling'",library)
         self.assertLess(library.index("button('Leveling'"),library.index("link('Label subject'"))
@@ -79,6 +80,10 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('Review leveling result',leveling)
         self.assertIn('id="play">▶ Play',leveling)
         self.assertIn('/api/leveling-playback',leveling)
+        self.assertIn('<h1>Object tracking</h1>',tracking)
+        self.assertNotIn('Step 0 · Leveling analysis',tracking)
+        self.assertIn('id="playTracking"',tracking)
+        self.assertIn('/api/preview?video=',tracking)
 
     def test_create_project_from_synthetic_video_and_relocate(self):
         video = self.root / 'sample.avi'

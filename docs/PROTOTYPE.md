@@ -1,4 +1,4 @@
-# Video focus prototype
+# Object tracking prototype
 
 > Historical prototype reference: algorithms and defaults below include superseded behavior. Use [current approach](CURRENT_APPROACH.md) and [video processing paths](TWO_PATH_TRACKING.md) for new runs.
 

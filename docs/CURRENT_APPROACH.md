@@ -24,7 +24,7 @@ Four core components remain the foundation:
 
 The **video scheduler** expands forward/backward from labels and accepted detections, then discovers unresolved regions. The **folder workflow** collects approved inputs and processes queued videos offline. Leveling, camera smoothing, compositing and review consume those results. See [video processing paths](TWO_PATH_TRACKING.md) for the per-frame rules and [architecture roadmap](ARCHITECTURE_ROADMAP.md) for remaining work.
 
-The library supports New, Draft, Ready, Processing and Done projects; labels/descriptions open the relevant Video focus section. Analysis and rerender jobs share a persistent serial queue. Rerenders take priority over waiting analyses without interrupting a running job. Completed results remain available while a new attempt runs or fails. Jobs execute outside the browser/Codex session.
+The library supports New, Draft, Ready, Processing and Done projects; labels/descriptions open the relevant Object tracking section. Analysis and rerender jobs share a persistent serial queue. Rerenders take priority over waiting analyses without interrupting a running job. Completed results remain available while a new attempt runs or fails. Jobs execute outside the browser/Codex session.
 
 Queued inputs are snapshots. Each job starts a fresh process using the installed code at that time; changing a source project does not rewrite queued inputs. Review/approve and queue fresh inputs when settings change. Running jobs keep their loaded implementation.
 
@@ -32,7 +32,7 @@ Queued inputs are snapshots. Each job starts a fresh process using the installed
 
 New projects inherit shared defaults: gyro leveling; independent raw/leveled optical branches; 10 FPS **Crop Verification FPS** (`analysis_fps` internally); discovery capped at 2 FPS per branch; source-FPS optical flow; 50% acceptance; 85% priority anchors. Existing projects retain their settings.
 
-Video focus and synchronized comparison expose exact-frame evidence, confidence provenance and configuration differences. Estimated cyan/raw, orange/leveled, magenta/optical and green/selected outlines are dotted; human labels are solid white. An available estimate can be approved even at zero confidence. Unsampled frames do not borrow nearby independent detections as their own evidence.
+Object tracking and synchronized comparison expose exact-frame evidence, confidence provenance and configuration differences. Estimated cyan/raw, orange/leveled, magenta/optical and green/selected outlines are dotted; human labels are solid white. An available estimate can be approved even at zero confidence. Unsampled frames do not borrow nearby independent detections as their own evidence.
 
 Description changes are explicit user actions. Positive crop checks should reach 80%; marked-absent examples should stay at or below 20%. Draft/check requests persist their status across navigation and prevent duplicate work for the same project; different projects may run concurrently. These requests run in the review server, so a server restart interrupts them.
 

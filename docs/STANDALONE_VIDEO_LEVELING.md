@@ -78,5 +78,6 @@ Action Reframe consumes the annotation through `leveling_source: annotation`. Th
 validates schema, source size and modification time, frame count, angle convention, and
 every shard checksum. Unsupported frames remain marked in review data; the numeric camera
 path interpolates them only because tracking and rendering require a correction at every
-frame. Video focus and Folder library expose leveling as Step 0, and `/leveling` provides
-CPU-only raw/leveled frame comparison before object analysis.
+frame. The Folder library exposes a Leveling button only when supported gyro is absent;
+`/leveling` owns the setup, queue controls, and CPU-only raw/leveled review before
+object analysis. Object tracking remains focused on subject labels and tracking results.

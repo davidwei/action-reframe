@@ -1,6 +1,6 @@
 # Lookout — operating guide
 
-Open **/lookout** from Folder view or Video focus. This first release generates a
+Open **/lookout** from Folder view or Object tracking. This first release generates a
 local daily report with up to three UX suggestions and three operational
 suggestions, without scores. Fewer suggestions mean insufficient evidence, not a
 broken report. See the [project plan](LOOKOUT_PLAN.md) for the design.

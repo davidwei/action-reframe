@@ -1,6 +1,6 @@
 # Adaptive verification and minimum rendering crop
 
-New projects default to **Adaptive**, as explicitly requested on 2026-09-29. **Evaluate only** remains available in Video focus → Output → Verification scheduling and keeps actual verification while recording proposed decisions. **Fixed cadence** disables skipping. Running processes retain their loaded policy. Existing queued snapshots retain explicit settings unless deliberately migrated; the waiting analyses were migrated to Adaptive at the user’s request with their previous inputs archived.
+New projects default to **Adaptive**, as explicitly requested on 2026-09-29. **Evaluate only** remains available in Object tracking → Output → Verification scheduling and keeps actual verification while recording proposed decisions. **Fixed cadence** disables skipping. Running processes retain their loaded policy. Existing queued snapshots retain explicit settings unless deliberately migrated; the waiting analyses were migrated to Adaptive at the user’s request with their previous inputs archived.
 
 ## Output settings
 

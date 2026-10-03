@@ -350,7 +350,7 @@ with file_lock(root/'.batch/locks'/(job+'.lock')) as acquired:
         self.assertEqual(project['latest_job'],'failed')
         self.assertEqual(project['result_config'],old_config)
         self.assertIsNone(project['completed_config']) # Previous inputs are not marked complete.
-        self.assertIn('Open video focus',project['actions'])
+        self.assertIn('Open object tracking',project['actions'])
         self.assertIn('Watch side by side',project['actions'])
         self.assertTrue((output/'comparison.mp4').exists())
         # Do not offer a dead result link if its files have been removed externally.

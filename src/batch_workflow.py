@@ -247,7 +247,7 @@ class Batch:
                 actions=(['Leveling'] if leveling['required'] else [])+['Label subject','Review descriptions']
                 if can_rerender:actions.append('Queue Rerendering (no re-analysis)')
                 if status=='Ready':actions.append('Queue processing')
-                if result_config or status in ('Processing','Done'):actions.append('Open video focus')
+                if result_config or status in ('Processing','Done'):actions.append('Open object tracking')
                 if result_config:actions.append('Watch side by side')
                 actions.append('Discard project')
                 projects.append(dict(project=path.name,updated_at=updated_at,status=status,actions=actions,discard_pending=path.name in discarded,

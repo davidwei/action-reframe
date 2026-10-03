@@ -14,11 +14,12 @@ that folder; recursive subfolder import is not yet implemented.
    the entire video. Frame previews remain available during conversion. Original
    videos and analysis/output FPS are unchanged. The project starts
    New with no assumed subject. Open the focus editor to draw its first box, or
-   use Review descriptions to jump to the description section of Video focus. New projects default
+   use Review descriptions to jump to the description section of Object tracking. New projects default
    to anchor tracking. You can save additional polygon labels before analysis.
    Existing projects are listed separately, including multiple targets per video.
-2. **Resolve leveling before object analysis.** The project view validates whether
-   supported DJI attitude covers every source frame. When it does not, Step 0 accepts
+2. **Resolve leveling before object analysis.** The Folder library validates whether
+   supported DJI attitude covers every source frame. When it does not, a **Leveling**
+   button before **Label subject** opens the dedicated setup and review page. That page accepts
    a short scene hint and a maximum processing budget, then queues standalone visual
    leveling. The hint helps identify plausible horizons or structural references but
    never supplies geometry. Completed annotations show `Done` separately from their
@@ -28,7 +29,7 @@ that folder; recursive subfolder import is not yet implemented.
    capacity. Object analysis is blocked for new projects explicitly marked as requiring
    leveling until a source-matched, checksummed annotation is attached.
 3. **Prepare inputs.** Open labels/settings to set Crop Verification FPS, tracking mode and
-   confidence thresholds. Use Review descriptions to open the description editor in Video focus. With
+   confidence thresholds. Use Review descriptions to open the description editor in Object tracking. With
    labeled crops and no saved text, Qwen prepopulates a draft using all
    ground-truth crops; without crops the editor starts empty. Saved text is
    preserved, and a regenerate control can draft again from the crops. Edit the
@@ -122,20 +123,21 @@ links to each video's existing flags and comparison view.
 | New | Video added; no user labels or text yet | Label subject; Review descriptions; Discard project |
 | Draft | Some user input exists; readiness requirements are incomplete | Label subject; Review descriptions; Discard project |
 | Ready | At least one cropped box and an approved description for current inputs | Label subject; Review descriptions; Queue processing; Discard project |
-| Processing | Queued, starting or running | Label subject; Review descriptions; Open video focus; Discard project |
-| Done | Successful processing for current inputs (including unchanged legacy output) | Label subject; Review descriptions; Open video focus; Watch side by side; Discard project |
+| Processing | Queued, starting or running | Label subject; Review descriptions; Open object tracking; Discard project |
+| Done | Successful processing for current inputs (including unchanged legacy output) | Label subject; Review descriptions; Open object tracking; Watch side by side; Discard project |
 
 Leveling has its own prerequisite status: `Not queued`, `Queued`, `Processing`, or
 `Done`. A completed job may still have partial evidence coverage; `Done` describes job
-completion, while coverage and review counts describe result quality.
+completion, while coverage and review counts describe result quality. Projects with
+supported gyro do not show the Folder library's Leveling button.
 
-These names are canonical across states. **Label subject** opens Video focus at
+These names are canonical across states. **Label subject** opens Object tracking at
 `#subject-labels`; **Review descriptions** opens that same workspace at
-`#identity-description`. **Open video focus** opens the current run, showing
+`#identity-description`. **Open object tracking** opens the current run, showing
 progress during processing and results afterward. There is no separate generic
 “edit inputs,” “view progress” or “review result” project action. Queue-specific
 pause, cancel and retry controls remain in the queue; download/comparison controls
-remain in Video focus.
+remain in Object tracking.
 
 Queued/Running remain job substatuses. Failed or interrupted runs do not count as
 Done: their project remains Ready if inputs are still approved, with error/retry
@@ -155,7 +157,7 @@ processing output update. Merely refreshing the library does not change it.
 
 ### Description review and consistency checks
 
-Video focus → Review descriptions displays every positive human selection (including
+Object tracking → Review descriptions displays every positive human selection (including
 its initial reference, overridden by any correction at that frame). Polygon labels
 use the same masked source-space crops as tracking. Each card shows its frame/time,
 crop image, independent crop description, identity confidence, discrepancies,
@@ -291,7 +293,7 @@ without examining every position on the finer analysis grid.
 
 ### Three-timescale coverage reporting
 
-Folder job rows and Video focus now share three coverage cards:
+Folder job rows and Object tracking now share three coverage cards:
 
 | Counter | Denominator | Unique position count |
 | --- | --- | --- |
@@ -347,14 +349,14 @@ independent localization. The number of positions with recorded confidence is
 shown separately. Older runs show unavailable confidence counts; active workers
 must finish before new jobs collect these additional statistics.
 
-Video focus settings lock only while that specific project's job is starting or
+Object tracking settings lock only while that specific project's job is starting or
 running. Other source projects (including queued projects) remain editable;
 already queued jobs retain their saved input snapshots. Saved batch-run snapshots
 remain read-only. Direct analysis/render launches still respect the shared queue's
 execution lock; editing an idle project's settings does not start another job.
 
 Frame-local model-output failures (truncated, malformed, or empty answers) are
-recorded in `analysis_failures.json` and the scheduler checkpoint. The Video focus
+recorded in `analysis_failures.json` and the scheduler checkpoint. The Object tracking
 Review queue lists their exact frame, path, and error even before rendering;
 clicking an entry opens that frame. Frame Analysis also displays the error.
 A successful alternate path remains usable. Failed outputs never count as absence
@@ -388,7 +390,7 @@ was recomputed. For outdated or unknown work, **Re-run analysis** queues approve
 inputs in a new run and **Re-render (no re-analysis)** uses the priority render
 queue. Active jobs remain protected, and unapproved projects link to input review.
 
-Video focus navigation is ordered: Previous reviewed, Previous tracked, Previous
+Object tracking navigation is ordered: Previous reviewed, Previous tracked, Previous
 sampled, Previous frame, Next frame, Next sampled, Next tracked, Next reviewed.
 Tracked navigation requires an accepted box at that exact observation (or a human
 label), not interpolated rendering coordinates; absence labels override estimates.

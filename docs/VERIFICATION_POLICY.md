@@ -52,7 +52,7 @@ Regression tests replay the malformed absence shapes seen at frames 869, 899 and
 
 ## Optical prediction overlay
 
-Video focus offers a default-on “Show optical predictions (purple)” toggle. Magenta dotted rectangles show source-space optical predictions before identity/crop acceptance, on both raw and transformed views. Frame Analysis labels motion quality separately from identity confidence. Failed motion estimates never draw the held previous box as a prediction.
+Object tracking offers a default-on “Show optical predictions (purple)” toggle. Magenta dotted rectangles show source-space optical predictions before identity/crop acceptance, on both raw and transformed views. Frame Analysis labels motion quality separately from identity confidence. Failed motion estimates never draw the held previous box as a prediction.
 
 New anchor processing appends each visited frame's motion result to `optical_motion.jsonl` before validation. The latest attempt per frame is displayed; attempts remain in the log. A fresh analysis resets that diagnostic log, while checkpoint resume retains it and rerender snapshots copy it. The UI server caches decoded logs until their size/mtime changes. Existing runs can expose checkpoint predictions retained in `propagation_validation`; unavailable intermediate predictions are not interpolated or invented.
 

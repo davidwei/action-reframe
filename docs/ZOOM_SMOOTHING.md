@@ -10,7 +10,7 @@ Tracking selection and analysis are unchanged. Existing analysis can be rerender
 
 ## Settings
 
-Video focus → Output exposes:
+Object tracking → Output exposes:
 
 - **Seconds per 2× zoom change** (`zoom_seconds_per_doubling`): default **0.5 seconds**. Larger values mean slower transitions; must be positive.
 - **Log-zoom smoothing (seconds)** (`zoom_smoothing_seconds`): default **0.15 seconds**, the Gaussian standard deviation in video time. Zero disables this preliminary smoothing, while preserving the speed bound and look-ahead.

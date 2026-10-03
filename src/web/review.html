@@ -1,19 +1,18 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Video focus</title>
+<title>Object tracking</title>
 <style>
 :root{color-scheme:dark;font:16px system-ui;background:#10151c;color:#e5edf5}body{max-width:1250px;margin:32px auto;padding:0 24px}h1{font-size:30px}h2{font-size:21px}p,small{color:#adbcca}section{padding:20px;background:#1a2430;border-radius:12px;margin:18px 0}button,input,select,textarea{font:inherit;padding:9px;border-radius:6px;border:1px solid #526274;background:#15202d;color:inherit}button{cursor:pointer;background:#28576b}button:hover{background:#34728b}button:disabled{opacity:.4;cursor:wait}textarea{width:95%;height:65px}canvas{width:100%;height:auto;touch-action:none;background:#070a0e}video{width:100%;max-height:650px;background:black}input[type=range]{width:95%}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.flags{max-height:220px;overflow:auto}.flag{display:block;width:100%;text-align:left;margin:5px 0;background:#443723}a{color:#85d4f8}pre{white-space:pre-wrap;font-size:12px;max-height:150px;overflow:auto}#notice{position:sticky;top:0;background:#304759;padding:10px;border-radius:5px;z-index:10}label{display:inline-flex;gap:8px;align-items:center}@media(max-width:700px){.two{grid-template-columns:1fr}}
 </style>
 <p><a href="/library">← Folder library and batch queue</a></p><p><a href="/lookout">Lookout · daily improvements and collection controls</a></p>
-<h1>Video focus</h1><p id="projectName"></p><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
+<h1>Object tracking</h1><p id="projectName"></p><p>Choose a subject, follow it smoothly, and review uncertain moments.</p>
 <div id="notice">Loading project…</div>
-<section id="levelingStep" hidden><h2>Step 0 · Leveling analysis</h2><p id="levelingStatus"></p><textarea id="levelingHint" placeholder="Quick scene hint, for example: open ocean with a visible sea-sky horizon; ignore masts, sails and waves"></textarea><div class="row"><label>Maximum hours <input id="levelingHours" type="number" min="0.1" max="48" step="0.5" value="6" style="width:75px"></label><button id="saveLevelingHint">Save hint</button><button id="queueLeveling">Queue leveling analysis</button><a id="reviewLeveling" hidden>Review leveling side by side</a></div><p>Scene hints help the visual model recognize plausible distant references; visible image evidence remains authoritative. Queuing does not require an object label. Execution requires the configured local vision models and GPU capacity.</p></section>
 <section id="subject-labels"><h2>Source and target</h2>
 <div class="row"><select id="videos" aria-label="Source video"></select><button id="loadVideo">Load source</button><label>Time (s) <input id="time" type="number" min="0" step="0.1" value="0" style="width:90px"></label><button id="seek">Show frame</button></div>
 <div class="two"><div><p>Original source</p><canvas id="source" width="1920" height="1080"></canvas></div><div><p id="processedCaption">Leveled and zoomed preview</p><canvas id="processed" width="1280" height="720"></canvas></div></div>
 <input id="scrub" type="range" min="0" max="1901" value="0" aria-label="Frame">
 <p id="frameInfo"></p>
-<div id="frameNavigation" class="row" aria-label="Frame navigation"><button id="previous">Previous frame</button><button id="next">Next frame</button></div>
+<div id="frameNavigation" class="row" aria-label="Frame navigation"><button id="playTracking" disabled>▶ Play</button><button id="previous">Previous frame</button><button id="next">Next frame</button></div><video id="trackingPlayback" muted playsinline hidden></video>
 <div id="frameAnalysis"></div><section id="configurationReview"></section>
 <p>Drag a rectangle on either view. The corresponding polygon is shown on the other view; saving preserves the original-space polygon. Raw path: cyan polygon. Leveled path: orange rectangle. Both appear only for results recorded at this frame, including uncertain estimates. No interpolated or held boxes are overlaid. The green rectangle is the selected observation; your selection is white. Magenta dotted boxes show optical predictions before crop validation. Reliable optical predictions can drive framing even when identity verification fails; they do not imply verified identity.</p>
 <label><input id="showOptical" type="checkbox" checked> Show optical predictions (magenta)</label>
@@ -44,7 +43,7 @@
 <script src="/files/frame_analysis.js?v=camera-planner-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
-let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw';
+let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw',trackingPlaying=false,trackingPlayToken=0,trackingClipStart=0;
 $('compare').href='/compare?config='+encodeURIComponent(project);
 const ctx=$('source').getContext('2d');let inspectedBox=null;
 $('frameAnalysis').addEventListener('analysis-box',async event=>{
@@ -60,12 +59,8 @@ function rectangle(box){return [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],
 function mapped(points,matrix){return points.map(([x,y])=>[matrix[0][0]*x+matrix[0][1]*y+matrix[0][2],matrix[1][0]*x+matrix[1][1]*y+matrix[1][2]])}
 function outline(context,points,color){if(!points?.length)return;context.strokeStyle=color;context.lineWidth=3;context.setLineDash(color==='#ffffff'?[]:[7,4]);context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();context.stroke()}
 $('showOptical').onchange=()=>draw();
-function draw(){
- if(loadedFrame!==frame||loadedVideo!==sourceVideo)return;
- ctx.clearRect(0,0,$('source').width,$('source').height);ctx.drawImage(img,0,0);
- const processedContext=$('processed').getContext('2d');processedContext.clearRect(0,0,$('processed').width,$('processed').height);
- if(processedImage)processedContext.drawImage(processedImage,0,0);
- const both=(points,color)=>{outline(ctx,points,color);if(geometry&&processedImage)outline(processedContext,mapped(points,geometry.source_to_view),color)};
+function drawOverlays(processedContext,hasProcessed){
+ const both=(points,color)=>{outline(ctx,points,color);if(geometry&&hasProcessed)outline(processedContext,mapped(points,geometry.source_to_view),color)};
  if(sourceVideo===state.config?.video){
   for(const box of FrameAnalysis.playbackBoxes(state,frame))both(box.polygon,box.path==='raw_angle'?'#00e5ff':'#ff9f32');
   const manual=FrameAnalysis.humanLabel(state,frame),box=manual&&'bbox'in manual?manual.bbox:FrameAnalysis.renderedBox(state,frame);
@@ -76,8 +71,29 @@ function draw(){
  if(selectionPolygon){const raw=selectionSpace==='processed'?mapped(selectionPolygon,geometry.view_to_source):selectionPolygon;both(raw,'#ffffff')}
  if(inspectedBox?.frame===frame&&inspectedBox?.video===sourceVideo&&inspectedBox.box)both(rectangle(inspectedBox.box),inspectedBox.color||'#ffe066');
 }
+function draw(){
+ if(loadedFrame!==frame||loadedVideo!==sourceVideo)return;
+ ctx.clearRect(0,0,$('source').width,$('source').height);ctx.drawImage(img,0,0);
+ const processedContext=$('processed').getContext('2d');processedContext.clearRect(0,0,$('processed').width,$('processed').height);
+ if(processedImage)processedContext.drawImage(processedImage,0,0);
+ drawOverlays(processedContext,Boolean(processedImage));
+}
+function stopTrackingPlayback(){trackingPlayToken++;trackingPlaying=false;$('trackingPlayback').pause();$('playTracking').textContent='▶ Play';$('playTracking').disabled=!sourceVideo}
+function playbackGeometry(track){
+ if(track?.center&&track.crop_height>0){const [cx,cy]=track.center,[width,height]=track.render_size||[state.config.output_width||1280,state.config.output_height||720],scale=height/track.crop_height,angle=(track.roll||0)*Math.PI/180,alpha=scale*Math.cos(angle),beta=scale*Math.sin(angle);return {source_to_view:[[alpha,beta,width/2-alpha*cx-beta*cy],[-beta,alpha,height/2+beta*cx-alpha*cy]],width,height,mode:'saved_render',roll_degrees:track.roll||0}}
+ return {source_to_view:[[1,0,0],[0,1,0]],width:info.width,height:info.height,mode:'raw_full_frame',roll_degrees:null}
+}
+function drawTrackingPlayback(){
+ if(!trackingPlaying)return;const video=$('trackingPlayback'),seconds=trackingClipStart+video.currentTime;frame=Math.max(0,Math.min(info.frames-1,Math.round(seconds*info.fps)));loadedFrame=frame;loadedVideo=sourceVideo;$('scrub').value=frame;$('time').value=seconds.toFixed(3);$('frameInfo').textContent=`Frame ${frame} / ${info.frames-1} · continuous 15 FPS preview`;
+ $('source').width=info.width;$('source').height=info.height;ctx.clearRect(0,0,info.width,info.height);ctx.drawImage(video,0,0,info.width,info.height);
+ geometry=playbackGeometry(state.tracks?.[frame]);const canvas=$('processed'),processedContext=canvas.getContext('2d');if(canvas.width!==geometry.width||canvas.height!==geometry.height){canvas.width=geometry.width;canvas.height=geometry.height}processedContext.save();processedContext.setTransform(1,0,0,1,0,0);processedContext.filter='blur(18px)';processedContext.drawImage(video,-canvas.width*.06,-canvas.height*.06,canvas.width*1.12,canvas.height*1.12);processedContext.restore();const m=geometry.source_to_view;processedContext.save();processedContext.setTransform(m[0][0],m[1][0],m[0][1],m[1][1],m[0][2],m[1][2]);processedContext.drawImage(video,0,0,info.width,info.height);processedContext.restore();drawOverlays(processedContext,true);$('processedCaption').textContent=geometry.mode==='saved_render'?`Leveled and zoomed — continuous preview (${geometry.roll_degrees.toFixed(2)}°)`:'Original framing — tracking render unavailable';
+ video.requestVideoFrameCallback?video.requestVideoFrameCallback(drawTrackingPlayback):requestAnimationFrame(drawTrackingPlayback);
+}
+async function playTrackingFrom(seconds){
+ const token=++trackingPlayToken,video=$('trackingPlayback');$('playTracking').disabled=true;$('playTracking').textContent='Preparing preview…';selection=null;selectionPolygon=null;let clip;for(;;){clip=await request('/api/preview?video='+encodeURIComponent(sourceVideo)+'&time='+seconds);if(token!==trackingPlayToken)return;if(clip.status==='ready')break;if(clip.status==='error')throw Error(clip.error||'Preview conversion failed');await new Promise(resolve=>setTimeout(resolve,500))}trackingClipStart=clip.start;video.src=clip.url;await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=()=>reject(Error('Browser could not load the preview clip'));video.load()});if(token!==trackingPlayToken)return;video.currentTime=Math.max(0,seconds-trackingClipStart);trackingPlaying=true;$('playTracking').disabled=false;$('playTracking').textContent='❚❚ Pause';await video.play();drawTrackingPlayback();
+}
 async function showFrame(){
- const id=++loadId;frame=Math.max(0,Math.min(info.frames-1,Math.round(frame)));$('scrub').value=frame;$('time').value=(frame/info.fps).toFixed(3);$('frameInfo').textContent=`Frame ${frame} / ${info.frames-1}`;selection=null;selectionPolygon=null;geometry=null;processedImage=null;
+ stopTrackingPlayback();const id=++loadId;frame=Math.max(0,Math.min(info.frames-1,Math.round(frame)));$('scrub').value=frame;$('time').value=(frame/info.fps).toFixed(3);$('frameInfo').textContent=`Frame ${frame} / ${info.frames-1}`;selection=null;selectionPolygon=null;geometry=null;processedImage=null;
  const fresh=new Image();fresh.src=`/api/frame?video=${encodeURIComponent(sourceVideo)}&frame=${frame}`;
  const preview=sourceVideo===state.config?.video&&project?request('/api/review-frame?config='+encodeURIComponent(project)+'&frame='+frame).catch(error=>({error:error.message})):Promise.resolve(null);
  const [_,data]=await Promise.all([fresh.decode(),preview]);if(id!==loadId)return;
@@ -85,18 +101,16 @@ async function showFrame(){
  $('processedCaption').textContent=data?.error?'Processed preview unavailable: '+data.error:geometry?.mode==='saved_render'?`Leveled and zoomed — saved render geometry (${geometry.roll_degrees.toFixed(2)}°)`:geometry?.level_available?`Leveled full frame (${geometry.roll_degrees.toFixed(2)}°) — render to enable zoomed preview`:'Full frame — leveling unavailable; no rotation applied';
  img=fresh;loadedFrame=frame;loadedVideo=sourceVideo;$('source').width=info.width;$('source').height=info.height;draw();showAnalysis();$('roll').value=(state.tracks?.[frame]?.roll||0).toFixed(1);
 }
-async function loadVideo(){sourceVideo=$('videos').value;info=await request('/api/info?video='+encodeURIComponent(sourceVideo));$('scrub').max=info.frames-1;frame=Math.round(Number($('time').value)*info.fps);await showFrame()}
+async function loadVideo(){stopTrackingPlayback();sourceVideo=$('videos').value;info=await request('/api/info?video='+encodeURIComponent(sourceVideo));$('scrub').max=info.frames-1;frame=Math.round(Number($('time').value)*info.fps);await showFrame();$('playTracking').disabled=false}
 function point(e,canvas){const r=canvas.getBoundingClientRect();return [Math.max(0,Math.min(canvas.width,(e.clientX-r.left)*canvas.width/r.width)),Math.max(0,Math.min(canvas.height,(e.clientY-r.top)*canvas.height/r.height))]}
 for(const [id,space] of [['source','raw'],['processed','processed']]){
  const canvas=$(id);
- canvas.onpointerdown=e=>{if(loadedFrame!==frame||space==='processed'&&!geometry)return;selectionSpace=space;drag=point(e,canvas);canvas.setPointerCapture(e.pointerId)};
+ canvas.onpointerdown=e=>{if(trackingPlaying||loadedFrame!==frame||space==='processed'&&!geometry)return;selectionSpace=space;drag=point(e,canvas);canvas.setPointerCapture(e.pointerId)};
  const move=e=>{if(!drag||selectionSpace!==space)return;const p=point(e,canvas);const box=[Math.min(drag[0],p[0]),Math.min(drag[1],p[1]),Math.max(drag[0],p[0]),Math.max(drag[1],p[1])];selectionPolygon=rectangle(box);const raw=space==='processed'?mapped(selectionPolygon,geometry.view_to_source):selectionPolygon;selection=[Math.min(...raw.map(p=>p[0])),Math.min(...raw.map(p=>p[1])),Math.max(...raw.map(p=>p[0])),Math.max(...raw.map(p=>p[1]))];draw()};
  canvas.onpointermove=move;canvas.onpointerup=e=>{move(e);drag=null};canvas.onpointercancel=()=>{drag=null};
 }
 $('frameAnalysis').addEventListener('analysis-approved',safe(async(event)=>{await refresh();await showFrame();notice(event.detail?.absent?'Human-confirmed absence saved. Reanalyze or render to apply.':'Candidate approved as a human label (100%). Reanalyze or render to apply.')}));
-async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));ConfigurationReview.update($('configurationReview'),state);project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Video focus — '+state.project_name:'Video focus';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
- const level=state.leveling||{};$('levelingStep').hidden=!project||!!state.config.batch_input_revision;
- if(!$('levelingStep').hidden){$('levelingStatus').textContent=level.gyro_available?'Supported gyro telemetry is present; standalone visual leveling is not required.':`Status: ${level.status||'Not queued'}`+(level.annotation?` · ${level.estimated.toLocaleString()}/${level.frames.toLocaleString()} directly supported (${(100*level.coverage).toFixed(1)}%) · ${level.needs_review.toLocaleString()} review flags.`:'');if(document.activeElement!==$('levelingHint'))$('levelingHint').value=level.scene_hint||state.config.leveling_scene_hint||'';$('levelingHours').value=state.config.leveling_budget_hours||6;$('queueLeveling').hidden=level.gyro_available||!!level.annotation||!!level.job;$('saveLevelingHint').disabled=state.running||level.gyro_available;$('queueLeveling').disabled=state.running;$('reviewLeveling').hidden=!level.annotation;$('reviewLeveling').href='/leveling?config='+encodeURIComponent(project);}
+async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));ConfigurationReview.update($('configurationReview'),state);project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Object tracking — '+state.project_name:'Object tracking';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
  if(!$('confidenceThreshold').dataset.initialized){$('confidenceThreshold').value=100*(state.config.tracking_selection?.confidence_threshold??.5);$('confidenceThreshold').dataset.initialized='true'}
  $('confidenceThreshold').disabled=$('saveThreshold').disabled=state.running||!project||!!state.config.batch_input_revision;
@@ -122,13 +136,12 @@ async function refresh(){state=await request('/api/state?config='+encodeURICompo
  const groups=[];for(const t of tracks){if(!t.flags.length)continue;let g=groups.at(-1);if(!g||g.end!==t.frame-1){g={start:t.frame,end:t.frame,reasons:new Set()};groups.push(g)}g.end=t.frame;t.flags.forEach(r=>g.reasons.add(r))}
  for(const g of groups){const b=document.createElement('button');b.className='flag';b.textContent=`${(g.start/state.meta.fps).toFixed(2)}–${((g.end+1)/state.meta.fps).toFixed(2)}s · ${[...g.reasons].join(', ').replaceAll('_',' ')}`;b.onclick=safe(async()=>{if(sourceVideo!==state.config.video){$('videos').value=state.config.video;await loadVideo()}frame=g.start;await showFrame();$('preview').currentTime=frame/info.fps});list.append(b)}}
 $('loadVideo').onclick=safe(loadVideo);$('seek').onclick=safe(async()=>{frame=Number($('time').value)*info.fps;await showFrame()});$('scrub').onchange=safe(async()=>{frame=+$('scrub').value;await showFrame()});
+$('playTracking').onclick=safe(async()=>{if(trackingPlaying){stopTrackingPlayback();await showFrame();return}try{await playTrackingFrom(frame/info.fps)}catch(error){stopTrackingPlayback();throw error}});$('trackingPlayback').onended=()=>{if(!trackingPlaying)return;const next=trackingClipStart+$('trackingPlayback').duration;if(next<info.frames/info.fps-.05)playTrackingFrom(next).catch(error=>{stopTrackingPlayback();notice(error.message)});else stopTrackingPlayback()};
 $('previous').onclick=safe(async()=>{frame--;await showFrame()});$('next').onclick=safe(async()=>{frame++;await showFrame()});
 function requireProjectVideo(){if(sourceVideo!==state.config.video)throw Error('Create a project for this source before saving corrections.')}
 $('saveBox').onclick=safe(async()=>{requireProjectVideo();if(!selection)throw Error('Draw a rectangle first');await request('/api/correct',{frame,polygon:selectionPolygon,space:selectionSpace,view_signature:geometry?.signature});await refresh();notice('Target box saved: human-confirmed (100%). It anchors this frame and qualifies as high-confidence context in both directions. Reanalyze and render to apply it to tracking; render alone applies the saved box to framing.')});
 $('absent').onclick=safe(async()=>{requireProjectVideo();await request('/api/correct',{frame,bbox:null});await refresh();notice('Absence saved. Render again to apply it.')});
 $('saveRoll').onclick=safe(async()=>{requireProjectVideo();await request('/api/correct',{frame,roll:Number($('roll').value)});await refresh();notice('Level keyframe saved. Render again to apply it.')});
-$('saveLevelingHint').onclick=safe(async()=>{await request('/api/batch/leveling-settings',{project,scene_hint:$('levelingHint').value,hours:Number($('levelingHours').value)});await refresh();notice('Leveling scene hint saved.')});
-$('queueLeveling').onclick=safe(async()=>{await request('/api/batch/queue-leveling',{project,scene_hint:$('levelingHint').value,hours:Number($('levelingHours').value)});await refresh();notice('Leveling queued. Start the overnight queue when GPU capacity is available.')});
 $('newProject').onclick=safe(async()=>{if(!selection)throw Error('Draw a rectangle first');const d=await request('/api/create',{video:sourceVideo,time:frame/info.fps,bbox:selection,target:$('target').value});location.href='/?config='+encodeURIComponent(d.config)});
 function anchorSettings(){return {tracking_mode:$('trackingMode').value,anchor_confidence:Number($('anchorConfidence').value)/100,discovery_fps:Number($('discoveryFps').value)}}
 $('saveAnchorSettings').onclick=safe(async()=>{await request('/api/settings',{...anchorSettings(),leveling_source:$('levelingSource').value});notice('Tracking settings saved. Applies to the next analysis.')});

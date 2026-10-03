@@ -136,6 +136,18 @@ identity at startup, not the weights themselves or subsequent endpoint changes. 
 sets `QWEN_API_URL` for the UI and its workers. Startup failures appear in the journal;
 systemd retries failed startup. Starting the UI does not automatically resume jobs.
 
+If the GPUs are assigned to another workload, install the review UI in CPU-only mode:
+
+```bash
+.venv/bin/python scripts/install_review_service.py \
+  --workspace /path/to/videos --port 8766 --model-optional --install
+```
+
+This keeps frame review, cached preview playback, labels, corrections, and rerender
+controls available without starting or validating vLLM. Model-backed description and
+analysis actions still require the configured vision model; the queue service retains
+its strict model-readiness check.
+
 ```bash
 systemctl --user start action-reframe-review.service
 systemctl --user status action-reframe-review.service vllm-vl.service

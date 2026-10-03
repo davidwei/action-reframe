@@ -31,7 +31,7 @@ function renderProjects(){
   row.append(checkbox,text('strong',p.project),text('span',p.status+(p.discard_pending?' — discard after current job finishes':p.status==='Processing'?' — '+p.latest_job:'')));card.append(row,updated(p.updated_at),document.createElement('br'),codeBadge(p.code_version),document.createElement('br'),codeBadge(p.analysis_code_version,'Analysis'),document.createElement('br'),codeBadge(p.render_code_version,'Render'));
   card.append(text('p',`${p.video} · ${p.target} · ${p.tracking_mode} · ${p.analysis_fps??'default'} Crop Verification FPS · ${p.labels} additional labels`));
   card.append(text('p','Actions: '+p.actions.join(' · ')));
-  if(p.result_is_previous)card.append(text('p','Video focus and side-by-side playback open the last successful result. It may use earlier inputs or code; the latest attempt is listed in the queue below.'));
+  if(p.result_is_previous)card.append(text('p','Object tracking and side-by-side playback open the last successful result. It may use earlier inputs or code; the latest attempt is listed in the queue below.'));
   if(p.stale)card.append(text('p','Inputs changed — review and approve again.'));
   if(['failed','interrupted'].includes(p.latest_job))card.append(text('p','Last job '+p.latest_job+' — inspect the log and retry from the queue below.'));
   const img=document.createElement('img');img.className='preview';img.alt='Human-selected target crop';img.loading='lazy';if(p.has_box)img.src='/api/reference?config='+encodeURIComponent(p.project);
@@ -44,7 +44,7 @@ function renderProjects(){
   if(p.can_rerender)actions.append(button('Render now (no re-analysis)',async()=>{await api('/render-now',{project:p.project});await load();notice('Rerender started independently of the overnight queue.')}));
   if(p.can_rerender)actions.append(button(p.render_code_version?.status!=='current'?'Re-render (no re-analysis)':'Queue Rerendering (no re-analysis)',async()=>{await api('/queue-rerender',{projects:[p.project]});await load();notice('Rerender queued using saved analysis and corrections. Start/resume the queue when ready.')}));
   if(p.status==='Ready')actions.append(button('Queue processing',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Queued. Start/resume the queue when ready.')}));
-  if(p.result_config||['Processing','Done'].includes(p.status))actions.append(link('Open video focus','/?config='+encodeURIComponent(p.result_config||p.active_config||p.completed_config||p.project)));
+  if(p.result_config||['Processing','Done'].includes(p.status))actions.append(link('Open object tracking','/?config='+encodeURIComponent(p.result_config||p.active_config||p.completed_config||p.project)));
   if(p.active_config&&p.result_config&&p.active_config!==p.result_config)actions.append(link('Open current run','/?config='+encodeURIComponent(p.active_config)));
   if(p.result_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.result_config)));
   actions.append(button('Discard project',async()=>{const r=await api('/discard',{project:p.project});drafts.delete(p.project);selected.delete(p.project);await load();notice(r.finishing?'Discard requested; the running job will finish first.':'Project discarded. Video and results preserved; restore it below if needed.')}));
@@ -70,7 +70,7 @@ function renderJobs(){
   if(j.recovery_progress?.saved_results)progress.append(text('p',`Checkpoint restored: ${j.recovery_progress.saved_results} saved results · ${j.recovery_progress.saved_coverage} covered positions`));
   if(j.render_progress?.total)progress.append(text('p',`${j.render_progress.phase}: ${j.render_progress.completed}/${j.render_progress.total} frames · ${j.render_progress.segments_reused} segments reused`));
   if(p.coverage||p.stage_reuse)TrackingProgressView.render(progress,p,{running:j.status==='running'});
-  const actions=document.createElement('td');actions.append(link(j.stage==='leveling'?'Open source project':'Open video focus',j.stage==='leveling'?'/?config='+encodeURIComponent(j.project):'/?config='+encodeURIComponent(j.config)));
+  const actions=document.createElement('td');actions.append(link(j.stage==='leveling'?'Open source project':'Open object tracking',j.stage==='leveling'?'/?config='+encodeURIComponent(j.project):'/?config='+encodeURIComponent(j.config)));
   if(j.stage==='leveling'&&j.status==='succeeded')actions.append(document.createElement('br'),link('Review leveling side by side','/leveling?config='+encodeURIComponent(j.project)));
   actions.append(text('p',`${j.review_count} review entries${j.pending_corrections?' · corrections saved for next run':''}`));
   if(['starting','running'].includes(j.status))actions.append(button('Stop processing',async()=>{await api('/stop',{id:j.id});await load();notice('Stopped. Cached frames and checkpoints are preserved for Retry saved inputs.')}));
