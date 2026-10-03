@@ -78,7 +78,9 @@ def load_config(path):
     c=merge(c,json.loads(config_path.read_text()))
     c['api_url'] = os.environ.get('QWEN_API_URL',c['api_url']).rstrip('/')
     c['_config_path'] = str(config_path)
-    c['_workspace_root'] = str(config_path.parent)
+    workspace_root=Path(c.get('workspace_root',config_path.parent))
+    if not workspace_root.is_absolute():workspace_root=config_path.parent/workspace_root
+    c['_workspace_root'] = str(workspace_root.resolve())
     c['video'] = str((config_path.parent / c['video']).resolve())
     c['output_dir'] = str((config_path.parent / c['output_dir']).resolve())
     if c.get('leveling_annotation'):

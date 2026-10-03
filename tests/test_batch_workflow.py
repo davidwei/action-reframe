@@ -33,6 +33,7 @@ class BatchTests(unittest.TestCase):
         job=self.queue();self.assertEqual(self.batch.enqueue(['project.json']),[job])
         reopened=Batch(self.root);self.assertEqual(len(reopened.jobs()),1)
         c=read(self.root/reopened.jobs()[0]['config'])
+        self.assertEqual(c['workspace_root'],str(self.root))
         self.assertEqual(c['approved_target_description'],'Small green sail, white hull')
         self.assertNotEqual(c['output_dir'],str(self.root/'outputs/source'))
         write(self.root/'outputs/source/corrections.json',{'1':{'bbox':[1,2,10,20]}})

@@ -336,7 +336,7 @@ class Batch:
         job_id=uuid.uuid4().hex;out=self.root/'outputs'/'batch'/job_id
         config_path=self.folder/'runs'/job_id/'project.json'
         source=self.path(config['video']);hours=float(config.get('leveling_budget_hours',6))
-        snapshot=dict(config,video=str(source),output_dir=str(out),batch_stage='leveling',
+        snapshot=dict(config,video=str(source),output_dir=str(out),workspace_root=str(self.root),batch_stage='leveling',
                       leveling_scene_hint=config.get('leveling_scene_hint',''),leveling_budget_hours=hours,
                       batch_input_revision=revision)
         write(config_path,snapshot);write(out/'corrections.json',labels)
@@ -372,7 +372,7 @@ class Batch:
                 job_id=uuid.uuid4().hex
                 out=self.root/'outputs'/'batch'/job_id
                 config_path=self.folder/'runs'/job_id/'project.json'
-                snapshot=dict(c,video=str(self.path(c['video'])),output_dir=str(out),
+                snapshot=dict(c,video=str(self.path(c['video'])),output_dir=str(out),workspace_root=str(self.root),
                     approved_target_description=prep['description'],batch_input_revision=revision,
                     stage_store_dir=str(self.folder/'stage_records'))
                 if c.get('leveling_annotation'):
@@ -466,7 +466,7 @@ class Batch:
                         shutil.copy2(source_out/name,out/name)
                     write(out/'anchor_checkpoint.json',manifest)
                 revision=hashlib.sha256((rev+prep.get('description','')).encode()).hexdigest()
-                snapshot.update(video=str(self.path(current['video'])),output_dir=str(out),batch_stage='render',
+                snapshot.update(video=str(self.path(current['video'])),output_dir=str(out),workspace_root=str(self.root),batch_stage='render',
                                 batch_input_revision=revision,rerender_source=source_name)
                 write(config_path,snapshot);write(out/'corrections.json',labels)
                 # Adoption compares against current source inputs, just like analysis jobs.

@@ -3,11 +3,26 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from leveling_annotations import annotation_status, correction_series, row_at, rows_at
+from reframe import load_config
 
 
 class LevelingAnnotationTests(unittest.TestCase):
+    def test_batch_snapshot_preserves_workspace_for_absolute_annotation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);run=root/'.batch/runs/job';run.mkdir(parents=True)
+            video=root/'video.mp4';video.write_bytes(b'video')
+            annotation=root/'outputs/level/leveling.json';annotation.parent.mkdir(parents=True);annotation.write_text('{}')
+            config=run/'project.json';config.write_text(json.dumps(dict(video=str(video),output_dir=str(root/'outputs/run'),
+                workspace_root=str(root),leveling_source='annotation',leveling_annotation=str(annotation),
+                reference_time=0,reference_box=[0,0,1,1],target='object')))
+            with patch('stage_records.configure'):
+                loaded=load_config(config)
+            self.assertEqual(loaded['_workspace_root'],str(root))
+            self.assertEqual(Path(loaded['leveling_annotation']),annotation)
+
     def test_validates_shards_and_interpolates_only_for_consumers(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);video=root/'video.mp4';video.write_bytes(b'video')
