@@ -77,6 +77,8 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('Maximum processing time',leveling)
         self.assertIn('Queue leveling analysis',leveling)
         self.assertIn('Review leveling result',leveling)
+        self.assertIn('id="play">▶ Play',leveling)
+        self.assertIn('/api/leveling-playback',leveling)
 
     def test_create_project_from_synthetic_video_and_relocate(self):
         video = self.root / 'sample.avi'

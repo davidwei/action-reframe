@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from leveling_annotations import annotation_status, correction_series, row_at
+from leveling_annotations import annotation_status, correction_series, row_at, rows_at
 
 
 class LevelingAnnotationTests(unittest.TestCase):
@@ -26,6 +26,7 @@ class LevelingAnnotationTests(unittest.TestCase):
             status=annotation_status(root,config)
             self.assertEqual(status['status'],'Done');self.assertEqual(status['result_status'],'partial');self.assertAlmostEqual(status['coverage'],2/3)
             self.assertIsNone(row_at(root,config,1)['correction_degrees_ccw'])
+            self.assertEqual([row['frame'] for row in rows_at(root,config,[2,0,2])],[2,0,2])
             angles,supported,quality,_=correction_series(root,config,3)
             self.assertEqual(angles.tolist(),[2,3,4]);self.assertEqual(supported.tolist(),[True,False,True])
             self.assertEqual(quality.tolist(),[.8,0,.7])

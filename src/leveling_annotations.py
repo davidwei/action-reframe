@@ -151,6 +151,27 @@ def row_at(root, config, frame):
     raise ValueError("Frame is missing from leveling annotation")
 
 
+def rows_at(root, config, frames):
+    """Read selected annotation rows while opening each required shard once."""
+    path, manifest = validate_manifest(root, config, require_complete=True)
+    requested = sorted(set(int(frame) for frame in frames))
+    total = int(manifest["metadata"]["frames"])
+    if requested and (requested[0] < 0 or requested[-1] >= total):
+        raise ValueError("Frame is outside leveling annotation")
+    found = {}
+    for shard in manifest["shards"]:
+        start, end = int(shard["start_frame"]), int(shard["end_frame_exclusive"])
+        wanted = {frame for frame in requested if start <= frame < end}
+        if not wanted:continue
+        with _verified_shard(path.parent, shard).open() as handle:
+            for line in handle:
+                row = json.loads(line)
+                if row["frame"] in wanted:found[row["frame"]] = row
+        if len(found) == len(requested):break
+    if len(found) != len(requested):raise ValueError("Frame is missing from leveling annotation")
+    return [found[int(frame)] for frame in frames]
+
+
 def correction_series(root, config, frames=None):
     manifest, rows = load_rows(root, config)
     total = int(manifest["metadata"]["frames"])

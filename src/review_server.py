@@ -201,6 +201,21 @@ class Handler(BaseHTTPRequestHandler):
                         review=path.parent/'review_intervals.json'
                         result['review_intervals']=json.loads(review.read_text()) if review.exists() else []
                 return self.json_response(result)
+            if parsed.path=='/api/leveling-playback':
+                if not config_name:raise ValueError('Choose a project first')
+                config=json.loads(local_path(config_name).read_text())
+                from leveling_annotations import validate_manifest,rows_at
+                _,manifest=validate_manifest(ROOT,config,True);meta=manifest['metadata']
+                from video_preview import CLIP_SECONDS,preview
+                clip=preview(ROOT,local_path(config['video']),q.get('time',['0'])[0])
+                if clip['status']!='ready':return self.json_response(clip)
+                start=float(clip['start']);preview_fps=15
+                count=max(1,int(min(CLIP_SECONDS,max(0,float(meta['duration_seconds'])-start))*preview_fps)+1)
+                source_fps=float(meta['fps']);total=int(meta['frames'])
+                frames=[min(total-1,round((start+i/preview_fps)*source_fps)) for i in range(count)]
+                rows=rows_at(ROOT,config,frames)
+                return self.json_response({**clip,'fps':preview_fps,'source_fps':source_fps,
+                    'angles':[row.get('correction_degrees_ccw') for row in rows]})
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
             if parsed.path=='/api/state':
