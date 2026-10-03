@@ -117,6 +117,7 @@ def prepare(c, max_time=None):
     set_analysis_fps(c,source_fps=fps)
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w, h = int(cap.get(3)), int(cap.get(4))
+    cap.release()
     with av.open(c['video']) as container:
         probe={'format':{'duration':container.duration/av.time_base if container.duration is not None else None,
                          'tags':dict(container.metadata)},'streams':[]}
@@ -131,14 +132,15 @@ def prepare(c, max_time=None):
             probe['streams'].append(entry)
     write_json(out / 'source_metadata.json', probe)
     source = Path(c['video']).stat()
-    signature = hashlib.sha256(json.dumps([c['video'], source.st_size, source.st_mtime_ns,
+    from source_decode import VERSION as SOURCE_DECODE_VERSION
+    signature = hashlib.sha256(json.dumps([SOURCE_DECODE_VERSION,c['video'], source.st_size, source.st_mtime_ns,
         c['reference_time'], c['reference_box'], c.get('reference_frames',[]), target_description(c), c['sample_interval'], PROMPT_VERSION]).encode()).hexdigest()[:16]
     cache = out / 'cache' / signature
     cache.mkdir(parents=True, exist_ok=True)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, round(c['reference_time'] * fps))
-    ok, frame = cap.read()
-    if not ok:
-        raise ValueError('Reference timestamp is outside the video')
+    from source_decode import frame as source_frame,record_repairs
+    decode_meta={'fps':fps,'frames':n};repairs=[]
+    reference=source_frame(c['video'],decode_meta,round(c['reference_time']*fps));frame=reference.image
+    if reference.repaired:repairs.append(reference.repair())
     x1, y1, x2, y2 = map(int, c['reference_box'])
     if not (0 <= x1 < x2 <= w and 0 <= y1 < y2 <= h):
         raise ValueError('Reference rectangle is outside the source image')
@@ -157,15 +159,17 @@ def prepare(c, max_time=None):
             lookout_count('cache.hit')
             continue
         lookout_count('decode.seek');lookout_count('cache.miss')
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        ok, f = cap.read()
-        if not ok:
-            raise RuntimeError(f'Failed decoding frame {i}')
+        decoded=source_frame(c['video'],decode_meta,i);f=decoded.image
+        if decoded.repaired:repairs.append(decoded.repair())
         cv2.imwrite(str(path), f, [cv2.IMWRITE_JPEG_QUALITY, 92])
-    cap.release()
+    record_repairs(out,'analysis_prepare',repairs)
+    from source_decode import repaired_frames
     meta = {'fps': fps, 'frames': n, 'width': w, 'height': h, 'cache': str(cache), 'samples': samples,
             'signature': signature, 'video': c['video'], 'analysis_fps':c['analysis_fps'],
-            'sample_interval':c['sample_interval']}
+            'sample_interval':c['sample_interval'],
+            # Repaired positions preserve timing for rendering, but are not valid
+            # visual evidence for detection, verification, or optical propagation.
+            'source_repaired_frames':sorted(repaired_frames(out))}
     write_json(out / 'meta.json', meta)
     return meta
 
@@ -341,9 +345,12 @@ def analyze(c, single=None):
 def cached_frame(c,meta,index):
     path=Path(meta['cache'])/f'{index:07d}.jpg'
     if not path.exists():
-        cap=cv2.VideoCapture(c['video']);cap.set(cv2.CAP_PROP_POS_FRAMES,index)
-        ok,frame=cap.read();cap.release()
-        if not ok:raise RuntimeError(f'Cannot decode backward frame {index}')
+        from source_decode import frame as source_frame,record_repairs
+        decoded=source_frame(c['video'],meta,index);frame=decoded.image
+        record_repairs(c['output_dir'],'tracking',[decoded.repair()])
+        if decoded.repaired:
+            repaired=set(meta.get('source_repaired_frames',[]));repaired.add(index)
+            meta['source_repaired_frames']=sorted(repaired)
         cv2.imwrite(str(path),frame,[cv2.IMWRITE_JPEG_QUALITY,92])
     image=cv2.imread(str(path))
     if image is None:raise RuntimeError(f'Cannot read cached frame {index}')
@@ -649,6 +656,9 @@ def measurements(c, meta, observations):
     supported=valid[nearest] & (np.abs(grid-ix[nearest])<=fps*max(c['sample_interval'],.6))
     raw=expected.copy()
     flags=[[] for _ in range(n)]
+    from source_decode import frames as source_frames,record_repairs,repaired_frames
+    for repaired in repaired_frames(c['output_dir']):
+        if 0<=repaired<n:flags[repaired].append('source_frame_repaired')
     roll=np.zeros(n); level_ok=np.zeros(n,dtype=bool)
     shores=np.array([r.get('shoreline') if r.get('shoreline') is not None else [np.nan]*4 for r in observations],float)
     good=np.isfinite(shores).all(axis=1)
@@ -662,13 +672,21 @@ def measurements(c, meta, observations):
     hue=float(c.get('target_hue',np.median(hsv[:,:,0][sat]))) if sat.any() else None
     # Color refinement is deliberately opt-in: it is appropriate for this sail, not arbitrary objects.
     use_color=c.get('color_refinement',False) and hue is not None
-    cap=cv2.VideoCapture(c['video'])
     last_level=0.
-    for i in range(n):
-        ok,frame=cap.read()
-        if not ok:
-            raise RuntimeError(f'Decode ended at {i}/{n}')
+    measurement_repairs=[]
+    for decoded in source_frames(c['video'],meta):
+        i,frame=decoded.index,decoded.image
         near=observations[nearest[i]]
+        if decoded.repaired:
+            measurement_repairs.append(decoded.repair())
+            if 'source_frame_repaired' not in flags[i]:flags[i].append('source_frame_repaired')
+            # Keep the interpolated target geometry and last reliable level at
+            # this timeline position. A repeated neighbor is rendering filler,
+            # not a new color, edge, or leveling measurement.
+            flags[i].append('source_measurement_skipped')
+            if not supported[i]:flags[i].append('target_missing_or_uncertain')
+            roll[i]=last_level
+            continue
         flags[i].extend(near.get('selection_flags',[]))
         if near.get('recovered'):
             flags[i].append('recovered_small_target_verify_identity')
@@ -705,7 +723,7 @@ def measurements(c, meta, observations):
             flags[i].append('level_needs_review')
         if i%300==0:
             print(f'Measure {i}/{n}',flush=True)
-    cap.release()
+    record_repairs(c['output_dir'],'render_measurement',measurement_repairs)
     roll=gaussian_filter1d(median_filter(roll,size=5),max(1,fps*.08))
     manual_levels=[(r['frame'],r['manual_roll']) for r in observations if 'manual_roll' in r]
     if manual_levels:
@@ -839,6 +857,7 @@ def render(c):
     inputs['settings']['minimum_crop_short_side']=c.get('minimum_crop_short_side',180)
     from zoom_path import smoothing_settings
     inputs['settings'].update(smoothing_settings(c))
+    from source_decode import VERSION as SOURCE_DECODE_VERSION,frames as source_frames,record_repairs
     from render_planner import settings as planner_settings,polygons as planner_polygons,background_motion,plan as plan_render,VERSION as PLANNER_VERSION,CAMERA_PATH_VERSION
     planner=planner_settings(c)
     if planner['enabled']:
@@ -853,6 +872,10 @@ def render(c):
         motion,motion_record=store.run('render_camera_motion',PLANNER_VERSION,motion_inputs,
             lambda folder:background_motion(c['video'],meta,polygon_rows,motion_gyro,planner))
         write_json(out/'camera_motion.json',dict(**motion,stage_record=motion_record))
+        record_repairs(c['output_dir'],'camera_motion',motion.get('source_repairs',[]))
+        for repair in motion.get('source_repairs',[]):
+            i=int(repair['frame'])
+            if 0<=i<len(flags) and 'source_frame_repaired' not in flags[i]:flags[i].append('source_frame_repaired')
         observed={r['frame']:r for r in observations}
         margins=[min(.3,c['margin_fraction']+(0 if str(i) in corrections or observed.get(i,{}).get('identity_verified') else .05)) for i in range(meta['frames'])]
         planning_config=dict(c,_render_margins=margins)
@@ -907,26 +930,28 @@ def render(c):
             **({k:v for k,v in level_rows[i].items() if k not in ('frame','time')} if level_rows else {})})
     from render_segments import Segments
     segments=Segments(c,meta,dict(camera=camera_record['key'],boxes=inputs['boxes'],supported=inputs['supported'],
-        source=inputs.get('motion_key',meta['signature'])))
-    cap=cv2.VideoCapture(c['video']);thumbs=out/'review_frames';thumbs.mkdir(exist_ok=True)
+        source=inputs.get('motion_key',meta['signature']),source_decode=SOURCE_DECODE_VERSION))
+    thumbs=out/'review_frames';thumbs.mkdir(exist_ok=True)
     def segment_frames(start,stop):
-        if not cap.set(cv2.CAP_PROP_POS_FRAMES,start):raise RuntimeError(f'Cannot seek to render frame {start}')
-        for i in range(start,stop):
-            ok,frame=cap.read()
-            if not ok:raise RuntimeError(f'Render decode failed at {i}')
-            m=cv2.getRotationMatrix2D(tuple(centers[i]),float(roll[i]),float(oh/extent[i]))
-            m[:,2]+=np.array([ow/2,oh/2])-centers[i]
-            result=composite(frame,m,(ow,oh),c['feather_pixels'],boxes[i] if supported[i] else None)
-            if i in meta['samples']:
-                cv2.imwrite(str(thumbs/f'{i:07d}.jpg'),cv2.resize(frame,(960,540)))
-                cv2.imwrite(str(thumbs/f'{i:07d}_out.jpg'),cv2.resize(result,(640,360)))
-            yield frame,result
-    try:
-        for start in range(0,n,segments.length):
-            stop=min(n,start+segments.length)
-            if not segments.ready(start,stop):segments.encode(start,stop,segment_frames(start,stop))
-            print(f'Render {stop}/{n}; {segments.reused} segments reused',flush=True)
-    finally:cap.release()
+        repairs=[]
+        try:
+            for decoded in source_frames(c['video'],meta,start,stop):
+                i,frame=decoded.index,decoded.image
+                if decoded.repaired:
+                    repairs.append(decoded.repair())
+                    if 'source_frame_repaired' not in flags[i]:flags[i].append('source_frame_repaired')
+                m=cv2.getRotationMatrix2D(tuple(centers[i]),float(roll[i]),float(oh/extent[i]))
+                m[:,2]+=np.array([ow/2,oh/2])-centers[i]
+                result=composite(frame,m,(ow,oh),c['feather_pixels'],boxes[i] if supported[i] else None)
+                if i in meta['samples']:
+                    cv2.imwrite(str(thumbs/f'{i:07d}.jpg'),cv2.resize(frame,(960,540)))
+                    cv2.imwrite(str(thumbs/f'{i:07d}_out.jpg'),cv2.resize(result,(640,360)))
+                yield frame,result
+        finally:record_repairs(c['output_dir'],'render_encoding',repairs)
+    for start in range(0,n,segments.length):
+        stop=min(n,start+segments.length)
+        if not segments.ready(start,stop):segments.encode(start,stop,segment_frames(start,stop))
+        print(f'Render {stop}/{n}; {segments.reused} segments reused',flush=True)
     segments.assemble(ffmpeg_metadata_args(c['video']))
     preview=out/'focused.mp4'
     write_json(out/'tracks.json',tracks)

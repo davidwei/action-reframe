@@ -127,6 +127,10 @@ class TwoPathSearch(TrackingSearch):
             last=seed
             for i in range(source['frame']+step,index+step,step):
                 image=self.frame(i);old_matrix=matrix
+                if i in self.meta.get('source_repaired_frames',[]):
+                    stopped[path]=dict(frame=i,reason='source_frame_repaired')
+                    if self.progress:self.progress.record('optical',i,'rejected')
+                    break
                 if path=='leveled':
                     box=np.asarray(last['bbox'])*[w,h,w,h]/1000;pivot=(box[:2]+box[2:])/2
                     previous_matrix,size=leveled_transform(w,h,pivot,self.gyro['frames'][i-step]['roll'])

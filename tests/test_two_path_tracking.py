@@ -112,6 +112,24 @@ class TwoPathTests(unittest.TestCase):
             self.assertEqual(set(repeat['propagation_stops']),{'raw_angle','leveled'})
             self.assertTrue(all(v['frame']==1 for v in repeat['propagation_stops'].values()))
 
+    def test_repaired_position_stops_both_optical_branches(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cache=Path(folder)/'cache';cache.mkdir()
+            image=np.random.default_rng(77).integers(0,255,(80,120,3),dtype=np.uint8)
+            cv2.imwrite(str(cache/'reference.jpg'),image)
+            c=dict(output_dir=folder,target='object',adaptive_verification=dict(mode='off'),
+                   tracking_selection=dict(confidence_threshold=.5))
+            meta=dict(width=120,height=80,frames=2,fps=30,cache=str(cache),source_repaired_frames=[1])
+            helpers=(lambda c,m,i:image,None,lambda p,v:None)
+            search=TwoPathSearch(c,meta,dict(frames=[dict(roll=0),dict(roll=0)]),'test',helpers,None)
+            source=combine(None,dict(frame=0,four_candidates={
+                r['candidate_id']:r for r in [row(0,'raw_angle','detection',.8),row(0,'leveled','detection',.8)]}))
+            with patch.object(search,'detect',return_value=None):
+                result=search.propagate(source,1,1,{'0':source})
+            self.assertEqual(set(result['propagation_stops']),{'raw_angle','leveled'})
+            self.assertTrue(all(stop['reason']=='source_frame_repaired' for stop in result['propagation_stops'].values()))
+            self.assertFalse(result['four_candidates'])
+
 
     def test_tiny_adaptive_skips_but_evaluation_keeps_actual_checks(self):
         for mode,expected_calls in [('adaptive',0),('evaluation',4)]:

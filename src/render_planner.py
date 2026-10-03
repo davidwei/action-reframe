@@ -5,7 +5,7 @@ from scipy.ndimage import gaussian_filter1d, maximum_filter1d
 from scipy.spatial.transform import Rotation
 from zoom_path import minimum_crop_size
 
-VERSION=2  # Polygon preparation and background-motion evidence.
+VERSION=3  # Polygon preparation, background motion, and repaired-source evidence.
 # Independent from motion evidence: bump whenever camera-path behavior changes.
 # Version 5 may contain the old shot-wide zoom compression even with VERSION=2.
 CAMERA_PATH_VERSION=6
@@ -47,11 +47,15 @@ def background_motion(video,meta,polys,gyro,options):
     a held-out validated fit, and never extrapolate it across unsupported frames.
     """
     n=meta['frames'];w,h=meta['width'],meta['height'];scale=min(1,options['motion_width']/w)
-    size=(round(w*scale),round(h*scale));cap=cv2.VideoCapture(video);previous=None;mask_previous=None
-    delta=np.zeros((n,2));reliable=np.zeros(n,bool);cuts=[];quality=[];prev_hist=None
-    for i in range(n):
-        ok,image=cap.read()
-        if not ok:cap.release();raise RuntimeError(f'Camera-motion decode failed at {i}')
+    size=(round(w*scale),round(h*scale));previous=None;mask_previous=None
+    delta=np.zeros((n,2));reliable=np.zeros(n,bool);cuts=[];quality=[];prev_hist=None;repairs=[]
+    from source_decode import frames as source_frames
+    for decoded in source_frames(video,meta):
+        i,image=decoded.index,decoded.image
+        if decoded.repaired:
+            repairs.append(decoded.repair());previous=None;mask_previous=None;prev_hist=None
+            quality.append(dict(frame=i,reliable=False,features=0,inlier_ratio=0.,error_px=None,scene_cut=False,source_frame_repaired=True))
+            continue
         gray=cv2.cvtColor(cv2.resize(image,size),cv2.COLOR_BGR2GRAY)
         angle=gyro['frames'][i]['roll'] if gyro else 0.
         matrix=cv2.getRotationMatrix2D((size[0]/2,size[1]/2),angle,1)
@@ -89,7 +93,6 @@ def background_motion(video,meta,polys,gyro,options):
         if cut:cuts.append(i)
         quality.append(dict(frame=i,reliable=bool(reliable[i]),features=good_count,inlier_ratio=ratio,error_px=error,scene_cut=bool(cut)))
         previous=leveled;mask_previous=mask;prev_hist=hist
-    cap.release()
     calibration=dict(used=False,reason='Insufficient validated attitude/image agreement')
     if gyro and all('quaternion_wxyz' in r for r in gyro['frames']):
         q=np.array([r['quaternion_wxyz'] for r in gyro['frames']]);rot=Rotation.from_quat(q[:,[1,2,3,0]])
@@ -101,7 +104,7 @@ def background_motion(video,meta,polys,gyro,options):
             score=1-mse/max(baseline,1e-9);used=score>=.7
             calibration=dict(used=used,heldout_explained_motion=score,samples=len(ids),coefficients=coeff.tolist(),reason='Empirical attitude-to-image fit; zero-frame timestamp offset; no intrinsic calibration')
             if used:delta[reliable]=.8*delta[reliable]+.2*prediction[reliable]
-    return dict(delta=delta.tolist(),quality=quality,cuts=cuts,imu_calibration=calibration)
+    return dict(delta=delta.tolist(),quality=quality,cuts=cuts,imu_calibration=calibration,source_repairs=repairs)
 
 
 def plan(c,meta,polys,absent,roll,motion):

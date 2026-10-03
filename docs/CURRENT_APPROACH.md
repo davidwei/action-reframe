@@ -46,6 +46,12 @@ New two-path analysis requires supported gyro telemetry. The inspected DJI attit
 
 Optical tracking and rendering are CPU-based. Confidence is a model heuristic, not a calibrated probability; crop text cannot prove exact box geometry. Scene changes, tiny targets and occlusion still need review. Live label updates are not guaranteed to affect an already-running analysis. Full planner generation/review, separate trial approval, useful-segment export and image enhancement remain product work.
 
+Isolated source decode failures preserve the original timeline by repeating the
+nearest decodable frame. Repaired positions are audited in
+`source_frame_repairs.json`, flagged for review, excluded from independent model
+evidence, and treated as optical-flow boundaries. Rendering maintains the exact
+declared frame count and audio timing. Entirely unreadable intervals still fail.
+
 See [stage records](STAGE_RECORDS.md) for cache boundaries, [folder workflow](BATCH_WORKFLOW.md) for operating details and [documentation guide](README.md) for plans versus current guides.
 
 ### Optical overlap stopping

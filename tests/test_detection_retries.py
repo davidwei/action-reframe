@@ -10,6 +10,20 @@ from temporal_context import build_context
 
 
 class DetectionRetryTests(unittest.TestCase):
+    def test_repaired_source_position_never_calls_model(self):
+        with tempfile.TemporaryDirectory() as folder:
+            saved=[]
+            result=observe_path({'target':'boat'},
+                {'cache':folder,'fps':30,'source_repaired_frames':[4]},
+                {'frames':[{'roll':0} for _ in range(5)]},4,'test',[],'raw_angle','forward',
+                (lambda *args:np.zeros((20,30,3),np.uint8),
+                 lambda *args: self.fail('Model must not inspect a repaired source position'),
+                 lambda path,value:saved.append(value)))
+            self.assertTrue(result['source_frame_repaired'])
+            self.assertIsNone(result['bbox']);self.assertEqual(result['confidence'],0)
+            self.assertEqual(result['analysis_source'],'source_frame_repaired')
+            self.assertEqual(saved,[result])
+
     def test_manual_crop_and_no_coordinates_in_detection_history(self):
         with tempfile.TemporaryDirectory() as folder:
             image=np.arange(100*200*3,dtype=np.uint8).reshape(100,200,3)

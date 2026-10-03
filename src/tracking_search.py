@@ -14,7 +14,7 @@ from lookout.events import timed as lookout_timed,count as lookout_count
 from analysis_failures import path_failures,output_failure
 from visual_tracking import VisualTracker,relaxed_box,too_large
 
-VERSION=3
+VERSION=4  # Optical propagation stops at repaired source positions.
 
 class TrackingSearch:
     def __init__(self,config,meta,gyro,model,helpers,api):
@@ -89,6 +89,10 @@ class TrackingSearch:
         tracker=VisualTracker(configure(self.c)).initialize(frame,box,source.get('source_polygon_px'));motion=None
         for i in range(source['frame']+step,index+step,step):
             frame=self.frame(i)
+            if i in self.meta.get('source_repaired_frames',[]):
+                if self.progress:self.progress.record('optical',i,'rejected')
+                motion=None
+                break
             try:motion=tracker.update(frame)
             except Exception:
                 if self.progress:self.progress.record('optical',i,'errored')
@@ -102,7 +106,8 @@ class TrackingSearch:
             lookout_count('optical.update',outcome='success' if motion['reliable'] else 'lost')
             if not motion['reliable']:break
         image=self.frame(index)
-        if motion is None:raise ValueError('Propagation needs a different frame')
+        if motion is None:
+            return self.localize(index,rows,direction)
         uncertainty=source.get('motion_uncertainty_px',0)+motion['uncertainty_px']
         region=relaxed_box(motion['box'],image.shape,uncertainty,motion['reliable'],
                            self.settings.get('padding_fraction',.15),self.settings.get('min_padding_px',8))

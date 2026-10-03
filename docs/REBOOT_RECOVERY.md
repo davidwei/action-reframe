@@ -68,6 +68,28 @@ recorded only after both and the associated metadata finish. The standalone
 `--stage compare` compatibility command remains a whole-video comparison encode;
 normal render/all batch jobs use resumable paired segments.
 
+## Damaged source frames
+
+Analysis and rendering use one timestamp-preserving PyAV decoder. If an isolated
+source position cannot be decoded, the decoder keeps the original constant-frame-
+rate timeline and substitutes the nearest decodable neighbor. It never removes or
+renumbers a source position, so video duration, audio synchronization, labels,
+tracking indices, and resume checkpoints remain stable.
+
+Substituted images are rendering filler, not evidence. Independent detection and
+crop verification return an uncertain result without calling the vision model at
+that position. Optical propagation stops at the gap and may restart from later
+independent evidence. Camera-motion and legacy visual measurement state also reset
+or skip the repaired position instead of measuring motion twice from a duplicated
+image.
+
+Every repair is merged by processing stage into
+`source_frame_repairs.json`. Rendered frame flags include
+`source_frame_repaired` and `source_measurement_skipped`, making the affected
+positions available to review. The encoder still receives exactly the declared
+number of source frames. A source with no decodable image for the requested
+interval remains a hard failure because there is no honest replacement.
+
 Source timing retains the existing constant nominal FPS policy; variable frame-rate
 timestamps are not newly preserved. A segment commit limits repeated encoding to
 at most one segment pair in normal interruption cases, not 30 seconds of wall time.

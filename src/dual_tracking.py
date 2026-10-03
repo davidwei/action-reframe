@@ -17,7 +17,7 @@ from backward_tracking import bidirectional_pass
 from leveling_annotations import tracking_attitude
 from leveling import extract_gyro
 
-VERSION = 8
+VERSION = 9  # Repaired source positions cannot supply detection evidence.
 PATHS = ('raw_angle', 'leveled')
 
 
@@ -73,6 +73,14 @@ def observe_path(c, meta, gyro, index, model, history, path, direction, helpers,
             if verification_callback and result.get('box_verification'):verification_callback(dict(result['box_verification'],cache_hit=True))
             return result
     image=frame_loader(c,meta,index)
+    if index in meta.get('source_repaired_frames',[]):
+        result=dict(frame=index,time=index/meta['fps'],path=path,direction=direction,bbox=None,
+            confidence=0.,model_confidence=0.,visibility='uncertain',scene_cut=False,
+            note='Source frame could not be decoded; a neighboring frame preserves timeline position but is excluded from analysis.',
+            box_note='unavailable',analysis_source='source_frame_repaired',source_frame_repaired=True,
+            identity_verified=False,selection_flags=['source_frame_repaired'])
+        save(result_path,result)
+        return result
     h,w=image.shape[:2]
     region=c.get('_search_region',[0,0,w,h])
     x1,y1,x2,y2=region
