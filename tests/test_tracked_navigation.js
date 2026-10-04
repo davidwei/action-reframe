@@ -14,20 +14,20 @@ assert.equal(sandbox.window.FrameAnalysis.navigationTargets(state,50).nexttracke
 assert.equal(sandbox.window.FrameAnalysis.navigationTargets(state,0).previoustracked,null);
 console.log('Tracked navigation: confidence, corrections, errors and boundaries passed.');
 const sizedTracks={meta:{frames:10},tracks:[
-  {frame:1,bbox:[0,0,600,399]},                 // 239,400 px²: too small
-  {frame:2,bbox:[10,20,610,420]},               // exactly 240,000 px²
-  {frame:3,bbox:[0,0,800,400],selected_path:'optical'},
-  {frame:4,bbox:[0,0,400,800],selected_path:'raw_angle'},
-  {frame:5,bbox:[0,0,800,400],selected_path:'leveled'},
-  {frame:6,bbox:[0,0,800,NaN]},
-  {frame:7,bbox:null}
+  {frame:1,bbox:[0,0,800,400],crop_width:600,crop_height:399}, // 239,400 px²: too small
+  {frame:2,bbox:[10,20,30,40],crop_width:600,crop_height:400},// exactly 240,000 px²
+  {frame:3,bbox:[0,0,20,20],crop_width:800,crop_height:400,selected_path:'optical'},
+  {frame:4,bbox:[0,0,20,20],crop_width:400,crop_height:800,selected_path:'raw_angle'},
+  {frame:5,bbox:[0,0,20,20],crop_width:800,crop_height:400,selected_path:'leveled'},
+  {frame:6,bbox:[0,0,20,20],crop_width:800,crop_height:NaN},
+  {frame:7,bbox:null,crop_width:800,crop_height:400}
 ]};
 const sizedNav=sandbox.window.FrameAnalysis.navigationTargets(sizedTracks,4);
 assert.equal(sizedNav.previoushighqualitytracked,3);
 assert.equal(sizedNav.nexthighqualitytracked,5);
 assert.equal(sandbox.window.FrameAnalysis.navigationTargets(sizedTracks,2).previoushighqualitytracked,null);
 assert.equal(sandbox.window.FrameAnalysis.navigationTargets(sizedTracks,1).nexthighqualitytracked,2);
-console.log('High-quality tracked navigation: any path, source-pixel area threshold, invalid boxes and boundaries passed.');
+console.log('High-quality tracked navigation: any path, render-crop area threshold, missing tracking boxes and boundaries passed.');
 const navigation=element('div');
 sandbox.window.FrameAnalysis.updateNavigation(navigation,sizedTracks,4,()=>{},true,{highQualityTracked:true});
 assert.equal(navigation.children[0].children[1].textContent,'High quality tracked');

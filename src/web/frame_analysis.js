@@ -6,12 +6,12 @@
   const own = (object, key) => object != null && Object.prototype.hasOwnProperty.call(object, key);
   const HIGH_QUALITY_TRACKED_AREA_PX = 240000;
   const validPixelBox = box => Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1];
-  const pixelBoxArea = box => validPixelBox(box)?(box[2]-box[0])*(box[3]-box[1]):0;
+  const renderCropArea = row => Number.isFinite(row?.crop_width)&&row.crop_width>0&&Number.isFinite(row?.crop_height)&&row.crop_height>0?row.crop_width*row.crop_height:0;
   const highQualityTrackedCache = new WeakMap();
   function highQualityTrackedFrames(tracks){
     if(!Array.isArray(tracks))return [];
     let frames=highQualityTrackedCache.get(tracks);
-    if(!frames){frames=tracks.filter(r=>Number.isInteger(r?.frame)&&pixelBoxArea(r.bbox)>=HIGH_QUALITY_TRACKED_AREA_PX).map(r=>r.frame);highQualityTrackedCache.set(tracks,frames)}
+    if(!frames){frames=tracks.filter(r=>Number.isInteger(r?.frame)&&validPixelBox(r.bbox)&&renderCropArea(r)>=HIGH_QUALITY_TRACKED_AREA_PX).map(r=>r.frame);highQualityTrackedCache.set(tracks,frames)}
     return frames;
   }
   const acceptedEvidence = row => row?.manual || !(row?.box_verification?.version>=7) || row.box_verification.decision?.accepted===true;
@@ -342,10 +342,9 @@
     for(const pair of state.tracking_comparison||[])if(pair.selected)rows.set(pair.frame,{...pair.selected,frame:pair.frame});
     for(const [i,c] of Object.entries(state.corrections||{}))if(Object.prototype.hasOwnProperty.call(c,'bbox'))rows.set(Number(i),{frame:Number(i),bbox:c.bbox,confidence:c.bbox?1:0,visibility:c.bbox?'visible':'absent'});
     const tracked=[...rows.values()].filter(r=>r.bbox&&r.confidence>=threshold&&acceptedEvidence(r)&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>r.frame);
-    // Render tracks contain the selected source-pixel box regardless of whether it
-    // came from raw, leveled, optical, or interpolated tracking.  Keep this size
-    // navigation independent from identity confidence so every tracking path is
-    // eligible, exactly as the comparison video was rendered.
+    // Render tracks contain both the selected target box and the actual source-pixel
+    // render crop. Any tracking path is eligible; crop quality is based on the render
+    // crop area shown in Frame analysis, rather than the target-box area.
     const highqualitytracked=highQualityTrackedFrames(state.tracks);
     const result={};
     for(const [kind,values] of Object.entries({reviewed,sampled,tracked,highqualitytracked})){
@@ -375,7 +374,7 @@
         }
         element.append(group);
       }
-      element.title='High quality tracked: any saved tracking path whose source-pixel box area is at least 240,000 px². Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule. Tracked: accepted target box at this exact frame (including human labels), not interpolated framing.';
+      element.title='High quality tracked: any saved tracking path with a target box whose render crop area (crop width × crop height) is at least 240,000 px². Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule. Tracked: accepted target box at this exact frame (including human labels), not interpolated framing.';
     }
     const targets=navigationTargets(state,frame);
     for(const button of element.querySelectorAll('button[data-target]')){
