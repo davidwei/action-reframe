@@ -4,6 +4,16 @@
   const percent = value => Number.isFinite(value) ? `${Math.round(value * 100)}%` : 'not available';
   const vector = value => Array.isArray(value) ? `[${value.map(v => number(v, 1)).join(', ')}]` : 'not available';
   const own = (object, key) => object != null && Object.prototype.hasOwnProperty.call(object, key);
+  const HIGH_QUALITY_TRACKED_AREA_PX = 240000;
+  const validPixelBox = box => Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&box[2]>box[0]&&box[3]>box[1];
+  const pixelBoxArea = box => validPixelBox(box)?(box[2]-box[0])*(box[3]-box[1]):0;
+  const highQualityTrackedCache = new WeakMap();
+  function highQualityTrackedFrames(tracks){
+    if(!Array.isArray(tracks))return [];
+    let frames=highQualityTrackedCache.get(tracks);
+    if(!frames){frames=tracks.filter(r=>Number.isInteger(r?.frame)&&pixelBoxArea(r.bbox)>=HIGH_QUALITY_TRACKED_AREA_PX).map(r=>r.frame);highQualityTrackedCache.set(tracks,frames)}
+    return frames;
+  }
   const acceptedEvidence = row => row?.manual || !(row?.box_verification?.version>=7) || row.box_verification.decision?.accepted===true;
   function trackingMethod(row, fallback = null) {
     if(!row)return 'not recorded';
@@ -332,33 +342,40 @@
     for(const pair of state.tracking_comparison||[])if(pair.selected)rows.set(pair.frame,{...pair.selected,frame:pair.frame});
     for(const [i,c] of Object.entries(state.corrections||{}))if(Object.prototype.hasOwnProperty.call(c,'bbox'))rows.set(Number(i),{frame:Number(i),bbox:c.bbox,confidence:c.bbox?1:0,visibility:c.bbox?'visible':'absent'});
     const tracked=[...rows.values()].filter(r=>r.bbox&&r.confidence>=threshold&&acceptedEvidence(r)&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>r.frame);
+    // Render tracks contain the selected source-pixel box regardless of whether it
+    // came from raw, leveled, optical, or interpolated tracking.  Keep this size
+    // navigation independent from identity confidence so every tracking path is
+    // eligible, exactly as the comparison video was rendered.
+    const highqualitytracked=highQualityTrackedFrames(state.tracks);
     const result={};
-    for(const [kind,values] of Object.entries({reviewed,sampled,tracked})){
+    for(const [kind,values] of Object.entries({reviewed,sampled,tracked,highqualitytracked})){
       const frames=[...new Set(values)].filter(i=>Number.isInteger(i)&&i>=0&&(!state.meta?.frames||i<state.meta.frames)).sort((a,b)=>a-b);
       result['previous'+kind]=frames.filter(i=>i<frame).at(-1)??null;
       result['next'+kind]=frames.find(i=>i>frame)??null;
     }
     return result;
   }
-  function updateNavigation(element,state,frame,seek,enabled=true){
+  function updateNavigation(element,state,frame,seek,enabled=true,options={}){
     if(!element.dataset.mounted){
       element.dataset.mounted='true';
       for(const direction of ['previous','next']){
         const group=document.createElement('fieldset');group.style.cssText='display:flex;gap:8px;flex-wrap:wrap;border:1px solid #526274;border-radius:8px;padding:10px';
         const legend=document.createElement('legend');legend.textContent=direction==='previous'?'Previous':'Next';group.append(legend);
-        const kinds=direction==='previous'?['reviewed','tracked','sampled','frame']:['frame','sampled','tracked','reviewed'];
+        const highQuality=options.highQualityTracked?['highqualitytracked']:[];
+        const kinds=direction==='previous'?[...highQuality,'reviewed','tracked','sampled','frame']:['frame','sampled','tracked','reviewed',...highQuality];
+        const labels={frame:'Frame',reviewed:'Reviewed',tracked:'Tracked',sampled:'Sampled',highqualitytracked:'High quality tracked'};
         for(const kind of kinds){
           const button=kind==='frame'?document.getElementById(direction):document.createElement('button');
           if(!button)continue;
-          button.type='button';button.textContent=kind[0].toUpperCase()+kind.slice(1);
+          button.type='button';button.textContent=labels[kind];
           button.setAttribute('aria-label',`${legend.textContent} ${kind==='frame'?'frame':kind+' frame'}`);
-          button.dataset.lookoutAction=`frame.${direction}_${kind}`;
+          button.dataset.lookoutAction=kind==='highqualitytracked'?`frame.${direction}_high_quality_tracked`:`frame.${direction}_${kind}`;
           if(kind!=='frame')button.dataset.target=direction+kind;
           group.append(button);
         }
         element.append(group);
       }
-      element.title='Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule. Tracked: accepted target box at this exact frame (including human labels), not interpolated framing.';
+      element.title='High quality tracked: any saved tracking path whose source-pixel box area is at least 240,000 px². Reviewed: saved manual corrections, including target absent. Sampled: analysis sampling schedule. Tracked: accepted target box at this exact frame (including human labels), not interpolated framing.';
     }
     const targets=navigationTargets(state,frame);
     for(const button of element.querySelectorAll('button[data-target]')){

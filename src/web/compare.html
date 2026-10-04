@@ -18,7 +18,7 @@
 <p id="levelSummary"></p><div id="levelFlags"></div><div id="selectionFlags"></div><div id="flags"></div>
 <script src="/files/lookout.js?v=1"></script>
 <script src="/files/configuration_review.js?v=1"></script>
-<script src="/files/frame_analysis.js?v=camera-planner-1"></script>
+<script src="/files/frame_analysis.js?v=high-quality-tracked-1"></script>
 <script>
 const $=id=>document.getElementById(id),v=$('video');const project=new URLSearchParams(location.search).get('config')||'';let fps=30,count=0,currentFrame=0,ready=false,version=null,pendingFrame=null;
 let analysisState={},analysisFrame=-1;let initialSeek=new URLSearchParams(location.search).has('t')?Number(new URLSearchParams(location.search).get('t')):null;
@@ -59,7 +59,7 @@ function drawInspectedBox(){
  svg.append(rect);
 }
 $('frameAnalysis').addEventListener('analysis-box',event=>{inspectedBox=event.detail;v.pause();if(inspectedBox?.box&&ready)stepTo(inspectedBox.frame);drawInspectedBox();});
-function updateNavigation(){FrameAnalysis.updateNavigation($('frameNavigation'),analysisState,pendingFrame??currentFrame,stepTo,ready)}
+function updateNavigation(){FrameAnalysis.updateNavigation($('frameNavigation'),analysisState,pendingFrame??currentFrame,stepTo,ready,{highQualityTracked:true})}
 function showAnalysis(){updateNavigation();if(currentFrame!==analysisFrame){FrameAnalysis.update($('frameAnalysis'),analysisState,currentFrame);showTrackingComparison();drawPlaybackBoxes();drawInspectedBox();analysisFrame=currentFrame}}
 function showTrackingComparison(){
  const rows=analysisState.tracking_comparison||[];

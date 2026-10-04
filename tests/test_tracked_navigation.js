@@ -1,6 +1,7 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const element=()=>({style:{},append(){},textContent:''});
-const sandbox={window:{},document:{createElement:element,head:{append(){},appendChild(){}}},console};
+const element=tag=>({tagName:String(tag||'').toUpperCase(),style:{},dataset:{},children:[],textContent:'',append(...children){this.children.push(...children)},setAttribute(name,value){this[name]=value},querySelectorAll(selector){const found=[];const visit=node=>{for(const child of node.children||[]){if(selector==='button[data-target]'&&child.tagName==='BUTTON'&&child.dataset.target)found.push(child);visit(child)}};visit(this);return found}});
+const fixedButtons={previous:element('button'),next:element('button')};
+const sandbox={window:{},document:{createElement:element,getElementById:id=>fixedButtons[id]||null,head:{append(){},appendChild(){}}},console};
 vm.createContext(sandbox);vm.runInContext(fs.readFileSync('src/web/frame_analysis.js','utf8'),sandbox);
 const state={config:{tracking_selection:{confidence_threshold:.5}},meta:{frames:100,samples:[0,10,20,30]},observations:[
 {frame:10,bbox:[1,2,3,4],confidence:.6,visibility:'visible'},
@@ -12,6 +13,29 @@ assert.equal(nav.previoustracked,10);assert.equal(nav.nexttracked,50);
 assert.equal(sandbox.window.FrameAnalysis.navigationTargets(state,50).nexttracked,null);
 assert.equal(sandbox.window.FrameAnalysis.navigationTargets(state,0).previoustracked,null);
 console.log('Tracked navigation: confidence, corrections, errors and boundaries passed.');
+const sizedTracks={meta:{frames:10},tracks:[
+  {frame:1,bbox:[0,0,600,399]},                 // 239,400 px²: too small
+  {frame:2,bbox:[10,20,610,420]},               // exactly 240,000 px²
+  {frame:3,bbox:[0,0,800,400],selected_path:'optical'},
+  {frame:4,bbox:[0,0,400,800],selected_path:'raw_angle'},
+  {frame:5,bbox:[0,0,800,400],selected_path:'leveled'},
+  {frame:6,bbox:[0,0,800,NaN]},
+  {frame:7,bbox:null}
+]};
+const sizedNav=sandbox.window.FrameAnalysis.navigationTargets(sizedTracks,4);
+assert.equal(sizedNav.previoushighqualitytracked,3);
+assert.equal(sizedNav.nexthighqualitytracked,5);
+assert.equal(sandbox.window.FrameAnalysis.navigationTargets(sizedTracks,2).previoushighqualitytracked,null);
+assert.equal(sandbox.window.FrameAnalysis.navigationTargets(sizedTracks,1).nexthighqualitytracked,2);
+console.log('High-quality tracked navigation: any path, source-pixel area threshold, invalid boxes and boundaries passed.');
+const navigation=element('div');
+sandbox.window.FrameAnalysis.updateNavigation(navigation,sizedTracks,4,()=>{},true,{highQualityTracked:true});
+assert.equal(navigation.children[0].children[1].textContent,'High quality tracked');
+assert.equal(navigation.children[0].children[1].dataset.target,'previoushighqualitytracked');
+assert.equal(navigation.children[1].children.at(-1).textContent,'High quality tracked');
+assert.equal(navigation.children[1].children.at(-1).dataset.target,'nexthighqualitytracked');
+assert.equal(navigation.children[0].children[1].dataset.lookoutAction,'frame.previous_high_quality_tracked');
+console.log('High-quality tracked buttons occupy the outermost comparison-navigation positions.');
 const overlayState={meta:{width:1920,height:1080,fps:30,analysis_fps:1},tracking_comparison:[{frame:1199,raw_angle:{bbox:[1,2,3,4],confidence:0},leveled:{bbox:[1,2,3,4],confidence:1}},{frame:1229,raw_angle:{bbox:[4,5,6,7]},leveled:{bbox:[4,5,6,7]}}],tracks:Array(1202).fill({bbox:[10,20,30,40]})};
 assert.equal(sandbox.window.FrameAnalysis.playbackBoxes(overlayState,1199).length,2);
 assert.equal(sandbox.window.FrameAnalysis.playbackBoxes(overlayState,1200).length,0);
