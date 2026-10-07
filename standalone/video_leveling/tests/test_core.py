@@ -10,7 +10,7 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT))
 
-from standalone.video_leveling.core import Job, decode, load, save
+from standalone.video_leveling.core import Job, decode, load, nominal_rate, probe, save
 from standalone.video_leveling.motion import rotation
 from standalone.video_leveling.pipeline import export, prepare, write_npz
 
@@ -27,6 +27,19 @@ def video(path,frames=30,fps=10):
 
 
 class StandaloneLevelingTests(unittest.TestCase):
+    def test_probe_prefers_nominal_timestamp_cadence_over_average_rate(self):
+        class Stream:
+            guessed_rate=60000/1001
+            base_rate=60000/1001
+            average_rate=59.95342525913368
+        self.assertAlmostEqual(float(nominal_rate(Stream())),60000/1001)
+
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/"source.avi";video(source,frames=30,fps=10)
+            metadata=probe(source)
+            self.assertAlmostEqual(metadata['fps'],10,places=3)
+            self.assertEqual(metadata['frames'],30)
+
     def test_job_resume_decode_and_annotation_schema(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);source=root/"source.avi";video(source)

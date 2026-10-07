@@ -6,6 +6,19 @@ import numpy as np
 
 VERSION=1
 
+
+def nominal_rate(stream):
+    """Use timestamp cadence, not container frame-count divided by duration.
+
+    Some DJI MOV files report an inaccurate average_rate even though every decoded
+    frame follows an exact NTSC cadence.  FFmpeg's guessed/base rate represents that
+    cadence; the decoder below still rejects genuinely off-grid timestamps.
+    """
+    for field in ('guessed_rate','base_rate','average_rate'):
+        rate=getattr(stream,field,None)
+        if rate is not None and float(rate)>0:return rate
+    raise ValueError('Video stream has no usable frame rate')
+
 def save(path,value):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);tmp=path.with_suffix(path.suffix+'.tmp')
     with tmp.open('w') as f:json.dump(value,f,indent=2,allow_nan=False);f.flush();os.fsync(f.fileno())
@@ -31,9 +44,11 @@ def fingerprint(path):
 
 def probe(path):
     with av.open(str(path)) as c:
-        s=c.streams.video[0];fps=float(s.average_rate);duration=float(s.duration*s.time_base) if s.duration else c.duration/1e6
-        frames=s.frames or round(duration*fps)
-        return dict(width=s.width,height=s.height,fps=fps,rate=str(s.average_rate),duration_seconds=duration,frames=frames,codec=s.codec_context.name,start_seconds=float((s.start_time or 0)*s.time_base),timeline='CFR presentation timestamps; gaps retain original indices')
+        s=c.streams.video[0];rate=nominal_rate(s);fps=float(rate);duration=float(s.duration*s.time_base) if s.duration else c.duration/1e6
+        frames=max(1,round(duration*fps))
+        return dict(width=s.width,height=s.height,fps=fps,rate=str(rate),average_rate=str(s.average_rate) if s.average_rate else None,
+                    duration_seconds=duration,frames=frames,declared_frames=s.frames or None,codec=s.codec_context.name,
+                    start_seconds=float((s.start_time or 0)*s.time_base),timeline='CFR presentation timestamps; gaps retain original indices')
 
 @contextlib.contextmanager
 def lock(folder):
