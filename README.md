@@ -114,6 +114,18 @@ New UI projects and minimal configuration files share `configs/defaults.json`: 1
 
 ## Review and model startup after reboot (Linux)
 
+After the three user services below have been installed, start the model, review UI,
+and persistent queue together with:
+
+```bash
+./start_action_rerender_service.sh
+```
+
+The launcher verifies that all three services are running and prints the local library
+URL. Its service names and URL can be overridden with `ACTION_REFRAME_MODEL_SERVICE`,
+`ACTION_REFRAME_REVIEW_SERVICE`, `ACTION_REFRAME_QUEUE_SERVICE`, and
+`ACTION_REFRAME_URL`.
+
 If a local model already has a systemd user service, install the review service
 with that dependency. Substitute your workspace, port and model unit:
 
