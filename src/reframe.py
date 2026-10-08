@@ -112,14 +112,11 @@ from lookout.events import timed as lookout_timed, count as lookout_count
 @lookout_timed("preparation")
 def prepare(c, max_time=None):
     out = Path(c['output_dir'])
-    cap = cv2.VideoCapture(c['video'])
-    if not cap.isOpened():
-        raise RuntimeError('Cannot open video')
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    from source_decode import VERSION as SOURCE_DECODE_VERSION, frame as source_frame, frames as source_frames, record_repairs, repaired_frames, timeline
+    source_timing=timeline(c['video'])
+    fps=source_timing['fps']
     set_analysis_fps(c,source_fps=fps)
-    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    w, h = int(cap.get(3)), int(cap.get(4))
-    cap.release()
+    n=source_timing['frames'];w=source_timing['width'];h=source_timing['height']
     with av.open(c['video']) as container:
         probe={'format':{'duration':container.duration/av.time_base if container.duration is not None else None,
                          'tags':dict(container.metadata)},'streams':[]}
@@ -132,14 +129,13 @@ def prepare(c, max_time=None):
                 entry.update(width=stream.width,height=stream.height,avg_frame_rate=str(stream.average_rate),
                              pix_fmt=stream.format.name if stream.format else None)
             probe['streams'].append(entry)
+    probe['analysis_timeline']=source_timing
     write_json(out / 'source_metadata.json', probe)
     source = Path(c['video']).stat()
-    from source_decode import VERSION as SOURCE_DECODE_VERSION
     signature = hashlib.sha256(json.dumps([SOURCE_DECODE_VERSION,c['video'], source.st_size, source.st_mtime_ns,
         c['reference_time'], c['reference_box'], c.get('reference_frames',[]), target_description(c), c['sample_interval'], PROMPT_VERSION]).encode()).hexdigest()[:16]
     cache = out / 'cache' / signature
     cache.mkdir(parents=True, exist_ok=True)
-    from source_decode import frame as source_frame,record_repairs
     decode_meta={'fps':fps,'frames':n};repairs=[]
     reference=source_frame(c['video'],decode_meta,round(c['reference_time']*fps));frame=reference.image
     if reference.repaired:repairs.append(reference.repair())
@@ -151,21 +147,37 @@ def prepare(c, max_time=None):
     cv2.imwrite(str(cache / 'reference.jpg'), cv2.resize(crop, None, fx=scale, fy=scale))
     samples = sorted(set([int(round(t * fps)) for t in np.arange(0, n / fps, c['sample_interval'])] + [n-1]))
     last_sample = None if max_time is None else min(samples,key=lambda i:abs(i/fps-max_time))
+    selected=[]
     for i in samples:
         if c.get('tracking_mode')=='anchor':
             bounds=c.get('anchor_tracking',{})
             if i/fps<bounds.get('start_time',0)-1/fps or i/fps>bounds.get('end_time',n/fps)+1/fps:continue
         if last_sample is not None and i>last_sample:continue
-        path = cache / f'{i:07d}.jpg'
-        if path.exists():
-            lookout_count('cache.hit')
-            continue
-        lookout_count('decode.seek');lookout_count('cache.miss')
-        decoded=source_frame(c['video'],decode_meta,i);f=decoded.image
-        if decoded.repaired:repairs.append(decoded.repair())
-        cv2.imwrite(str(path), f, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        selected.append(i)
+    missing={i for i in selected if not (cache/f'{i:07d}.jpg').exists()}
+    hits=len(selected)-len(missing)
+    for _ in range(hits):lookout_count('cache.hit')
+    progress_path=out/'analysis_progress.json'
+    def preparation_progress(completed,current=None):
+        write_json(progress_path,dict(stage='preparing analysis frames',completed=completed,total=len(selected),
+                   current_frame=current,source_frames=n,cache_hits=hits,new_frames=len(selected)-hits))
+    preparation_progress(hits,0)
+    completed=hits;last_progress=time.monotonic()
+    if missing:
+        lookout_count('decode.sequential_pass')
+        for decoded in source_frames(c['video'],decode_meta,min(missing),max(missing)+1):
+            i=decoded.index
+            if i in missing:
+                path=cache/f'{i:07d}.jpg'
+                cv2.imwrite(str(path),decoded.image,[cv2.IMWRITE_JPEG_QUALITY,92])
+                if decoded.repaired:repairs.append(decoded.repair())
+                completed+=1;lookout_count('cache.miss')
+            now=time.monotonic()
+            if now-last_progress>=2:
+                preparation_progress(completed,i);last_progress=now
+        preparation_progress(completed,max(missing))
+        if completed!=len(selected):raise RuntimeError(f'Prepared {completed} of {len(selected)} analysis frames')
     record_repairs(out,'analysis_prepare',repairs)
-    from source_decode import repaired_frames
     meta = {'fps': fps, 'frames': n, 'width': w, 'height': h, 'cache': str(cache), 'samples': samples,
             'signature': signature, 'video': c['video'], 'analysis_fps':c['analysis_fps'],
             'sample_interval':c['sample_interval'],

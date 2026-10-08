@@ -4,10 +4,23 @@ import unittest
 
 import numpy as np
 
-from source_decode import record_repairs, repaired_frames, repair_timeline
+from source_decode import record_repairs, repaired_frames, repair_timeline, timeline
+
+import cv2
 
 
 class SourceDecodeTests(unittest.TestCase):
+    def test_timeline_uses_timestamp_cadence_and_duration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'source.avi'
+            writer=cv2.VideoWriter(str(path),cv2.VideoWriter_fourcc(*'MJPG'),10,(16,16))
+            self.assertTrue(writer.isOpened())
+            for value in range(30):writer.write(np.full((16,16,3),value,np.uint8))
+            writer.release()
+            result=timeline(path)
+            self.assertAlmostEqual(result['fps'],10,places=3)
+            self.assertEqual(result['frames'],30)
+
     def test_sparse_decode_preserves_positions_and_uses_nearest_frame(self):
         images={index:np.full((2,2,3),index,np.uint8) for index in (0,1,5)}
         rows=list(repair_timeline([(i,images[i]) for i in (0,1,5)],0,7))

@@ -10,7 +10,28 @@ import av
 
 from durable_json import write_json
 
-VERSION = 1
+VERSION = 2
+
+
+def timeline(video):
+    """Return the CFR timeline implied by presentation timestamps.
+
+    DJI MOV headers can report an average rate and declared frame count that do
+    not match the exact timestamp cadence.  Use FFmpeg's guessed/base rate and
+    stream duration so every processing stage addresses the same positions.
+    """
+    with av.open(str(video)) as container:
+        stream=container.streams.video[0]
+        rate=stream.guessed_rate or stream.base_rate or stream.average_rate
+        if rate is None or float(rate)<=0:raise ValueError('Video stream has no usable frame rate')
+        fps=float(rate)
+        if stream.duration is not None:duration=float(stream.duration*stream.time_base)
+        elif container.duration is not None:duration=float(container.duration/av.time_base)
+        elif stream.frames:duration=float(stream.frames/fps)
+        else:raise ValueError('Video stream has no usable duration')
+        return dict(fps=fps,rate=str(rate),average_rate=str(stream.average_rate) if stream.average_rate else None,
+                    duration_seconds=duration,frames=max(1,round(duration*fps)),declared_frames=stream.frames or None,
+                    width=stream.width,height=stream.height)
 
 
 @dataclass
