@@ -7,10 +7,13 @@ from zoom_path import minimum_crop_size
 
 VERSION=3  # Polygon preparation, background motion, and repaired-source evidence.
 # Independent from motion evidence: bump whenever camera-path behavior changes.
-# Version 5 may contain the old shot-wide zoom compression even with VERSION=2.
-CAMERA_PATH_VERSION=6
+# Version 6 forced the video endpoints to a full-source-height crop even when
+# tracking was present there.  Version 7 frames tracked boundaries from the
+# object and gives genuinely untracked tails a bounded, gradual transition.
+CAMERA_PATH_VERSION=7
 DEFAULTS=dict(enabled=True,center_seconds=.5,zoom_seconds=.7,seconds_per_doubling=1.5,
-              zoom_acceleration=.45,center_speed=.6,center_acceleration=1.2,gap_seconds=1.,motion_width=640)
+              zoom_acceleration=.45,center_speed=.6,center_acceleration=1.2,gap_seconds=1.,motion_width=640,
+              tracked_boundary_scale=1.5)
 
 
 def settings(c):
@@ -19,6 +22,38 @@ def settings(c):
         if k=='enabled':continue
         if isinstance(v,bool) or not isinstance(v,(int,float)) or not np.isfinite(v) or v<=0:raise ValueError('Invalid render planner setting: '+k)
     return options
+
+
+def _smooth_tracked_log(base, fps, options):
+    """Smooth one tracked interval without letting untracked tails widen it."""
+    sigma=max(.5,options['zoom_seconds']*fps)
+    for _ in range(30):
+        radius=max(1,int(4*sigma+.5))
+        result=gaussian_filter1d(maximum_filter1d(base,size=2*radius+1,mode='nearest'),sigma,mode='nearest')
+        speed=np.max(abs(np.diff(result)))*fps if len(result)>1 else 0
+        accel=np.max(abs(np.diff(result,2)))*fps**2 if len(result)>2 else 0
+        if speed<=np.log(2)/options['seconds_per_doubling']+1e-10 and accel<=options['zoom_acceleration']+1e-10:
+            return result
+        sigma*=1.25
+    return np.full(len(base),float(np.max(base)))
+
+
+def _tail_log(boundary, frames, fps, direction, source_extent, options):
+    """Ease an untracked tail toward a wider view within speed/acceleration limits."""
+    if frames<=0:return np.empty(0)
+    duration=frames/fps
+    maximum_delta=max(0.,np.log(max(source_extent,np.exp(boundary)))-boundary)
+    maximum_delta=min(maximum_delta,
+        np.log(2)/options['seconds_per_doubling']*duration/1.5,
+        options['zoom_acceleration']*duration**2/6)
+    wide=boundary+maximum_delta
+    if direction=='prefix':
+        u=np.arange(frames,dtype=float)/frames
+        ease=u*u*(3-2*u)
+        return wide+(boundary-wide)*ease
+    u=np.arange(1,frames+1,dtype=float)/frames
+    ease=u*u*(3-2*u)
+    return boundary+(wide-boundary)*ease
 
 
 def polygons(observations,corrections,boxes,supported,meta):
@@ -129,37 +164,47 @@ def plan(c,meta,polys,absent,roll,motion):
         else:desired=-bg
         smooth=gaussian_filter1d(desired,max(.5,opt['center_seconds']*fps),axis=0,mode='nearest')
         required=np.full(count,floor)
+        object_extent=np.full(count,np.nan)
         for k,poly in enumerate(p):
-            if poly is None:required[k]=max(floor,h);continue
+            if poly is None:continue
             # More room around unverified geometry is provided by the normal margin.
             offset=poly-smooth[k]
             frame_margin=c.get('_render_margins',[margin]*n)[start+k]
             required[k]=max(floor,2*np.abs(offset[:,1]).max()/(1-2*frame_margin),2*np.abs(offset[:,0]).max()/aspect/(1-2*frame_margin))
+            object_extent[k]=max(np.ptp(poly[:,1]),np.ptp(poly[:,0])/aspect)
         # Widen to satisfy screen-relative translation speed and acceleration too.
         velocity=np.gradient(smooth,axis=0)*fps if count>1 else np.zeros_like(smooth)
         acceleration=np.gradient(velocity,axis=0)*fps if count>1 else np.zeros_like(smooth)
         required=np.maximum(required,np.linalg.norm(velocity/np.array([aspect,1]),axis=1)/opt['center_speed'])
         required=np.maximum(required,np.linalg.norm(acceleration/np.array([aspect,1]),axis=1)/opt['center_acceleration'])
-        desired_size=required.copy()
-        for k,poly in enumerate(p):
-            if poly is not None:desired_size[k]=max(required[k],np.ptp(poly[:,1])/c['subject_height_fraction'])
-        if start==0:desired_size[0]=max(h,desired_size[0])
-        if stop==n:desired_size[-1]=max(h,desired_size[-1])
-        # Smooth a look-ahead maximum envelope in log space. A uniform widening
-        # restores containment; reducing amplitude about the widest view enforces
-        # speed/acceleration without violating any visibility bound.
-        base=np.log(desired_size)
-        sigma=max(.5,opt['zoom_seconds']*fps)
-        for attempt in range(30):
-            # A maximum window covering the Gaussian support is a guaranteed
-            # smooth majorant: every contributing neighbor includes this frame.
-            radius=max(1,int(4*sigma+.5))
-            log=gaussian_filter1d(maximum_filter1d(base,size=2*radius+1,mode='nearest'),sigma,mode='nearest')
-            speed=np.max(abs(np.diff(log)))*fps if count>1 else 0
-            accel=np.max(abs(np.diff(log,2)))*fps**2 if count>2 else 0
-            if speed<=np.log(2)/opt['seconds_per_doubling']+1e-10 and accel<=opt['zoom_acceleration']+1e-10:break
-            sigma*=1.25
-        else:log=np.full(count,float(base.max()))
+        if len(ids):
+            # Use object-relative framing wherever tracking is present.  This
+            # makes the first/last tracked positions stable anchors rather than
+            # letting the former full-view endpoint rule dominate them.
+            # Visibility, motion, and minimum-crop requirements may widen this
+            # nominal 1.5x framing when necessary.
+            boundary_scale=opt['tracked_boundary_scale']
+            tracked=np.maximum(required[ids],object_extent[ids]*boundary_scale)
+            desired_size=np.exp(np.interp(grid,ids,np.log(tracked)))
+            desired_size=np.maximum(desired_size,required)
+        else:
+            desired_size=np.maximum(required,h)
+        # Smooth only the tracked interval.  Otherwise a wide untracked endpoint
+        # enters the maximum-filter window and flattens the intended tail zoom.
+        if len(ids):
+            first,last=ids[0],ids[-1]
+            log=np.empty(count)
+            log[first:last+1]=_smooth_tracked_log(np.log(desired_size[first:last+1]),fps,opt)
+            log[:first]=_tail_log(log[first],first,fps,'prefix',h,opt)
+            log[last+1:]=_tail_log(log[last],count-last-1,fps,'suffix',h,opt)
+            # Motion-derived visibility bounds still take priority.  Propagate
+            # any raised bounds backward/forward at the hard zoom-speed limit.
+            log=np.maximum(log,np.log(required))
+            step=np.log(2)/(fps*opt['seconds_per_doubling'])
+            for k in range(1,count):log[k]=max(log[k],log[k-1]-step)
+            for k in range(count-2,-1,-1):log[k]=max(log[k],log[k+1]-step)
+        else:
+            log=np.log(desired_size)
         extent[start:stop]=np.exp(log)
         # Recheck acceleration including changes in magnification itself.
         screen=velocity/(extent[start:stop,None]*np.array([aspect,1]))

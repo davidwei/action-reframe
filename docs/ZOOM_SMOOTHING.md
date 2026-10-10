@@ -21,11 +21,11 @@ The per-frame log bound is `log(2) / (fps × seconds_per_doubling)`. At 29.970 F
 
 The existing interpolated zoom is the desired path, not the final path. The renderer smooths log crop height (equivalent to negative log zoom), enforces target-fit and minimum-crop bounds, and performs forward/backward maximum-envelope passes. This is linear-time work over the saved frames. It widens nearby frames enough to approach each size requirement within the speed bound.
 
-The final path preserves the 180-source-pixel minimum crop short side, subject fit and margins. Rotation-aware edge coverage is a soft preference: it may be relaxed when the smooth path needs a wider viewport. There is no final edge-coverage clamp that can reintroduce a jump. Missing borders retain the existing feathered/blurred fill. Nominal 1× endpoints may be wider if nearby fit constraints require it.
+The final path preserves the 180-source-pixel minimum crop short side, subject fit and margins. Rotation-aware edge coverage is a soft preference: it may be relaxed when the smooth path needs a wider viewport. There is no final edge-coverage clamp that can reintroduce a jump. Missing borders retain the existing feathered/blurred fill. A tracked video endpoint uses nominal 1.5× object-relative framing instead of being forced to 1×. A genuinely untracked prefix or suffix eases between a wider view and the first or last tracked frame; the wider endpoint is limited by available tail duration, zoom speed, zoom acceleration, and source height, and is not required to reach 1×.
 
 Tracks record the smoothing settings and `zoom_edge_coverage_relaxed`. The corresponding review flag explains when the final crop exceeds the viewport size permitted by complete-edge coverage. `zoom_min` remains the edge-coverage recommendation; it is not a hard lower magnification bound in these frames. `zoom_max` reflects subject fit and the minimum crop size.
 
-Camera-path cache version **4** includes both settings in its dependency key. A rerender recomputes the camera path but reuses compatible analysis records. New executions preserve resolved settings in their execution configuration records.
+Camera-path cache version **7** includes these settings and endpoint behavior in its dependency key. A rerender recomputes the camera path but reuses compatible analysis records. New executions preserve resolved settings in their execution configuration records.
 
 ## Saved-run check
 

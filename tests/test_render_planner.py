@@ -51,3 +51,25 @@ class RenderPlannerTests(unittest.TestCase):
         self.assertEqual(result[0].shape,(3,2));self.assertIsNone(result[1]);self.assertEqual(absent,[1])
         result,_=polygons([dict(frame=0,source_polygon_px=[[0,0],[5000,0],[0,5000]])],{},boxes,[False,False],m)
         self.assertIsNone(result[0])
+
+    def test_tracked_video_endpoints_use_object_relative_zoom(self):
+        c,m,motion=self.fixtures(90);c['minimum_crop_short_side']=24
+        poly=np.array([[800,400],[840,400],[840,460],[800,460]],float)
+        result=plan(c,m,[poly.copy() for _ in range(m['frames'])],[],np.zeros(m['frames']),motion)
+        extent=np.array(result['extent'])
+        # The object is 60 px high, so nominal 1.5x framing is 90 px.
+        # A tracked frame zero must not be forced to the 1080 px source view.
+        np.testing.assert_allclose(extent,90,atol=1e-8)
+
+    def test_untracked_tails_ease_to_tracked_boundary_without_forcing_one_x(self):
+        c,m,motion=self.fixtures(180);c['minimum_crop_short_side']=24
+        poly=np.array([[800,400],[840,400],[840,460],[800,460]],float)
+        rows=[None]*30+[poly.copy() for _ in range(120)]+[None]*30
+        result=plan(c,m,rows,[],np.zeros(m['frames']),motion);extent=np.array(result['extent'])
+        self.assertGreater(extent[0],extent[29]);self.assertGreater(extent[29],extent[30])
+        self.assertGreater(extent[-1],extent[-30]);self.assertGreater(extent[-30],extent[-31])
+        self.assertAlmostEqual(extent[30],90,places=8);self.assertAlmostEqual(extent[-31],90,places=8)
+        self.assertLess(extent[0],m['height']);self.assertLess(extent[-1],m['height'])
+        zoom=np.log(m['height']/extent)
+        self.assertLessEqual(max(abs(np.diff(zoom)))*m['fps'],np.log(2)/1.5+1e-8)
+        self.assertLessEqual(max(abs(np.diff(zoom,2)))*m['fps']**2,.45+1e-8)
