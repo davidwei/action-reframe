@@ -219,6 +219,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
             if parsed.path=='/api/state':
+                summary_only=q.get('summary',['0'])[0]=='1'
                 config=json.loads(local_path(config_name).read_text()) if config_name else dict(project_defaults(),video='',target='',reference_time=0,output_dir='outputs/unconfigured')
                 out=local_path(config['output_dir'])
                 if config.get('video'):config['video']=str(local_path(config['video']).relative_to(ROOT))
@@ -253,12 +254,18 @@ class Handler(BaseHTTPRequestHandler):
                 from contextlib import nullcontext
                 with ((out/'analysis_snapshot.lock').open('a') if out.exists() else nullcontext()) as snapshot_lock:
                     if snapshot_lock is not None:fcntl.flock(snapshot_lock,fcntl.LOCK_SH)
-                    for name in ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures','analysis_snapshot'):
+                    names=('meta','review_flags','corrections','analysis_progress','level_summary','level_progress','anchor_summary','analysis_snapshot') if summary_only else ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures','analysis_snapshot')
+                    for name in names:
                         p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
-                from optical_diagnostics import load as load_optical
-                state['optical_motion']=load_optical(out)
-                from path_candidates import load as load_path_candidates
-                state['path_candidates']=load_path_candidates(out)
+                state['summary_only']=summary_only
+                if summary_only:
+                    for name in ('tracks','observations','level_observations','level_comparison','tracking_comparison','analysis_failures'):state[name]=[]
+                    state['optical_motion']={};state['path_candidates']={}
+                else:
+                    from optical_diagnostics import load as load_optical
+                    state['optical_motion']=load_optical(out)
+                    from path_candidates import load as load_path_candidates
+                    state['path_candidates']=load_path_candidates(out)
                 from tracking_progress import progress_for_ui
                 state['analysis_progress']=progress_for_ui(out,config,state['analysis_progress'])
                 if config.get('batch_input_revision') and (out/'review_corrections.json').exists():

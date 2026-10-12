@@ -67,6 +67,24 @@ class PortabilityTests(unittest.TestCase):
                     self.assertIn('javascript',response.headers['Content-Type'],script)
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_comparison_uses_compact_state_for_long_video_playback(self):
+        out=self.root/'outputs'/'long';out.mkdir(parents=True)
+        config=dict(review_server.project_defaults(),video='long.mp4',output_dir='outputs/long',target='boat',reference_time=0,reference_box=None)
+        (self.root/'long.json').write_text(json.dumps(config))
+        (self.root/'long.mp4').write_bytes(b'fixture')
+        (out/'meta.json').write_text(json.dumps({'frames':300000,'width':1920,'height':1080,'fps':30}))
+        (out/'tracks.json').write_text(json.dumps([{'frame':0,'large':'x'*10000}]))
+        (out/'path_candidates.jsonl').write_text(json.dumps({'frame':0,'large':'x'*10000})+'\n')
+        (out/'comparison.mp4').write_bytes(b'video')
+        state=self.request('/api/state?summary=1&config=long.json')
+        self.assertTrue(state['summary_only'])
+        self.assertEqual(state['tracks'],[])
+        self.assertEqual(state['path_candidates'],{})
+        self.assertEqual(state['meta']['frames'],300000)
+        self.assertEqual(state['comparison'],'outputs/long/comparison.mp4')
+        compare=(review_server.WEB_ROOT/'compare.html').read_text()
+        self.assertIn('/api/state?summary=1&config=',compare)
+
     def test_folder_delegates_visual_leveling_to_detailed_page(self):
         library=(review_server.WEB_ROOT/'library.html').read_text()
         leveling=(review_server.WEB_ROOT/'leveling.html').read_text()
