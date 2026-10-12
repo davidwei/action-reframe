@@ -33,6 +33,7 @@ class OrchestrationTests(unittest.TestCase):
             }))
             unit = render(plan)
             self.assertIn("WantedBy=default.target", unit)
+            self.assertNotIn("After=default.target", unit)
             self.assertIn("Restart=on-abnormal", unit)
             self.assertIn(str(root / "venv" / "python"), unit)
             self.assertIn("ExecStopPost=-/usr/bin/systemctl --user start model.service", unit)

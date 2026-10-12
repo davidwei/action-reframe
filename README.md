@@ -184,6 +184,12 @@ Install alongside the review service (using the same endpoint/model):
 systemctl --user status action-reframe-queue.service
 ```
 
+The queue unit does not own or start a particular vLLM service. The launcher or
+operator starts the intended provider separately, and the queue refuses to start
+until the endpoint reports the exact configured model ID. This avoids launching a
+second model server when another compatible service already owns the endpoint and
+GPUs.
+
 The supervisor honors the saved queue pause setting. It resumes abandoned jobs
 with valid state and unchanged code; it does not retry genuine failures or user
 stops. A code change requires explicit retry. Render jobs now reuse validated

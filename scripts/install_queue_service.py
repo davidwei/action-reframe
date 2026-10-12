@@ -21,8 +21,6 @@ def main():
     repo=Path(__file__).resolve().parents[1];python=quoted(a.python.absolute())
     unit=f'''[Unit]
 Description=Action Reframe persistent queue and interruption recovery
-Wants={a.model_service}
-After={a.model_service}
 
 [Service]
 Type=simple
@@ -40,6 +38,9 @@ StandardError=journal
 WantedBy=default.target
 '''
     if not a.install:print(unit);return
+    # The endpoint may be supplied by a compatible model-profile service.  Keep
+    # provider startup in the service launcher and verify the exact model in
+    # ExecStartPre instead of coupling this unit to one provider.
     subprocess.run(['systemctl','--user','cat',a.model_service],stdout=subprocess.DEVNULL,check=True)
     path=Path.home()/'.config/systemd/user/action-reframe-queue.service';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(unit)
     for args in (['daemon-reload'],['enable',path.name],['restart','--no-block',path.name]):

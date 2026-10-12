@@ -1,8 +1,13 @@
 import unittest
 import numpy as np
-from render_planner import plan,polygons,settings
+from render_planner import _nearest_distance,plan,polygons,settings
 
 class RenderPlannerTests(unittest.TestCase):
+    def test_nearest_tracked_distance_uses_linear_memory_semantics(self):
+        np.testing.assert_array_equal(_nearest_distance(np.arange(12),[2,6,9]),
+            [2,1,0,1,2,1,0,1,1,0,1,2])
+        with self.assertRaises(ValueError):_nearest_distance(np.arange(3),[])
+
     def fixtures(self,n=180):
         meta=dict(frames=n,width=1920,height=1080,fps=30)
         c=dict(output_width=1280,output_height=720,margin_fraction=.1,subject_height_fraction=.55,minimum_crop_short_side=180)

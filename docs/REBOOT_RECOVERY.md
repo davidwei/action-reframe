@@ -3,8 +3,10 @@
 ## Queue lifecycle
 
 `action-reframe-queue.service` supervises the queue independently of the review UI.
-It starts the configured model service, verifies its expected served model ID,
-and continuously reconciles abandoned runners. OS locks establish liveness; saved
+The model provider is started independently by the service launcher or an operator;
+the queue verifies the endpoint's expected served model ID before it starts and
+continuously reconciles abandoned runners. This lets a compatible provider serve
+the endpoint without starting a second GPU process. OS locks establish liveness; saved
 PID/status history does not. The service restarts on failure and starts with the
 user's systemd manager (at boot when user lingering is enabled).
 

@@ -23,7 +23,6 @@ def render(plan_path: Path) -> str:
     lines = [
         "[Unit]",
         "Description=Standalone action-video leveling",
-        "After=default.target",
         "",
         "[Service]",
         "Type=simple",

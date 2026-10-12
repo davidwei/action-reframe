@@ -1,10 +1,16 @@
 import unittest
 import cv2
 import numpy as np
-from reframe import camera_path, composite, corners, refine_level
+from reframe import camera_path, composite, corners, nearest_sample_indices, refine_level
 
 
 class GeometryTests(unittest.TestCase):
+    def test_nearest_sample_lookup_is_stable_at_ties_and_boundaries(self):
+        np.testing.assert_array_equal(nearest_sample_indices([2,6,9],12),
+            [0,0,0,0,0,1,1,1,2,2,2,2])
+        with self.assertRaises(ValueError):nearest_sample_indices([],3)
+        with self.assertRaises(ValueError):nearest_sample_indices([2,1],3)
+
     def test_rotated_edge_target_prioritizes_subject_fit_and_smooth_zoom(self):
         n=120
         meta={'frames':n,'width':1920,'height':1080,'fps':30}

@@ -56,6 +56,16 @@ def _tail_log(boundary, frames, fps, direction, source_extent, options):
     return boundary+(wide-boundary)*ease
 
 
+def _nearest_distance(positions, samples):
+    """Distance to sorted samples without constructing an all-pairs matrix."""
+    positions=np.asarray(positions,dtype=np.int64);samples=np.asarray(samples,dtype=np.int64)
+    if samples.ndim!=1 or not len(samples) or np.any(samples[1:]<samples[:-1]):
+        raise ValueError('Sample positions must be a nonempty sorted vector')
+    right=np.searchsorted(samples,positions,side='left')
+    left=np.clip(right-1,0,len(samples)-1);right=np.clip(right,0,len(samples)-1)
+    return np.minimum(np.abs(positions-samples[left]),np.abs(samples[right]-positions))
+
+
 def polygons(observations,corrections,boxes,supported,meta):
     n=meta['frames'];by={r['frame']:r for r in observations};result=[];absent=[]
     for i in range(n):
@@ -156,7 +166,7 @@ def plan(c,meta,polys,absent,roll,motion):
         if len(ids):
             targets=np.array([v.mean(axis=0) for v in p if v is not None]);desired=np.column_stack([np.interp(grid,ids,targets[:,j]) for j in (0,1)])
             # Long unsupported gaps gradually return toward the source center.
-            distance=np.min(abs(grid[:,None]-ids[None,:]),axis=1)/fps
+            distance=_nearest_distance(grid,ids)/fps
             blend=np.clip((distance-c.get('hold_seconds',.7))/opt['gap_seconds'],0,1)
             for i in absent:
                 if start<=i<stop:blend[i-start]=1

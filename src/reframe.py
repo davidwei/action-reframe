@@ -640,6 +640,19 @@ def color_component(frame, box, hue):
     return best
 
 
+def nearest_sample_indices(samples, count):
+    """Map a dense frame range to sorted sample positions in linear memory."""
+    samples=np.asarray(samples,dtype=np.int64)
+    if samples.ndim!=1 or not len(samples) or np.any(samples[1:]<samples[:-1]):
+        raise ValueError('Sample positions must be a nonempty sorted vector')
+    grid=np.arange(count,dtype=np.int64)
+    right=np.searchsorted(samples,grid,side='left')
+    left=np.clip(right-1,0,len(samples)-1);right=np.clip(right,0,len(samples)-1)
+    # Match argmin's stable tie behavior by choosing the earlier sample.
+    choose_right=np.abs(samples[right]-grid)<np.abs(grid-samples[left])
+    return np.where(choose_right,right,left)
+
+
 def measurements(c, meta, observations):
     n,w,h,fps = meta['frames'],meta['width'],meta['height'],meta['fps']
     out=Path(c['output_dir'])
@@ -666,7 +679,7 @@ def measurements(c, meta, observations):
     boxes=np.array([r['bbox'] for r,v in zip(observations,valid) if v])*[w/1000,h/1000,w/1000,h/1000]
     grid=np.arange(n)
     expected=np.column_stack([np.interp(grid,ix[valid],boxes[:,j]) for j in range(4)])
-    nearest=np.abs(grid[:,None]-ix).argmin(axis=1)
+    nearest=nearest_sample_indices(ix,n)
     supported=valid[nearest] & (np.abs(grid-ix[nearest])<=fps*max(c['sample_interval'],.6))
     raw=expected.copy()
     flags=[[] for _ in range(n)]

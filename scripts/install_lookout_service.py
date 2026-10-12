@@ -10,7 +10,6 @@ a=parser.parse_args();source=Path(__file__).resolve().parents[1]/'src'
 def quoted(value):return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
 unit=f'''[Unit]
 Description=Lookout local telemetry and daily reports
-After=default.target
 
 [Service]
 Type=simple
