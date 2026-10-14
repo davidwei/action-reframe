@@ -56,11 +56,16 @@ class VideoPartsTest(unittest.TestCase):
             ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
             import subprocess
             subprocess.run([ffmpeg,'-hide_banner','-loglevel','error','-y','-f','lavfi','-i','testsrc=size=64x48:rate=6:duration=2',
+                '-c:v','libx264','-pix_fmt','yuv420p','-metadata','creation_time=2026-08-21T22:44:15Z',
+                '-metadata','com.apple.quicktime.location.ISO6709=+37.4280-122.1303+008.641/',
+                '-movflags','+use_metadata_tags',str(root/'original.mp4')],check=True)
+            subprocess.run([ffmpeg,'-hide_banner','-loglevel','error','-y','-f','lavfi','-i','testsrc=size=64x48:rate=6:duration=2',
                 '-c:v','libx264','-pix_fmt','yuv420p',str(output/'focused.mp4')],check=True)
             save_manifest(output,meta,rows);status=export(root,config,1)
             target=root/'original_part1.mp4';self.assertEqual(status['status'],'done');self.assertTrue(target.is_file())
             with av.open(str(target)) as container:
                 decoded=sum(1 for _ in container.decode(video=0))
+                self.assertIn('com.apple.quicktime.location.ISO6709',container.metadata)
             self.assertGreaterEqual(decoded,5);self.assertLessEqual(decoded,7)
 
 

@@ -1,19 +1,26 @@
 # Export metadata and provenance
 
-New renders preserve available recording date/time and camera make/model tags in
+New renders preserve source tags that remain true for transformed pixels in
 `focused.mp4` and `comparison.mp4`. The exporter takes container tags first, then
-falls back to the primary video stream. Supported tags include `creation_time`,
-`date`, `make`, `model`, `camera_make`, `camera_model`, and the corresponding Apple
-QuickTime creation-date/make/model keys.
+falls back to the primary video stream. This includes recording date/time, GPS
+location and accuracy, camera make/model, and descriptive ownership/title tags.
+Apple QuickTime creation-date, location, make, and model keys are retained.
+
+Saved Parts read metadata from the original video rather than relying on an older
+focused render. Their recording dates are shifted by the Part start offset, so a
+Part beginning 65 seconds into a recording sorts 65 seconds after the source in
+Apple Photos. Location and camera information remain unchanged.
 
 Source encoder/software identification is retained under `source_encoder`,
 `source_software`, or `source_com_apple_quicktime_software`. The normal encoder tag
 continues to identify the software that actually encoded the processed video.
 Custom tags use MP4 metadata keys; visibility depends on the viewer/editor.
 
-Original orientation, timecode, chapters, GPS and camera telemetry are not copied
-as output-video tags/tracks. They may describe the original camera view rather than
-the rotated/zoomed view. Audio streams continue to be copied without re-encoding.
+Original orientation, timecode, chapters, camera telemetry, encoding/container
+structure fields, source asset identifiers and slow-motion playback intent are not
+copied as output-video tags/tracks. They describe the original coordinate system,
+timeline, stream structure or media asset rather than the rotated/zoomed result.
+Audio streams continue to be copied without re-encoding.
 Video remains H.264/yuv420p at the configured dimensions and nominal source FPS;
 this change does not preserve HDR or variable frame timestamps.
 

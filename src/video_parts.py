@@ -13,6 +13,7 @@ import uuid
 
 import imageio_ffmpeg
 from durable_json import write_json
+from export_metadata import ffmpeg_metadata_args
 
 VERSION=1
 
@@ -187,8 +188,9 @@ def export(root,config_path,part_index):
         write_json(status_path,status)
         temp=target.with_name('.'+target.stem+'.'+uuid.uuid4().hex+'.saving'+target.suffix)
         duration=float(part['duration_seconds']);start=float(part['start_seconds'])
+        original=source_path(root,info['source'])
         command=[imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-y','-ss',f'{start:.9f}','-i',str(source),
-            '-t',f'{duration:.9f}','-map','0:v:0','-map','0:a:0?','-map_metadata','0','-c:v','libx264','-threads','4','-preset','fast','-crf','18',
+            '-t',f'{duration:.9f}','-map','0:v:0','-map','0:a:0?',*ffmpeg_metadata_args(original,start),'-c:v','libx264','-threads','4','-preset','fast','-crf','18',
             '-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart+use_metadata_tags','-progress','pipe:1','-nostats',str(temp)]
         last=0
         try:

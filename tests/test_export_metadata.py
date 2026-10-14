@@ -10,15 +10,28 @@ from export_metadata import export_tags, ffmpeg_metadata_args, inspect_source, w
 
 
 class ExportMetadataTests(unittest.TestCase):
-    def test_allowlist_keeps_identity_not_orientation_or_timecode(self):
+    def test_preserves_valid_metadata_not_old_encoding_or_orientation(self):
         source={'tags':{'creation_time':'2026-08-21T22:44:15Z','encoder':'DJI OsmoAction6',
-                        'rotate':'90','timecode':'20:56:28;01','location':'private'},
+                        'rotate':'90','timecode':'20:56:28;01','location':'private',
+                        'com.apple.quicktime.location.ISO6709':'+37.4280-122.1303+008.641/',
+                        'copyright':'Camera owner'},
                 'streams':[{'type':'video','tags':{'model':'Action6','creation_time':'older'}}]}
         tags=export_tags(source)
         self.assertEqual(tags['creation_time'],'2026-08-21T22:44:15Z')
         self.assertEqual(tags['source_encoder'],'DJI OsmoAction6')
         self.assertEqual(tags['model'],'Action6')
-        self.assertFalse({'rotate','timecode','location','encoder'} & tags.keys())
+        self.assertEqual(tags['location'],'private')
+        self.assertIn('com.apple.quicktime.location.ISO6709',tags)
+        self.assertEqual(tags['copyright'],'Camera owner')
+        self.assertFalse({'rotate','timecode','encoder'} & tags.keys())
+
+    def test_part_capture_times_are_shifted(self):
+        source={'tags':{'creation_time':'2026-08-21T22:44:15.000000Z',
+                        'com.apple.quicktime.creationdate':'2026-08-21T15:44:15-0700'},
+                'streams':[{'type':'video','tags':{}}]}
+        tags=export_tags(source,65.5)
+        self.assertEqual(tags['creation_time'],'2026-08-21T22:45:20.500000Z')
+        self.assertEqual(tags['com.apple.quicktime.creationdate'],'2026-08-21T15:45:20-0700')
 
     def test_real_export_tags_and_original_timecode_packet_archive(self):
         with tempfile.TemporaryDirectory() as folder:
