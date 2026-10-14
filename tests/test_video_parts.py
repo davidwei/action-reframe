@@ -30,13 +30,24 @@ class VideoPartsTest(unittest.TestCase):
             parts=build_index(path,{'frames':5,'fps':10})
             self.assertEqual([(p['start_frame'],p['end_frame'],p['tracked']) for p in parts],[(0,2,True),(2,4,False),(4,5,True)])
             self.assertEqual(parts[0]['sources'],{'interpolated':1,'raw':1})
+            self.assertEqual([item['frame'] for item in parts[0]['highlights']],[0,1])
             self.assertAlmostEqual(parts[1]['duration_seconds'],.2)
+
+    def test_highlights_are_five_largest_tracked_boxes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'tracks.json';rows=[]
+            for frame,size in enumerate([2,9,5,8,7,6,4]):
+                rows.append({'frame':frame,'bbox':[10,20,10+size,20+size],'selected_path':'optical'})
+            path.write_text(json.dumps(rows));part=build_index(path,{'frames':7,'fps':2})[0]
+            self.assertEqual([item['frame'] for item in part['highlights']],[1,3,4,5,2])
+            self.assertEqual(part['highlights'][0]['box_area'],81)
+            self.assertEqual(part['highlights'][0]['seconds'],.5)
 
     def fixture(self,root,frames=12,fps=6):
         output=root/'outputs'/'run';output.mkdir(parents=True)
         source=root/'original.mp4';source.write_bytes(b'original fixture')
         config=root/'project.json';config.write_text(json.dumps({'video':'original.mp4','output_dir':'outputs/run','project_name':'Boat'}))
-        meta={'frames':frames,'fps':fps};(output/'meta.json').write_text(json.dumps(meta))
+        meta={'frames':frames,'fps':fps,'width':64,'height':48};(output/'meta.json').write_text(json.dumps(meta))
         rows=[{'frame':i,'bbox':[5,5,30,25] if i<frames//2 else None,'selected_path':'raw' if i<frames//2 else 'neither'} for i in range(frames)]
         (output/'tracks.json').write_text(json.dumps(rows));(output/'focused.mp4').write_bytes(b'focused fixture');(output/'comparison.mp4').write_bytes(b'comparison fixture')
         return config,output,meta,rows

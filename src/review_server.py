@@ -5,6 +5,7 @@ import base64
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import mimetypes
 from pathlib import Path
 import subprocess
@@ -316,6 +317,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not ok:raise ValueError('Cannot decode requested frame')
                 if reference_config:
                     x1,y1,x2,y2=map(round,reference_config['reference_box']);f=f[y1:y2,x1:x2]
+                elif q.get('crop'):
+                    values=[float(value) for value in q['crop'][0].split(',')]
+                    if len(values)!=4 or not all(math.isfinite(value) for value in values):raise ValueError('Invalid frame crop')
+                    height,width=f.shape[:2];x1,y1,x2,y2=map(round,values)
+                    x1=max(0,min(width-1,x1));y1=max(0,min(height-1,y1));x2=max(x1+1,min(width,x2));y2=max(y1+1,min(height,y2));f=f[y1:y2,x1:x2]
                 ok,b=cv2.imencode('.jpg',f,[cv2.IMWRITE_JPEG_QUALITY,92])
                 self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b.tobytes());return
             if parsed.path=='/api/leveling-frame':

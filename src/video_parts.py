@@ -15,7 +15,8 @@ import imageio_ffmpeg
 from durable_json import write_json
 from export_metadata import ffmpeg_metadata_args
 
-VERSION=1
+VERSION=2
+HIGHLIGHT_COUNT=5
 
 
 def array_items(path,chunk_size=1024*1024):
@@ -66,26 +67,41 @@ def source_path(root,value):
     return path
 
 
-def _finish(parts,start,stop,tracked,counts,fps):
+def _highlight(row,fps):
+    box=list(map(float,row['bbox']));width=box[2]-box[0];height=box[3]-box[1]
+    return dict(frame=int(row['frame']),seconds=int(row['frame'])/fps,bbox=box,
+        box_width=width,box_height=height,box_area=width*height,
+        selected_path=str(row.get('selected_path') or 'unspecified'))
+
+
+def _rank_highlights(candidates,row,fps):
+    if not guides_framing(row):return
+    candidates.append(_highlight(row,fps))
+    candidates.sort(key=lambda item:(-item['box_area'],item['frame']))
+    del candidates[HIGHLIGHT_COUNT:]
+
+
+def _finish(parts,start,stop,tracked,counts,highlights,fps):
     parts.append(dict(index=len(parts)+1,start_frame=start,end_frame=stop,frames=stop-start,
         start_seconds=start/fps,end_seconds=stop/fps,duration_seconds=(stop-start)/fps,
-        tracked=tracked,sources=dict(sorted(counts.items()))))
+        tracked=tracked,sources=dict(sorted(counts.items())),highlights=highlights if tracked else []))
 
 
 def build_index(tracks,meta):
     fps=float(meta['fps']);total=int(meta['frames'])
     if not math.isfinite(fps) or fps<=0 or total<=0:raise ValueError('Invalid render metadata')
-    parts=[];start=0;previous=None;counts={};seen=0
+    parts=[];start=0;previous=None;counts={};highlights=[];seen=0
     for expected,row in enumerate(array_items(tracks)):
         if expected>=total:raise ValueError('Tracks contain more frames than render metadata')
         if int(row.get('frame',expected))!=expected:raise ValueError(f'Non-contiguous track frame at {expected}')
         tracked=guides_framing(row)
         if previous is None:previous=tracked
         elif tracked!=previous:
-            _finish(parts,start,expected,previous,counts,fps);start=expected;previous=tracked;counts={}
+            _finish(parts,start,expected,previous,counts,highlights,fps);start=expected;previous=tracked;counts={};highlights=[]
         source=str(row.get('selected_path') or 'unspecified');counts[source]=counts.get(source,0)+1;seen=expected+1
+        _rank_highlights(highlights,row,fps)
     if seen!=total:raise ValueError(f'Tracks contain {seen}/{total} frames')
-    _finish(parts,start,total,previous,counts,fps)
+    _finish(parts,start,total,previous,counts,highlights,fps)
     return parts
 
 
@@ -94,15 +110,16 @@ def build_from_rows(rows,meta):
     fps=float(meta['fps']);total=int(meta['frames'])
     if not math.isfinite(fps) or fps<=0 or total<=0:raise ValueError('Invalid render metadata')
     if len(rows)!=total:raise ValueError(f'Tracks contain {len(rows)}/{total} frames')
-    parts=[];start=0;previous=None;counts={}
+    parts=[];start=0;previous=None;counts={};highlights=[]
     for expected,row in enumerate(rows):
         if int(row.get('frame',expected))!=expected:raise ValueError(f'Non-contiguous track frame at {expected}')
         tracked=guides_framing(row)
         if previous is None:previous=tracked
         elif tracked!=previous:
-            _finish(parts,start,expected,previous,counts,fps);start=expected;previous=tracked;counts={}
+            _finish(parts,start,expected,previous,counts,highlights,fps);start=expected;previous=tracked;counts={};highlights=[]
         source=str(row.get('selected_path') or 'unspecified');counts[source]=counts.get(source,0)+1
-    _finish(parts,start,total,previous,counts,fps)
+        _rank_highlights(highlights,row,fps)
+    _finish(parts,start,total,previous,counts,highlights,fps)
     return parts
 
 
@@ -147,7 +164,8 @@ def index(root,config_path):
         except (OSError,ValueError,TypeError,AttributeError,json.JSONDecodeError):pass
     return dict(project=str(config_path.relative_to(root)),project_name=project_name or config_path.stem,
         source=str(source.relative_to(root)),comparison=str(comparison.relative_to(root)),comparison_version=comparison.stat().st_mtime_ns,
-        focused=str(focused.relative_to(root)),fps=float(meta['fps']),frames=int(meta['frames']),parts=parts)
+        focused=str(focused.relative_to(root)),fps=float(meta['fps']),frames=int(meta['frames']),
+        width=int(meta['width']),height=int(meta['height']),parts=parts)
 
 
 def _status_path(root,config_path,part_index):

@@ -100,6 +100,8 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn("video.preload='none'",parts)
         self.assertIn("slider.type='range'",parts)
         self.assertIn('slider.onchange=async',parts)
+        self.assertIn('Top 5 highlight frames',parts)
+        self.assertIn('box_area',parts)
 
     def test_parts_api_splits_completed_render(self):
         out=self.root/'outputs'/'parts';out.mkdir(parents=True)
@@ -114,6 +116,7 @@ class PortabilityTests(unittest.TestCase):
         result=self.request('/api/parts?config=parts.json')
         self.assertEqual(result['project_name'],'Parts test')
         self.assertEqual([(p['frames'],p['tracked']) for p in result['parts']],[(2,True),(1,False)])
+        self.assertEqual([item['frame'] for item in result['parts'][0]['highlights']],[0,1])
         self.assertTrue((out/'parts_index.json').is_file())
 
     def test_folder_delegates_visual_leveling_to_detailed_page(self):
