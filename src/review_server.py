@@ -70,12 +70,19 @@ def ensure_review_meta(config,out):
     return meta
 
 
-def review_geometry(config,out,index):
+_UNSET=object()
+
+
+def review_geometry(config,out,index,track=_UNSET):
     from label_geometry import preview_geometry
     meta=ensure_review_meta(config,out)
     if not 0<=index<meta['frames']:raise ValueError('Frame out of range')
-    track_path=out/'tracks.json';tracks=json.loads(track_path.read_text()) if track_path.exists() else []
-    track=tracks[index] if index<len(tracks) else None
+    if track is _UNSET:
+        if (out/'tracks.json').is_file() and (out/'meta.json').is_file():
+            from review_snapshot import frame as review_frame
+            threshold=config.get('tracking_selection',{}).get('confidence_threshold',.5)
+            track=review_frame(out,index,threshold).get('track')
+        else:track=None
     level_path=out/'level_comparison.json';levels=json.loads(level_path.read_text()) if not track and level_path.exists() else []
     roll=levels[index].get('final_roll') if index<len(levels) else None
     if roll is None and not track and config.get('leveling_source')=='gyro':
@@ -224,6 +231,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(index(ROOT,local_path(config_name)))
             if parsed.path=='/api/state':
                 summary_only=q.get('summary',['0'])[0]=='1'
+                static_summary=q.get('static',['1'])[0]!='0'
                 config=json.loads(local_path(config_name).read_text()) if config_name else dict(project_defaults(),video='',target='',reference_time=0,output_dir='outputs/unconfigured')
                 out=local_path(config['output_dir'])
                 if config.get('video'):config['video']=str(local_path(config['video']).relative_to(ROOT))
@@ -258,13 +266,18 @@ class Handler(BaseHTTPRequestHandler):
                 from contextlib import nullcontext
                 with ((out/'analysis_snapshot.lock').open('a') if out.exists() else nullcontext()) as snapshot_lock:
                     if snapshot_lock is not None:fcntl.flock(snapshot_lock,fcntl.LOCK_SH)
-                    names=('meta','review_flags','corrections','analysis_progress','level_summary','level_progress','anchor_summary','analysis_snapshot') if summary_only else ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures','analysis_snapshot')
+                    names=(('meta','review_flags','corrections','analysis_progress','level_summary','level_progress','anchor_summary','analysis_failures','analysis_snapshot') if static_summary else ('meta','corrections','analysis_progress','level_summary','level_progress','analysis_failures','analysis_snapshot')) if summary_only else ('meta','tracks','review_flags','corrections','observations','analysis_progress','level_observations','level_comparison','level_summary','level_progress','tracking_comparison','anchor_summary','analysis_failures','analysis_snapshot')
                     for name in names:
                         p=out/(name+'.json');state[name]=json.loads(p.read_text()) if p.exists() else None
                 state['summary_only']=summary_only
                 if summary_only:
-                    for name in ('tracks','observations','level_observations','level_comparison','tracking_comparison','analysis_failures'):state[name]=[]
+                    for name in ('tracks','observations','level_observations','level_comparison','tracking_comparison'):state[name]=[]
                     state['optical_motion']={};state['path_candidates']={}
+                    from review_snapshot import status as review_snapshot_status
+                    snapshot=review_snapshot_status(out,config.get('tracking_selection',{}).get('confidence_threshold',.5))
+                    navigation=snapshot.pop('navigation',{})
+                    state['review_navigation']=navigation if static_summary else {}
+                    state['review_snapshot']=snapshot
                 else:
                     from optical_diagnostics import load as load_optical
                     state['optical_motion']=load_optical(out)
@@ -284,7 +297,10 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path=='/api/review-frame':
                 if not config_name:raise ValueError('Create a project first')
                 config=json.loads(local_path(config_name).read_text());out=local_path(config['output_dir']);index=int(q['frame'][0])
-                meta,track,geometry=review_geometry(config,out,index)
+                from review_snapshot import frame as review_frame
+                threshold=config.get('tracking_selection',{}).get('confidence_threshold',.5)
+                analysis=review_frame(out,index,threshold)
+                meta,track,geometry=review_geometry(config,out,index,analysis.get('track'))
                 cap=cv2.VideoCapture(str(local_path(config['video'])));cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read();cap.release()
                 if not ok:raise ValueError('Cannot decode source frame')
                 import numpy as np
@@ -292,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
                 processed=composite(frame,np.asarray(geometry['source_to_view']), (geometry['width'],geometry['height']),config.get('feather_pixels',40),track.get('bbox') if track else None)
                 ok,encoded=cv2.imencode('.jpg',processed,[cv2.IMWRITE_JPEG_QUALITY,92])
                 if not ok:raise ValueError('Cannot encode processed preview')
-                return self.json_response({'frame':index,'geometry':geometry,'image':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()})
+                return self.json_response({'frame':index,'geometry':geometry,'image':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode(),'analysis':analysis})
             if parsed.path in ('/api/frame','/api/reference'):
                 reference_config=json.loads(local_path(config_name).read_text()) if parsed.path=='/api/reference' else None
                 video=local_path(reference_config['video'] if reference_config else q['video'][0]);i=int(q.get('frame',['0'])[0])

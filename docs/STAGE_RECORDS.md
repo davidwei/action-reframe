@@ -60,6 +60,14 @@ Anchor analysis checkpoints reference immutable `result_shards/<group>_<revision
 
 Analysis writes scheduler/progress records and evidence but no longer rebuilds observations, selected results, or comparison exports. Rendering exports these from one committed checkpoint before computing its camera path. Object tracking offers **Refresh analysis snapshot**, which generates the same exports without model calls or rendering and displays its timestamp. Snapshot reads/writes are serialized for UI consistency. Detailed optical/candidate journals remain available as before. Rerender jobs copy the committed manifest and referenced shards; they need no live analysis worker. Legacy JSON-only runs still render unchanged. A running worker must restart before the new persistence code takes effect.
 
+Rendering also creates `review_snapshot/`, a compressed random-access projection for the
+Object tracking UI. Six hundred-frame shards hold final tracks and exact-frame analysis;
+byte-offset indexes address the append-only optical and candidate journals. The browser
+loads a compact project/navigation summary followed by only the displayed frame. Older
+completed runs build this derived snapshot once from their existing artifacts, without
+analysis or rerendering. It can be regenerated because the stage records and rendered
+tracks remain authoritative.
+
 ## Concise text comparison (version 5)
 
 Text comparison explanations use a prompt-level total word budget of `clamp(ceil(approved_description_words / 2), 40, 80)` across reason, exclusion_reason, localization_reason and differences. Word counting uses whitespace. Required JSON fields and identity/localization rules are unchanged; the 1000-token output allowance remains unchanged to avoid truncating JSON. This is a soft instruction, not a validation failure/retry trigger. Crop-description prompts are unchanged. Comparison request keys/version distinguish new evidence from older results.

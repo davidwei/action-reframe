@@ -83,7 +83,9 @@ class PortabilityTests(unittest.TestCase):
         self.assertEqual(state['meta']['frames'],300000)
         self.assertEqual(state['comparison'],'outputs/long/comparison.mp4')
         compare=(review_server.WEB_ROOT/'compare.html').read_text()
+        tracking=(review_server.WEB_ROOT/'review.html').read_text()
         self.assertIn('/api/state?summary=1&config=',compare)
+        self.assertIn("/api/state?summary=1'",tracking)
 
     def test_parts_page_is_linked_after_processed_review(self):
         parts=(review_server.WEB_ROOT/'parts.html').read_text()
@@ -96,6 +98,8 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('/api/parts?config=',parts)
         self.assertIn('/api/parts/save',parts)
         self.assertIn("video.preload='none'",parts)
+        self.assertIn("slider.type='range'",parts)
+        self.assertIn('slider.onchange=async',parts)
 
     def test_parts_api_splits_completed_render(self):
         out=self.root/'outputs'/'parts';out.mkdir(parents=True)

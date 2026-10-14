@@ -336,16 +336,17 @@
   }
   function navigationTargets(state, frame) {
     const reviewed=Object.keys(state.corrections||{}).map(Number);
-    const sampled=state.meta?.samples ?? (state.tracking_comparison?.length ? state.tracking_comparison : state.observations||[]).filter(r=>!r.manual && !r.raw_angle?.manual).map(r=>r.frame);
+    const navigation=state.review_navigation||{};
+    const sampled=navigation.sampled ?? state.meta?.samples ?? (state.tracking_comparison?.length ? state.tracking_comparison : state.observations||[]).filter(r=>!r.manual && !r.raw_angle?.manual).map(r=>r.frame);
     const threshold=state.config?.tracking_selection?.confidence_threshold??.5;
     const rows=new Map((state.observations||[]).map(r=>[r.frame,r]));
     for(const pair of state.tracking_comparison||[])if(pair.selected)rows.set(pair.frame,{...pair.selected,frame:pair.frame});
     for(const [i,c] of Object.entries(state.corrections||{}))if(Object.prototype.hasOwnProperty.call(c,'bbox'))rows.set(Number(i),{frame:Number(i),bbox:c.bbox,confidence:c.bbox?1:0,visibility:c.bbox?'visible':'absent'});
-    const tracked=[...rows.values()].filter(r=>r.bbox&&r.confidence>=threshold&&acceptedEvidence(r)&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>r.frame);
+    const tracked=[...(navigation.tracked||[]),...rows.values()].filter(r=>Number.isInteger(r)?true:r.bbox&&r.confidence>=threshold&&acceptedEvidence(r)&&!r.error&&!r.scene_cut&&!['absent','uncertain'].includes(r.visibility)).map(r=>Number.isInteger(r)?r:r.frame);
     // Render tracks contain both the selected target box and the actual source-pixel
     // render crop. Any tracking path is eligible; crop quality is based on the render
     // crop area shown in Frame analysis, rather than the target-box area.
-    const highqualitytracked=highQualityTrackedFrames(state.tracks);
+    const highqualitytracked=navigation.highqualitytracked??highQualityTrackedFrames(state.tracks);
     const result={};
     for(const [kind,values] of Object.entries({reviewed,sampled,tracked,highqualitytracked})){
       const frames=[...new Set(values)].filter(i=>Number.isInteger(i)&&i>=0&&(!state.meta?.frames||i<state.meta.frames)).sort((a,b)=>a-b);

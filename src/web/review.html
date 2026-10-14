@@ -43,7 +43,7 @@
 <script src="/files/frame_analysis.js?v=camera-planner-1"></script>
 <script>
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
-let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw',trackingPlaying=false,trackingPlayToken=0,trackingClipStart=0;
+let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw',trackingPlaying=false,trackingPlayToken=0,trackingClipStart=0,frameDetail=null;
 $('compare').href='/compare?config='+encodeURIComponent(project);
 $('parts').href='/parts?config='+encodeURIComponent(project);
 const ctx=$('source').getContext('2d');let inspectedBox=null;
@@ -53,6 +53,13 @@ $('frameAnalysis').addEventListener('analysis-box',async event=>{
  catch(error){notice(error.message);}
 });
 function notice(s){$('notice').textContent=s}
+function applyFrameDetail(detail){
+ if(!detail)return;const i=detail.frame;state.tracks=[];if(detail.track)state.tracks[i]=detail.track;
+ state.observations=detail.observation?[detail.observation]:[];state.tracking_comparison=detail.tracking_comparison?[detail.tracking_comparison]:[];
+ state.level_comparison=[];if(detail.level_comparison)state.level_comparison[i]=detail.level_comparison;
+ state.path_candidates=detail.path_candidates&&Object.keys(detail.path_candidates).length?{[i]:detail.path_candidates}:{};
+ state.optical_motion=detail.optical_motion?{[i]:detail.optical_motion}:{};
+}
 function showAnalysis(){FrameAnalysis.updateNavigation($('frameNavigation'),state,frame,i=>safe(async()=>{frame=i;await showFrame()})(),sourceVideo===state.config?.video);FrameAnalysis.update($('frameAnalysis'),state,frame,{sourceMatches:sourceVideo===state.config?.video})}
 async function request(url,body){const r=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,config:project})}:{});const d=await r.json();if(!r.ok)throw Error(d.error||r.status);return d}
 function safe(fn){return async(...args)=>{try{await fn(...args)}catch(e){notice(e.message)}}}
@@ -98,7 +105,7 @@ async function showFrame(){
  const fresh=new Image();fresh.src=`/api/frame?video=${encodeURIComponent(sourceVideo)}&frame=${frame}`;
  const preview=sourceVideo===state.config?.video&&project?request('/api/review-frame?config='+encodeURIComponent(project)+'&frame='+frame).catch(error=>({error:error.message})):Promise.resolve(null);
  const [_,data]=await Promise.all([fresh.decode(),preview]);if(id!==loadId)return;
- if(data?.image){const image=new Image();image.src=data.image;await image.decode();if(id!==loadId)return;geometry=data.geometry;processedImage=image;$('processed').width=geometry.width;$('processed').height=geometry.height;}
+ if(data?.image){const image=new Image();image.src=data.image;await image.decode();if(id!==loadId)return;geometry=data.geometry;processedImage=image;$('processed').width=geometry.width;$('processed').height=geometry.height;frameDetail=data.analysis;applyFrameDetail(frameDetail);}
  $('processedCaption').textContent=data?.error?'Processed preview unavailable: '+data.error:geometry?.mode==='saved_render'?`Leveled and zoomed — saved render geometry (${geometry.roll_degrees.toFixed(2)}°)`:geometry?.level_available?`Leveled full frame (${geometry.roll_degrees.toFixed(2)}°) — render to enable zoomed preview`:'Full frame — leveling unavailable; no rotation applied';
  img=fresh;loadedFrame=frame;loadedVideo=sourceVideo;$('source').width=info.width;$('source').height=info.height;draw();showAnalysis();$('roll').value=(state.tracks?.[frame]?.roll||0).toFixed(1);
 }
@@ -111,7 +118,7 @@ for(const [id,space] of [['source','raw'],['processed','processed']]){
  canvas.onpointermove=move;canvas.onpointerup=e=>{move(e);drag=null};canvas.onpointercancel=()=>{drag=null};
 }
 $('frameAnalysis').addEventListener('analysis-approved',safe(async(event)=>{await refresh();await showFrame();notice(event.detail?.absent?'Human-confirmed absence saved. Reanalyze or render to apply.':'Candidate approved as a human label (100%). Reanalyze or render to apply.')}));
-async function refresh(){state=await request('/api/state?config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));ConfigurationReview.update($('configurationReview'),state);project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Object tracking — '+state.project_name:'Object tracking';$('compare').href='/compare?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
+async function refresh(){const previous=state,incremental=Boolean(state.meta);state=await request('/api/state?summary=1'+(incremental?'&static=0':'')+'&config='+encodeURIComponent(project)+(newProjectMode&&!project?'&new=1':''));if(incremental){for(const key of ['review_navigation','review_flags','anchor_summary'])if(previous[key]&&!state[key])state[key]=previous[key]}applyFrameDetail(frameDetail);ConfigurationReview.update($('configurationReview'),state);project=state.project||'';$('projectName').textContent=state.project_name?'Project: '+state.project_name:'New project';document.title=state.project_name?'Object tracking — '+state.project_name:'Object tracking';$('compare').href='/compare?config='+encodeURIComponent(project);$('parts').href='/parts?config='+encodeURIComponent(project);$('newProject').hidden=!!project;$('target').hidden=!!project;$('target').value||=state.config.target;$('log').textContent=state.log;
  if(!$('analysisFps').dataset.initialized){$('analysisFps').value=state.config.analysis_fps??(1/(state.config.sample_interval||.5));$('analysisFps').dataset.initialized='true'}
  if(!$('confidenceThreshold').dataset.initialized){$('confidenceThreshold').value=100*(state.config.tracking_selection?.confidence_threshold??.5);$('confidenceThreshold').dataset.initialized='true'}
  $('confidenceThreshold').disabled=$('saveThreshold').disabled=state.running||!project||!!state.config.batch_input_revision;
@@ -129,12 +136,12 @@ async function refresh(){state=await request('/api/state?config='+encodeURICompo
  showAnalysis();draw();DescriptionReview.update(state).catch(e=>notice(e.message));
  for(const id of ['run','render'])$(id).disabled=state.execution_busy||!project||!!state.config.batch_input_revision;for(const id of ['saveBox','absent','saveRoll'])$(id).disabled=!project;if(state.config.leveling_source==='gyro')$('saveRoll').disabled=true;notice(state.config.batch_input_revision?'Saved batch run — labels are review edits. Copy corrections to source in the library, then approve and queue a new run.':state.running?'Processing video…':state.exit_code>0?'Processing failed. See the log below.':project?'Ready — select a frame or review the output.':'Choose a video and draw a subject rectangle to create your first project.');
  if(state.preview){const url='/files/'+state.preview;$('download').href=url;$('download').download='focused.mp4';$('download').hidden=false;if($('preview').getAttribute('src')!==url)$('preview').src=url}
- const list=$('flags');list.replaceChildren();const tracks=state.tracks||[];const count=tracks.filter(t=>t.flags.length).length;$('summary').textContent=tracks.length?`${count} of ${tracks.length} frames flagged. Click a moment to inspect or relabel it.`:'Review flags will appear after rendering.';
+ const list=$('flags');list.replaceChildren();const intervals=state.review_flags||[],count=intervals.reduce((n,row)=>n+(row.end_frame-row.start_frame+1),0);$('summary').textContent=intervals.length?`${count} of ${state.meta.frames} frames flagged. Click a moment to inspect or relabel it.`:'Review flags will appear after rendering.';
  // Group consecutive flagged frames; preserve the union of reasons to keep the queue manageable.
  const failures=state.analysis_failures||[];
  if(failures.length){$('summary').textContent+=` ${failures.length} frames had model-output failures (not evidence of absence).`;
  for(const item of failures){const b=document.createElement('button');b.className='flag';b.textContent=`Analysis failed · ${item.time.toFixed(3)}s · frame ${item.frame} · `+item.failures.map(f=>`${f.path}: ${f.error}`).join(' | ');b.onclick=safe(async()=>{frame=item.frame;await showFrame()});list.append(b)}}
- const groups=[];for(const t of tracks){if(!t.flags.length)continue;let g=groups.at(-1);if(!g||g.end!==t.frame-1){g={start:t.frame,end:t.frame,reasons:new Set()};groups.push(g)}g.end=t.frame;t.flags.forEach(r=>g.reasons.add(r))}
+ const groups=intervals.map(row=>({start:row.start_frame,end:row.end_frame,reasons:new Set(row.reasons||[])}));
  for(const g of groups){const b=document.createElement('button');b.className='flag';b.textContent=`${(g.start/state.meta.fps).toFixed(2)}–${((g.end+1)/state.meta.fps).toFixed(2)}s · ${[...g.reasons].join(', ').replaceAll('_',' ')}`;b.onclick=safe(async()=>{if(sourceVideo!==state.config.video){$('videos').value=state.config.video;await loadVideo()}frame=g.start;await showFrame();$('preview').currentTime=frame/info.fps});list.append(b)}}
 $('loadVideo').onclick=safe(loadVideo);$('seek').onclick=safe(async()=>{frame=Number($('time').value)*info.fps;await showFrame()});$('scrub').onchange=safe(async()=>{frame=+$('scrub').value;await showFrame()});
 $('playTracking').onclick=safe(async()=>{if(trackingPlaying){stopTrackingPlayback();await showFrame();return}try{await playTrackingFrom(frame/info.fps)}catch(error){stopTrackingPlayback();throw error}});$('trackingPlayback').onended=()=>{if(!trackingPlaying)return;const next=trackingClipStart+$('trackingPlayback').duration;if(next<info.frames/info.fps-.05)playTrackingFrom(next).catch(error=>{stopTrackingPlayback();notice(error.message)});else stopTrackingPlayback()};
