@@ -44,7 +44,14 @@ New projects default to Adaptive at the user’s request. Evaluation-only mode r
 
 New two-path analysis requires supported gyro telemetry. The inspected DJI attitude adapter is not a general adapter for all cameras; its axis mapping remains provisional. Gyro-free skiing or ocean footage needs a validated visual-leveling path/adaptor before the same workflow can be promised. Qwen visual roll is an independent comparison, not an override of gyro rotation.
 
-Optical tracking and rendering are CPU-based. Confidence is a model heuristic, not a calibrated probability; crop text cannot prove exact box geometry. Scene changes, tiny targets and occlusion still need review. Live label updates are not guaranteed to affect an already-running analysis. Full planner generation/review, separate trial approval, useful-segment export and image enhancement remain product work.
+Optical tracking and rendering are CPU-based. Confidence is a model heuristic, not a calibrated probability; crop text cannot prove exact box geometry. Scene changes, tiny targets and occlusion still need review. Live label updates are not guaranteed to affect an already-running analysis. Full planner generation/review, separate trial approval and image enhancement remain product work.
+
+Completed renders produce a lightweight parts manifest that splits the timeline whenever
+saved target geometry starts or stops guiding the crop. The Parts view previews each
+interval as synchronized original/processed footage. It loads only the interval being
+played and exports a selected processed interval on demand as
+`<original_name>_part<i>.<extension>`. Older results build and cache the same manifest on
+first use; rerendering creates it directly, without pre-encoding unwanted clips.
 
 Isolated source decode failures preserve the original timeline by repeating the
 nearest decodable frame. Repaired positions are audited in

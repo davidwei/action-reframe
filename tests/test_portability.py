@@ -55,11 +55,11 @@ class PortabilityTests(unittest.TestCase):
         state = self.request('/api/state')
         self.assertIsNone(state['project'])
         self.assertEqual(state['config']['video'], '')
-        for path in ['/', '/compare', '/leveling', '/files/frame_analysis.js', '/files/configuration_review.js']:
+        for path in ['/', '/compare', '/parts', '/leveling', '/files/frame_analysis.js', '/files/configuration_review.js']:
             with urllib.request.urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
         import re
-        for page in ('/', '/compare'):
+        for page in ('/', '/compare', '/parts'):
             with urllib.request.urlopen(self.base+page) as response:html=response.read().decode()
             for script in re.findall(r'<script src="([^"]+)"',html):
                 with urllib.request.urlopen(self.base+script) as response:
@@ -84,6 +84,33 @@ class PortabilityTests(unittest.TestCase):
         self.assertEqual(state['comparison'],'outputs/long/comparison.mp4')
         compare=(review_server.WEB_ROOT/'compare.html').read_text()
         self.assertIn('/api/state?summary=1&config=',compare)
+
+    def test_parts_page_is_linked_after_processed_review(self):
+        parts=(review_server.WEB_ROOT/'parts.html').read_text()
+        compare=(review_server.WEB_ROOT/'compare.html').read_text()
+        tracking=(review_server.WEB_ROOT/'review.html').read_text()
+        library=(review_server.WEB_ROOT/'library.html').read_text()
+        self.assertIn('id="parts">Select useful parts',compare)
+        self.assertIn('id="parts">Select useful parts',tracking)
+        self.assertIn("link('Select parts'",library)
+        self.assertIn('/api/parts?config=',parts)
+        self.assertIn('/api/parts/save',parts)
+        self.assertIn("video.preload='none'",parts)
+
+    def test_parts_api_splits_completed_render(self):
+        out=self.root/'outputs'/'parts';out.mkdir(parents=True)
+        config=dict(review_server.project_defaults(),video='source.mp4',output_dir='outputs/parts',project_name='Parts test')
+        (self.root/'parts.json').write_text(json.dumps(config));(self.root/'source.mp4').write_bytes(b'source')
+        (out/'meta.json').write_text(json.dumps({'frames':3,'width':64,'height':48,'fps':10}))
+        (out/'tracks.json').write_text(json.dumps([
+            {'frame':0,'bbox':[1,1,8,8],'selected_path':'raw'},
+            {'frame':1,'bbox':[2,2,9,9],'selected_path':'optical'},
+            {'frame':2,'bbox':None,'selected_path':'neither'}]))
+        (out/'focused.mp4').write_bytes(b'focused');(out/'comparison.mp4').write_bytes(b'comparison')
+        result=self.request('/api/parts?config=parts.json')
+        self.assertEqual(result['project_name'],'Parts test')
+        self.assertEqual([(p['frames'],p['tracked']) for p in result['parts']],[(2,True),(1,False)])
+        self.assertTrue((out/'parts_index.json').is_file())
 
     def test_folder_delegates_visual_leveling_to_detailed_page(self):
         library=(review_server.WEB_ROOT/'library.html').read_text()

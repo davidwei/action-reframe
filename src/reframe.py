@@ -982,6 +982,8 @@ def render(c):
     segments.assemble(ffmpeg_metadata_args(c['video']))
     preview=out/'focused.mp4'
     write_json(out/'tracks.json',tracks)
+    from video_parts import save_manifest
+    save_manifest(out,meta,tracks)
     write_sidecar(c)
     intervals=[]
     for i,f in enumerate(flags):
@@ -996,7 +998,7 @@ def render(c):
     print(f'Created {preview}; {sum(bool(f) for f in flags)}/{n} frames have review flags.',flush=True)
     write_json(out/'render_stage.json',dict(camera_path=camera_record,encoding_status='complete',
         settings=dict(width=ow,height=oh,feather_pixels=c['feather_pixels']),
-        outputs=['focused.mp4','comparison.mp4','tracks.json','review_flags.json']))
+        outputs=['focused.mp4','comparison.mp4','tracks.json','parts_index.json','review_flags.json']))
 
 
 def make_comparison(c):

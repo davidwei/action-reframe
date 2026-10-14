@@ -46,7 +46,7 @@ function renderProjects(){
   if(p.status==='Ready')actions.append(button('Queue processing',async()=>{await api('/queue',{projects:[p.project]});await load();notice('Queued. Start/resume the queue when ready.')}));
   if(p.result_config||['Processing','Done'].includes(p.status))actions.append(link('Open object tracking','/?config='+encodeURIComponent(p.result_config||p.active_config||p.completed_config||p.project)));
   if(p.active_config&&p.result_config&&p.active_config!==p.result_config)actions.append(link('Open current run','/?config='+encodeURIComponent(p.active_config)));
-  if(p.result_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.result_config)));
+  if(p.result_config)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(p.result_config)),link('Select parts','/parts?config='+encodeURIComponent(p.result_config)));
   actions.append(button('Discard project',async()=>{const r=await api('/discard',{project:p.project});drafts.delete(p.project);selected.delete(p.project);await load();notice(r.finishing?'Discard requested; the running job will finish first.':'Project discarded. Video and results preserved; restore it below if needed.')}));
   if(p.discard_pending)for(const b of actions.querySelectorAll('button'))b.disabled=true;
   card.append(actions);$('projects').append(card);
@@ -77,7 +77,7 @@ function renderJobs(){
   if(j.status==='queued')actions.append(button('Cancel',async()=>{await api('/cancel',{id:j.id});await load()}));
   if(['failed','interrupted'].includes(j.status))actions.append(button('Retry saved inputs',async()=>{await api('/retry',{id:j.id});await load();notice('Requeued. Start/resume if paused.')}));
   if(j.stage!=='leveling'&&['succeeded','failed','interrupted'].includes(j.status))actions.append(button('Copy corrections to source',async()=>{const r=await api('/adopt',{id:j.id});await load();notice(`Copied ${r.labels} labels to ${r.project}. Review and approve it before queuing a new run.`)}));
-  if(j.comparison_available)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(j.config)));
+  if(j.comparison_available)actions.append(link('Watch side by side','/compare?config='+encodeURIComponent(j.config)),link('Select parts','/parts?config='+encodeURIComponent(j.config)));
   actions.append(document.createElement('br'),link('Job log','/files/'+j.output_dir+'/job.log'));
   row.append(identity,status,progress,actions);$('jobs').append(row);
  }

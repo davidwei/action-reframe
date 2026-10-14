@@ -218,6 +218,10 @@ class Handler(BaseHTTPRequestHandler):
                     'angles':[row.get('correction_degrees_ccw') for row in rows]})
             if parsed.path=='/api/videos':
                 return self.json_response([p.name for p in sorted(ROOT.iterdir()) if p.suffix.lower() in ('.mp4','.mov','.mkv','.avi') and not p.name.startswith('.')])
+            if parsed.path=='/api/parts':
+                if not config_name:raise ValueError('Choose a completed project first')
+                from video_parts import index
+                return self.json_response(index(ROOT,local_path(config_name)))
             if parsed.path=='/api/state':
                 summary_only=q.get('summary',['0'])[0]=='1'
                 config=json.loads(local_path(config_name).read_text()) if config_name else dict(project_defaults(),video='',target='',reference_time=0,output_dir='outputs/unconfigured')
@@ -319,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
                 cap=cv2.VideoCapture(str(local_path(q['video'][0])))
                 info={'width':int(cap.get(3)),'height':int(cap.get(4)),'fps':cap.get(cv2.CAP_PROP_FPS),'frames':int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}
                 cap.release();return self.json_response(info)
-            pages={'/':'review.html','/compare':'compare.html','/library':'library.html','/lookout':'lookout.html','/leveling':'leveling.html'}
+            pages={'/':'review.html','/compare':'compare.html','/parts':'parts.html','/library':'library.html','/lookout':'lookout.html','/leveling':'leveling.html'}
             path=WEB_ROOT/pages[parsed.path] if parsed.path in pages else WEB_ROOT/Path(parsed.path).name if parsed.path in ('/files/configuration_review.js','/files/frame_analysis.js','/frame_analysis.js','/files/description_review.js','/files/tracking_progress.js','/files/lookout.js','/files/leveling_step.js') else local_path(unquote(parsed.path.removeprefix('/files/')))
             if parsed.path not in pages and not parsed.path.startswith('/files/'):
                 return self.json_response({'error':'Not found'},404)
@@ -369,6 +373,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(post(ROOT,self.path.rsplit('/',1)[-1],data))
             config_name=select_project(data.get('config'))
             config_path=local_path(config_name) if config_name else None
+            if self.path=='/api/parts/save':
+                if config_path is None:raise ValueError('Choose a completed project first')
+                from video_parts import queue_export
+                with LOCK:return self.json_response(queue_export(ROOT,config_path,int(data['part'])))
             if self.path in ('/api/batch/draft','/api/batch/description-status','/api/batch/check-description','/api/batch/retry-description'):
                 from batch_workflow import Batch
                 from description_review import review

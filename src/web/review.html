@@ -33,7 +33,7 @@
 <div class="row"><label>Confidence threshold (%) <input id="confidenceThreshold" type="number" min="0" max="100" step="1" value="50" style="width:90px"></label><button id="saveThreshold">Save confidence threshold</button></div>
 <p>Minimum tracking confidence accepted after verification. Applies on the next analysis; existing results stay unchanged. Context confidence quotas and leveling confidence are separate.</p>
 <p>Controls how often Qwen analyzes a frame. Playback FPS stays unchanged. Higher rates take longer. The next analysis uses the saved rate.</p>
-<div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="download" hidden>Download focused video</a></div>
+<div class="row"><button id="run">Analyze and render</button><button id="render">Render with saved corrections</button><a id="compare">Compare side by side</a><a id="parts">Select useful parts</a><a id="download" hidden>Download focused video</a></div>
 <video id="preview" controls playsinline></video><pre id="log"></pre></section>
 <section><h2>Review queue</h2><p id="summary"></p><div id="flags" class="flags"></div></section>
 <script src="/files/lookout.js?v=1"></script>
@@ -45,6 +45,7 @@
 const $=id=>document.getElementById(id);let project=new URLSearchParams(location.search).get('config')||'';const newProjectMode=new URLSearchParams(location.search).get('new')==='1';
 let state={},info={},frame=0,img=new Image(),selection=null,drag=null,sourceVideo='',loadId=0,loadedFrame=null,loadedVideo='',processedImage=null,geometry=null,selectionPolygon=null,selectionSpace='raw',trackingPlaying=false,trackingPlayToken=0,trackingClipStart=0;
 $('compare').href='/compare?config='+encodeURIComponent(project);
+$('parts').href='/parts?config='+encodeURIComponent(project);
 const ctx=$('source').getContext('2d');let inspectedBox=null;
 $('frameAnalysis').addEventListener('analysis-box',async event=>{
  inspectedBox=event.detail;
