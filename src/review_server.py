@@ -300,7 +300,8 @@ class Handler(BaseHTTPRequestHandler):
                 config=json.loads(local_path(config_name).read_text());out=local_path(config['output_dir']);index=int(q['frame'][0])
                 from review_snapshot import frame as review_frame
                 threshold=config.get('tracking_selection',{}).get('confidence_threshold',.5)
-                analysis=review_frame(out,index,threshold)
+                meta=ensure_review_meta(config,out)
+                analysis=review_frame(out,index,threshold,meta)
                 meta,track,geometry=review_geometry(config,out,index,analysis.get('track'))
                 cap=cv2.VideoCapture(str(local_path(config['video'])));cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read();cap.release()
                 if not ok:raise ValueError('Cannot decode source frame')

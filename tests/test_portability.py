@@ -235,6 +235,11 @@ class PortabilityTests(unittest.TestCase):
         with urllib.request.urlopen(self.base+'/library') as response:self.assertEqual(response.status,200)
         self.assertEqual(self.request('/api/batch')['projects'],[])
         project=self.request('/api/create',{'video':'clip.avi','time':0,'bbox':[10,10,30,30],'target':'boat'})['config']
+        # A new project can render its processed labeling preview before analysis
+        # creates meta.json or any tracking artifacts.
+        preview=self.request('/api/review-frame?config='+project+'&frame=0')
+        self.assertEqual(preview['frame'],0);self.assertIsNone(preview['analysis']['track'])
+        self.assertFalse((self.root/'outputs'/Path(project).stem/'meta.json').exists())
         # Labeling works before any analysis metadata/cache exists.
         self.request('/api/correct',{'config':project,'frame':1,'bbox':[12,12,32,32]})
         self.request('/api/batch/prepare',{'project':project,'description':'green sail','ready':True})

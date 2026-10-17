@@ -91,7 +91,7 @@ def build(output,meta=None,rows=None,threshold=.5):
 
 
 def ensure(output,meta=None,rows=None,threshold=.5):
-    out=Path(output);manifest_path=out/'review_snapshot'/'manifest.json'
+    out=Path(output);out.mkdir(parents=True,exist_ok=True);manifest_path=out/'review_snapshot'/'manifest.json'
     def current():
         try:
             manifest=_manifest(str(manifest_path),manifest_path.stat().st_mtime_ns)
@@ -141,8 +141,8 @@ def _journal_rows(out,kind,frame,manifest):
     return result
 
 
-def frame(output,index,threshold=.5):
-    out=Path(output);meta=json.loads((out/'meta.json').read_text());index=int(index)
+def frame(output,index,threshold=.5,meta=None):
+    out=Path(output);meta=meta or json.loads((out/'meta.json').read_text());index=int(index)
     if not 0<=index<int(meta['frames']):raise ValueError('Frame out of range')
     manifest=ensure(out,meta,threshold=threshold)
     candidates={}
