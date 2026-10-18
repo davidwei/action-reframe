@@ -16,11 +16,16 @@ from stage_records import configure
 
 
 def leveled_transform(width,height,pivot,angle):
-    # Fixed diagonal canvas; scale is always 1. No rendering zoom enters analysis.
-    side=int(math.ceil(2*math.hypot(width,height)))
+    # Rotate about the branch's last target center, then translate the complete
+    # source bounds into the smallest containing canvas.  Centering the pivot
+    # in a worst-case square can quadruple an 8K frame and exceed model image
+    # limits without preserving any additional source pixels.
     matrix=cv2.getRotationMatrix2D(tuple(map(float,pivot)),float(angle),1.)
-    matrix[:,2]+=np.array([side/2,side/2])-pivot
-    return matrix,(side,side)
+    corners=transform_points(box_points([0,0,width,height]),matrix)
+    lower,upper=corners.min(axis=0),corners.max(axis=0)
+    size=np.ceil(upper-lower).astype(int)
+    matrix[:,2]+=((size-(upper-lower))/2)-lower
+    return matrix,tuple(map(int,size))
 
 
 def rebase_tracker(tracker,previous_image,old_matrix,new_matrix,size):

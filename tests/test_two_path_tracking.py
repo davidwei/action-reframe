@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 import cv2
 import numpy as np
-from two_path_tracking import TwoPathSearch,leveled_transform,rebase_tracker
+from two_path_tracking import TwoPathSearch,leveled_transform,rebase_tracker,transform_points,box_points
 from visual_tracking import VisualTracker
 from path_candidates import combine,choose,load,apply_to_render
 from analysis_scheduler import AnchorScheduler
@@ -82,6 +82,18 @@ class TwoPathTests(unittest.TestCase):
         rebase_tracker(tracker,image,a,b,size)
         after=transform_points(tracker.points.reshape(-1,2),cv2.invertAffineTransform(b))
         np.testing.assert_allclose(before,after,atol=1e-4)
+
+    def test_leveled_canvas_preserves_8k_source_without_oversized_pivot_square(self):
+        width,height=7680,4320
+        for angle in (0,12,45,89):
+            sizes=[]
+            for pivot in (np.array([width/2,height/2]),np.array([0,0]),np.array([width,200])):
+                matrix,size=leveled_transform(width,height,pivot,angle);sizes.append(size)
+                corners=transform_points(box_points([0,0,width,height]),matrix)
+                self.assertTrue(np.all(corners>=-1e-6))
+                self.assertTrue(np.all(corners<=np.asarray(size)+1e-6))
+                self.assertLess(np.prod(size),178956970)
+            self.assertEqual(len(set(sizes)),1)
 
     def test_each_branch_tracks_own_seed_and_records_intermediate_frames(self):
         with tempfile.TemporaryDirectory() as folder:
