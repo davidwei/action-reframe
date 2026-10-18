@@ -4,6 +4,7 @@ import copy
 import socket
 import time
 import urllib.error
+import math
 from pathlib import Path
 
 
@@ -11,6 +12,32 @@ class ModelResponseError(RuntimeError):
     def __init__(self,message,details):
         super().__init__(message)
         self.details=details
+
+
+def token_count(api,url,payload,audit,stage='tracking tokenization'):
+    """Return a validated server token count with the same diagnostics as completions."""
+    audit=Path(audit);audit.parent.mkdir(parents=True,exist_ok=True)
+    response_path=audit.with_name(audit.stem+'_raw_response.json')
+    details={'stage':stage,'request_file':str(audit),'response_file':str(response_path)}
+    logged=copy.deepcopy(payload)
+    for message in logged.get('messages',[]):
+        for part in message.get('content',[]) if isinstance(message.get('content'),list) else []:
+            if part.get('type')=='image_url':part['image_url']={'url':'[image omitted; see tracking context audit]'}
+    audit.write_text(json.dumps(logged,indent=2))
+    started=time.monotonic()
+    try:
+        response=fetch_response(api,url,payload,response_path,details)
+        count=response.get('count') if isinstance(response,dict) else None
+        if isinstance(count,bool) or not isinstance(count,(int,float)) or not math.isfinite(count) or count<0 or int(count)!=count:
+            details.update(kind='invalid_response',response_excerpt=repr(response)[:1500])
+            raise ModelResponseError(
+                f'Model server returned an invalid token-count response during {stage}; expected a non-negative integer count.',
+                details)
+        return int(count)
+    except ModelResponseError as error:
+        error.details['elapsed_seconds']=round(time.monotonic()-started,3)
+        audit.with_name(audit.stem+'_error.json').write_text(json.dumps(dict(error.details,error=str(error)),indent=2))
+        raise
 
 
 def fetch_response(api,url,payload,response_path,details):

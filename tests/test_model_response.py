@@ -1,7 +1,7 @@
 import io,json,tempfile,unittest
 from pathlib import Path
 from urllib.error import HTTPError
-from model_response import completion,discover_model,ModelResponseError
+from model_response import completion,discover_model,token_count,ModelResponseError
 
 
 class ModelResponseTests(unittest.TestCase):
@@ -40,6 +40,28 @@ class ModelResponseTests(unittest.TestCase):
                 self.assertIn('503' if kind=='http' else 'timed out',str(caught.exception))
                 if kind=='http':self.assertIn('engine unavailable',str(caught.exception))
                 self.assertEqual(caught.exception.details['kind'],'http_error' if kind=='http' else 'timeout')
+
+    def test_token_count_requires_valid_count_and_preserves_response(self):
+        with tempfile.TemporaryDirectory() as folder:
+            audit=Path(folder)/'tokenize.json'
+            with self.assertRaises(ModelResponseError) as caught:
+                token_count(lambda *_:{'object':'tokens'},'http://test/tokenize',{'model':'test'},audit)
+            self.assertEqual(caught.exception.details['kind'],'invalid_response')
+            self.assertIn('token-count response',str(caught.exception))
+            self.assertEqual(json.loads((Path(folder)/'tokenize_raw_response.json').read_text()),{'object':'tokens'})
+            self.assertTrue((Path(folder)/'tokenize_error.json').exists())
+            self.assertEqual(token_count(lambda *_:{'count':17},'http://test/tokenize',{},audit),17)
+
+    def test_invalid_token_count_gets_structured_completion_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            calls=[]
+            def contextual(_url,_payload):
+                calls.append(1)
+                token_count(lambda *_:{} if len(calls)==1 else {'count':12},'http://test/tokenize',{},Path(folder)/f'tokens_{len(calls)}.json')
+                return self.response('{"x":1}')
+            result=completion(contextual,'contextual',{'max_tokens':100},Path(folder)/'request.json','tracking detection',lambda r:None,retry_invalid=True)
+            self.assertEqual(result['x'],1)
+            self.assertEqual(len(calls),2)
 
     def test_repeated_truncation_stops_after_two_requests(self):
         with tempfile.TemporaryDirectory() as folder:
