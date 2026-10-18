@@ -85,6 +85,7 @@ class TwoPathTests(unittest.TestCase):
 
     def test_leveled_canvas_preserves_8k_source_without_oversized_pivot_square(self):
         width,height=7680,4320
+        all_sizes=[]
         for angle in (0,12,45,89):
             sizes=[]
             for pivot in (np.array([width/2,height/2]),np.array([0,0]),np.array([width,200])):
@@ -94,6 +95,8 @@ class TwoPathTests(unittest.TestCase):
                 self.assertTrue(np.all(corners<=np.asarray(size)+1e-6))
                 self.assertLess(np.prod(size),178956970)
             self.assertEqual(len(set(sizes)),1)
+            all_sizes.extend(sizes)
+        self.assertEqual(set(all_sizes),{(8812,8812)})
 
     def test_each_branch_tracks_own_seed_and_records_intermediate_frames(self):
         with tempfile.TemporaryDirectory() as folder:

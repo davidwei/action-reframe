@@ -17,15 +17,15 @@ from stage_records import configure
 
 def leveled_transform(width,height,pivot,angle):
     # Rotate about the branch's last target center, then translate the complete
-    # source bounds into the smallest containing canvas.  Centering the pivot
-    # in a worst-case square can quadruple an 8K frame and exceed model image
-    # limits without preserving any additional source pixels.
+    # source bounds into a fixed diagonal canvas.  A stable size is required
+    # by adjacent-frame optical flow.  The old two-diagonal square quadrupled
+    # each dimension's required area and exceeded model limits for 8K input.
     matrix=cv2.getRotationMatrix2D(tuple(map(float,pivot)),float(angle),1.)
     corners=transform_points(box_points([0,0,width,height]),matrix)
     lower,upper=corners.min(axis=0),corners.max(axis=0)
-    size=np.ceil(upper-lower).astype(int)
+    side=int(math.ceil(math.hypot(width,height)));size=np.array([side,side])
     matrix[:,2]+=((size-(upper-lower))/2)-lower
-    return matrix,tuple(map(int,size))
+    return matrix,(side,side)
 
 
 def rebase_tracker(tracker,previous_image,old_matrix,new_matrix,size):
