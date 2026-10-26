@@ -4,7 +4,9 @@ set -euo pipefail
 model_service="${ACTION_REFRAME_MODEL_SERVICE:-vllm-vl.service}"
 review_service="${ACTION_REFRAME_REVIEW_SERVICE:-action-reframe-review.service}"
 queue_service="${ACTION_REFRAME_QUEUE_SERVICE:-action-reframe-queue.service}"
-access_url="${ACTION_REFRAME_URL:-http://127.0.0.1:8766/library}"
+lan_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
+access_host="${ACTION_REFRAME_ACCESS_HOST:-${lan_address:-127.0.0.1}}"
+access_url="${ACTION_REFRAME_URL:-http://${access_host}:8766/library}"
 
 services=("$model_service" "$review_service" "$queue_service")
 

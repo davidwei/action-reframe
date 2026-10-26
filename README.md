@@ -131,7 +131,7 @@ with that dependency. Substitute your workspace, port and model unit:
 
 ```bash
 .venv/bin/python scripts/install_review_service.py \
-  --workspace /path/to/videos --port 8766 \
+  --workspace /path/to/videos --host 0.0.0.0 --port 8766 \
   --model-service vllm-vl.service \
   --expected-model /path/to/models/Qwen3-VL-32B-FP8 --install
 ```
@@ -147,6 +147,8 @@ because analysis clients select the first model. This checks the server-reported
 identity at startup, not the weights themselves or subsequent endpoint changes. `--api-url` overrides the endpoint and
 sets `QWEN_API_URL` for the UI and its workers. Startup failures appear in the journal;
 systemd retries failed startup. Starting the UI does not automatically resume jobs.
+`--host 0.0.0.0` makes the UI reachable through the machine's LAN address. The UI
+does not provide authentication or TLS, so expose it only on a trusted network.
 
 If the GPUs are assigned to another workload, install the review UI in CPU-only mode:
 

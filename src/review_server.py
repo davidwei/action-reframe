@@ -547,9 +547,11 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765)
+    p.add_argument('--host',default='127.0.0.1',help='Listen address; use 0.0.0.0 for LAN access')
     p.add_argument('--workspace',type=Path,help='Video/project directory; defaults to LONGVIDEO_WORKSPACE or repository data/')
     a=p.parse_args()
     if a.workspace:ROOT=a.workspace.expanduser().resolve()
     ROOT.mkdir(parents=True,exist_ok=True)
-    print(f'Open http://127.0.0.1:{a.port}',flush=True)
-    ThreadingHTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
+    display_host='127.0.0.1' if a.host in ('0.0.0.0','::') else a.host
+    print(f'Open http://{display_host}:{a.port}',flush=True)
+    ThreadingHTTPServer((a.host,a.port),Handler).serve_forever()

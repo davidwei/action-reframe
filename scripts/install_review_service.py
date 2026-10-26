@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--workspace', type=Path, required=True)
     parser.add_argument('--python', type=Path, default=Path(sys.executable))
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--host', default='127.0.0.1', help='Review UI listen address; use 0.0.0.0 for LAN access')
     parser.add_argument('--model-service')
     parser.add_argument('--expected-model', help='Exact expected served model ID')
     parser.add_argument('--model-optional', action='store_true', help='Start the CPU review UI without starting or validating a model service')
@@ -37,7 +38,7 @@ Description=Action Reframe CPU review UI{' (model optional)' if args.model_optio
 [Service]
 Type=simple
 Environment={quoted('QWEN_API_URL='+args.api_url)}
-{readiness}ExecStart={python} {quoted(repo/'src/review_server.py')} --workspace {quoted(args.workspace.resolve())} --port {args.port}
+{readiness}ExecStart={python} {quoted(repo/'src/review_server.py')} --workspace {quoted(args.workspace.resolve())} --host {quoted(args.host)} --port {args.port}
 TimeoutStartSec=660
 Restart=on-failure
 RestartSec=10
